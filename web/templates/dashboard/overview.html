@@ -1,0 +1,119 @@
+<!-- [desc] Jinja2 dashboard template showing session stats, daily breakdowns, and session list. [/desc] -->
+{% extends "base.html" %}
+{% block title %}Dashboard — BouzéGUI{% endblock %}
+{% block content %}
+
+<!-- Summary stat cards -->
+<div class="stat-grid">
+    <div class="stat-card">
+        <div class="stat-value">{{ data.total_sessions }}</div>
+        <div class="stat-label">Sessions</div>
+    </div>
+    <div class="stat-card">
+        <div class="stat-value">{{ "{:,}".format(data.total_turns) }}</div>
+        <div class="stat-label">Turns</div>
+    </div>
+    <div class="stat-card">
+        <div class="stat-value">{{ "{:,}".format(data.total_input_tokens) }}</div>
+        <div class="stat-label">Input tokens</div>
+    </div>
+    <div class="stat-card">
+        <div class="stat-value">{{ "{:,}".format(data.total_output_tokens) }}</div>
+        <div class="stat-label">Output tokens</div>
+    </div>
+    <div class="stat-card accent">
+        <div class="stat-value">${{ "%.2f"|format(data.total_cost) }}</div>
+        <div class="stat-label">Est. cost (Opus 4.6)</div>
+    </div>
+</div>
+
+<!-- Per-day breakdown -->
+{% if data.days %}
+<div class="card">
+    <h2>Par jour</h2>
+    <table>
+        <thead>
+            <tr>
+                <th>Date</th>
+                <th class="num">Sessions</th>
+                <th class="num">Turns</th>
+                <th class="num">Input tok</th>
+                <th class="num">Output tok</th>
+                <th class="num">Cache read</th>
+                <th class="num">Cache write</th>
+                <th class="num">Total tok</th>
+                <th class="num">Cost</th>
+            </tr>
+        </thead>
+        <tbody>
+        {% for d in data.days %}
+            <tr>
+                <td class="mono">{{ d.date }}</td>
+                <td class="num">{{ d.sessions }}</td>
+                <td class="num">{{ d.turns }}</td>
+                <td class="num">{{ "{:,}".format(d.input_tokens) }}</td>
+                <td class="num">{{ "{:,}".format(d.output_tokens) }}</td>
+                <td class="num">{{ "{:,}".format(d.cache_read_tokens) }}</td>
+                <td class="num">{{ "{:,}".format(d.cache_creation_tokens) }}</td>
+                <td class="num">{{ "{:,}".format(d.total_tokens) }}</td>
+                <td class="num">${{ "%.2f"|format(d.cost) }}</td>
+            </tr>
+        {% endfor %}
+        </tbody>
+        <tfoot>
+            <tr class="total-row">
+                <td><strong>Total</strong></td>
+                <td class="num"><strong>{{ data.total_sessions }}</strong></td>
+                <td class="num"><strong>{{ "{:,}".format(data.total_turns) }}</strong></td>
+                <td class="num"><strong>{{ "{:,}".format(data.total_input_tokens) }}</strong></td>
+                <td class="num"><strong>{{ "{:,}".format(data.total_output_tokens) }}</strong></td>
+                <td class="num"><strong>{{ "{:,}".format(data.total_cache_read_tokens) }}</strong></td>
+                <td class="num"><strong>{{ "{:,}".format(data.total_cache_creation_tokens) }}</strong></td>
+                <td class="num"><strong>{{ "{:,}".format(data.total_tokens) }}</strong></td>
+                <td class="num"><strong>${{ "%.2f"|format(data.total_cost) }}</strong></td>
+            </tr>
+        </tfoot>
+    </table>
+</div>
+{% endif %}
+
+<!-- Full session list -->
+{% if data.sessions %}
+<div class="card">
+    <h2>Toutes les sessions ({{ data.sessions|length }})</h2>
+    <table>
+        <thead>
+            <tr>
+                <th>Date</th>
+                <th>ID</th>
+                <th>Premier message</th>
+                <th class="num">Turns</th>
+                <th class="num">In tok</th>
+                <th class="num">Out tok</th>
+                <th class="num">Total tok</th>
+                <th class="num">Cost</th>
+            </tr>
+        </thead>
+        <tbody>
+        {% for s in data.sessions %}
+            <tr>
+                <td class="mono muted">{{ s.saved_at|fmt_date }}</td>
+                <td class="mono">{{ s.session_id }}</td>
+                <td class="truncate">{{ s.first_message }}</td>
+                <td class="num">{{ s.turn_count }}</td>
+                <td class="num">{{ "{:,}".format(s.input_tokens) }}</td>
+                <td class="num">{{ "{:,}".format(s.output_tokens) }}</td>
+                <td class="num">{{ "{:,}".format(s.total_tokens) }}</td>
+                <td class="num">${{ "%.4f"|format(s.cost) }}</td>
+            </tr>
+        {% endfor %}
+        </tbody>
+    </table>
+</div>
+{% endif %}
+
+{% if not data.sessions %}
+<p class="muted text-center mt-1">Aucune session sauvegardée trouvée.</p>
+{% endif %}
+
+{% endblock %}

@@ -1,0 +1,226 @@
+<!-- [desc] Django/Jinja2 template for an agent detail page with status badges, tabs, IPC question box, and prompt bar. [/desc] -->
+{% extends "base.html" %}
+{% block title %}Agent {{ agent.agent_id }} -- BouzéGUI{% endblock %}
+
+{% block extra_css %}
+<style>
+.tab-bar{display:flex;gap:0;margin-bottom:0;border-bottom:2px solid var(--border-color)}
+.tab-btn{padding:.5rem 1.25rem;border:none;background:none;cursor:pointer;font-size:.95rem;
+  font-weight:500;color:var(--secondary-color);border-bottom:2px solid transparent;
+  margin-bottom:-2px;transition:all .2s}
+.tab-btn.active{color:var(--primary-color);border-bottom-color:var(--primary-color)}
+.tab-btn:hover{color:var(--primary-color)}
+.tab-panel{display:none}
+.tab-panel.active{display:block}
+.session-frame{width:100%;border:none;min-height:600px;border-radius:var(--radius)}
+.status-badge{display:inline-block;padding:2px 8px;border-radius:9999px;font-size:.75rem;
+  font-weight:500;margin-left:.5rem}
+.status-badge.idle{background:#fff3cd;color:#856404}
+.status-badge.running{background:#d4edda;color:#155724}
+.status-badge.awaiting_input{background:#cce5ff;color:#004085}
+.status-badge.finished{background:#e2e3e5;color:#383d41}
+#questionBox{background:#e8f4fd;border:1px solid #b8daff;border-radius:var(--radius);padding:.75rem 1rem;margin-bottom:.5rem}
+#questionBox.hidden{display:none}
+#questionBox p{margin:0 0 .5rem 0;font-weight:500;color:#004085}
+#optionsList{display:flex;flex-wrap:wrap;gap:.4rem}
+#optionsList button{background:#fff;border:1px solid #b8daff;border-radius:4px;padding:.25rem .75rem;cursor:pointer;font-size:.85rem}
+#optionsList button:hover{background:#cce5ff}
+</style>
+{% endblock %}
+
+{% block content %}
+<div class="card">
+    <h2>Agent {{ agent.agent_id }}
+        {% if ipc_status == 'running' and running %}<span class="tag running"><span class="spinner-inline"></span>running</span>
+        {% elif ipc_status == 'awaiting_input' %}<span class="tag" style="background:#cce5ff;color:#004085">awaiting input</span>
+        {% elif agent.returncode is not none and agent.returncode < 0 %}<span class="tag" style="background:#f8d7da;color:#721c24">crashed (rc={{ agent.returncode }})</span>
+        {% else %}<span class="tag done">rc={{ agent.returncode if agent.returncode is not none else '---' }}</span>{% endif %}
+        <span id="ipcBadge" class="status-badge {{ ipc_status }}">{{ ipc_status }}</span>
+    </h2>
+    <dl>
+        <dt>Prompt</dt><dd>{{ agent.prompt }}</dd>
+        <dt>Modele</dt><dd class="mono">{{ agent.model or '---' }}</dd>
+        <dt>CWD</dt><dd class="mono">{{ agent.cwd or '---' }}</dd>
+        <dt>PID</dt><dd>{{ agent.pid }}</dd>
+        <dt>Demarre</dt><dd>{{ agent.started_at }}</dd>
+        {% if agent.finished_at %}<dt>Termine</dt><dd>{{ agent.finished_at }}</dd>{% endif %}
+    </dl>
+    {% if running or ipc_status == 'awaiting_input' %}
+    <div class="mt-1">
+        <form method="post" action="{{ url_for('agent_kill', agent_id=agent.agent_id) }}" style="display:inline">
+            <button type="submit" class="btn btn-danger btn-sm">
+                {% if ipc_status == 'awaiting_input' %}Abandonner la question{% else %}Kill{% endif %}
+            </button>
+        </form>
+    </div>
+    {% endif %}
+
+    <!-- Question box for awaiting_input (server-side + JS-updated) -->
+    <div id="questionBox" class="{% if not question %}hidden{% endif %}">
+        <p id="questionText">{{ question or '' }}</p>
+        <div id="optionsList">
+            {% if options %}{% for opt in options %}
+            <button type="button" onclick="document.getElementById('promptInput').value=this.textContent;document.getElementById('promptInput').focus()">{{ opt.label if opt.label is defined else opt }}</button>
+            {% endfor %}{% endif %}
+        </div>
+    </div>
+
+    <!-- Prompt bar: always visible -->
+    <div id="continueBar">
+        <form method="post" action="{{ url_for('agent_continue', agent_id=agent.agent_id) }}" class="prompt-bar" style="margin-top:.75rem"
+              onsubmit="document.getElementById('questionBox').classList.add('hidden')">
+            <textarea name="prompt" rows="1" class="prompt-input" required id="promptInput"
+                      placeholder="{% if ipc_status == 'idle' %}Continuer la conversation...{% elif ipc_status == 'running' %}Interrompre et envoyer...{% elif ipc_status == 'awaiting_input' %}Votre reponse...{% else %}Relancer la conversation...{% endif %}"
+                      onkeydown="if(event.key==='Enter'&amp;&amp;!event.shiftKey){event.preventDefault();this.form.submit()}"
+                      oninput="this.style.height='auto';this.style.height=this.scrollHeight+'px'"></textarea>
+            <input type="hidden" name="model" value="{{ agent.model or '' }}">
+            <div class="prompt-actions">
+                <button type="submit" class="btn-icon btn-send" title="Envoyer (Enter)">
+                    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="22" y1="2" x2="11" y2="13"/><polygon points="22 2 15 22 11 13 2 9 22 2"/></svg>
+                </button>
+            </div>
+        </form>
+    </div>
+</div>
+
+<div class="card" style="padding-bottom:0">
+    <div class="tab-bar">
+        <button class="tab-btn active" data-tab="session" onclick="switchTab('session')">Session</button>
+        <button class="tab-btn" data-tab="plan" onclick="switchTab('plan')">Plan</button>
+        <button class="tab-btn" data-tab="files" onclick="switchTab('files')">Fichiers Edites</button>
+        <button class="tab-btn" data-tab="raw" onclick="switchTab('raw')">Sortie brute</button>
+    </div>
+</div>
+<div class="card" style="margin-top:-1.5rem;border-top-left-radius:0;border-top-right-radius:0">
+    <div id="panel-session" class="tab-panel active">
+        <iframe class="session-frame" id="sessionFrame"
+                src="{{ url_for('agent_session', agent_id=agent.agent_id) }}"></iframe>
+    </div>
+    <div id="panel-plan" class="tab-panel">
+        <iframe class="session-frame" id="planFrame"
+                src="{{ url_for('agent_plan', agent_id=agent.agent_id) }}"></iframe>
+    </div>
+    <div id="panel-files" class="tab-panel">
+        <iframe class="session-frame" id="filesFrame"
+                src="{{ url_for('agent_files', agent_id=agent.agent_id) }}"></iframe>
+    </div>
+    <div id="panel-raw" class="tab-panel">
+        {% if running %}
+        <div id="runIndicator" class="running-indicator">
+            <span class="spinner-inline"></span> Agent en cours d'execution...
+        </div>
+        {% endif %}
+        <pre id="stdout" class="log">{{ stdout_text }}</pre>
+    </div>
+</div>
+
+<script>
+function switchTab(name) {
+    document.querySelectorAll('.tab-btn').forEach(function(btn) {
+        btn.classList.toggle('active', btn.dataset.tab === name);
+    });
+    document.querySelectorAll('.tab-panel').forEach(function(p) {
+        p.classList.toggle('active', p.id === 'panel-' + name);
+    });
+}
+
+(function() {
+    var badge = document.getElementById('ipcBadge');
+    var frame = document.getElementById('sessionFrame');
+    var planFrame = document.getElementById('planFrame');
+    var filesFrame = document.getElementById('filesFrame');
+    var indicator = document.getElementById('runIndicator');
+    var promptInput = document.getElementById('promptInput');
+    var questionBox = document.getElementById('questionBox');
+    var questionText = document.getElementById('questionText');
+    var optionsList = document.getElementById('optionsList');
+    var lastStatus = '{{ ipc_status }}';
+    var lastSessionMtime = null;
+    var sessionUrl = '{{ url_for("agent_session", agent_id=agent.agent_id) }}';
+
+    function refreshSessionIframe() {
+        var doc, atBottom = true, scrollPos = 0;
+        try {
+            doc = frame.contentDocument || frame.contentWindow.document;
+            scrollPos = doc.documentElement.scrollTop || doc.body.scrollTop;
+            var sh = doc.documentElement.scrollHeight;
+            var ch = doc.documentElement.clientHeight;
+            atBottom = (sh - scrollPos - ch) < 100;
+        } catch(e) {}
+        frame.onload = function() {
+            try {
+                var d = frame.contentDocument || frame.contentWindow.document;
+                if (atBottom) {
+                    d.documentElement.scrollTop = d.documentElement.scrollHeight;
+                } else {
+                    d.documentElement.scrollTop = scrollPos;
+                }
+            } catch(e) {}
+            frame.onload = null;
+        };
+        frame.src = sessionUrl + '?_t=' + Date.now();
+    }
+
+    function updateUI(data) {
+        badge.textContent = data.ipc_status;
+        badge.className = 'status-badge ' + data.ipc_status;
+
+        if (data.ipc_status === 'awaiting_input') {
+            promptInput.placeholder = 'Votre reponse...';
+            if (data.question) {
+                questionText.textContent = data.question;
+                questionBox.classList.remove('hidden');
+                optionsList.innerHTML = '';
+                (data.options || []).forEach(function(opt) {
+                    var btn = document.createElement('button');
+                    btn.type = 'button';
+                    btn.textContent = opt.label || opt;
+                    btn.onclick = function() {
+                        promptInput.value = btn.textContent;
+                        promptInput.focus();
+                    };
+                    optionsList.appendChild(btn);
+                });
+            }
+        } else {
+            questionBox.classList.add('hidden');
+            if (data.ipc_status === 'running') {
+                promptInput.placeholder = 'Interrompre et envoyer...';
+            } else if (data.ipc_status === 'idle') {
+                promptInput.placeholder = 'Continuer la conversation...';
+            } else {
+                promptInput.placeholder = 'Relancer la conversation...';
+            }
+        }
+
+        if (data.session_mtime != null) {
+            if (lastSessionMtime !== null && data.session_mtime !== lastSessionMtime) {
+                refreshSessionIframe();
+                planFrame.src = planFrame.src;
+                filesFrame.src = filesFrame.src;
+            }
+            lastSessionMtime = data.session_mtime;
+        }
+
+        lastStatus = data.ipc_status;
+    }
+
+    {% if running %}
+    var pre = document.getElementById("stdout");
+    var source = new EventSource("{{ url_for('agent_stream', agent_id=agent.agent_id) }}");
+    source.onmessage = function(event) {
+        pre.textContent += event.data + "\n";
+        pre.scrollTop = pre.scrollHeight;
+    };
+    source.addEventListener("state", function(event) {
+        updateUI(JSON.parse(event.data));
+    });
+    source.addEventListener("done", function() {
+        source.close();
+        refreshSessionIframe();
+        if (indicator) indicator.remove();
+    });
+    {% endif %}
+})();
+</script>
+{% endblock %}

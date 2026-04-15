@@ -1,0 +1,21 @@
+<!-- [desc] Jinja2 template that renders a table listing available tools with their properties. [/desc] -->
+{% extends "base.html" %}
+{% block title %}Tools — BouzéGUI{% endblock %}
+{% block content %}
+<div class="card">
+    <h2>Tools ({{ tools|length }})</h2>
+    <table>
+        <thead><tr><th>Nom</th><th>Description</th><th>read-only</th><th>concurrent-safe</th></tr></thead>
+        <tbody>
+        {% for t in tools %}
+            <tr>
+                <td class="mono">{{ t.name }}</td>
+                <td>{{ t.description }}</td>
+                <td>{% if t.read_only %}✓{% else %}—{% endif %}</td>
+                <td>{% if t.concurrent_safe %}✓{% else %}—{% endif %}</td>
+            </tr>
+        {% endfor %}
+        </tbody>
+    </table>
+</div>
+{% endblock %}

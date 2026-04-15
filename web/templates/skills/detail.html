@@ -1,0 +1,29 @@
+<!-- [desc] Django/Jinja2 template for displaying and editing a skill's details, rendered content, and raw body. [/desc] -->
+{% extends "base.html" %}
+{% block title %}{{ view.name }} — BouzéGUI{% endblock %}
+{% block content %}
+<div class="card">
+    <h2>{{ view.name }} <span class="tag src-{{ view.source }}">{{ view.source }}</span></h2>
+    <p class="muted">{{ view.description }}</p>
+    <p class="mono small muted mt-1">{{ view.file_path }}</p>
+</div>
+
+{% if view.editable %}
+<div class="card">
+    <h3>Rendu</h3>
+    <div class="markdown">{{ rendered | safe }}</div>
+</div>
+
+<div class="card">
+    <h3>Éditer</h3>
+    <form method="post" action="{{ url_for('skill_save', name=view.name) }}">
+        <textarea name="content" rows="24" class="editor">{{ body_raw }}</textarea>
+        <div class="mt-1">
+            <button type="submit" class="btn btn-primary">Enregistrer</button>
+        </div>
+    </form>
+</div>
+{% else %}
+<div class="card"><p class="muted">Skill non éditable (builtin ou source manquante).</p></div>
+{% endif %}
+{% endblock %}

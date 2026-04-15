@@ -1,0 +1,17 @@
+__pycache__/
+*.pyc
+*.egg-info/
+build/
+dist/
+.venv/
+.venv-ui/
+.idea/
+.pytest_cache/
+debug_payload.json
+brainstorm_outputs/
+reference/
+temp_*.py
+temp_*.sh
+uv.exe
+uvx.exe
+uvw.exe
