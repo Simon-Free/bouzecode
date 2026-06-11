@@ -2,27 +2,22 @@
 
 Without this, bouzecode.py (legacy CLI at repo root) shadows the
 src/bouzecode/ package when pytest adds the rootdir to sys.path.
+
+Strategy: keep rootdir in sys.path (needed for flat OSS modules like memory,
+voice, etc.) but ensure src/ comes FIRST so that `import bouzecode` resolves
+to the package in src/bouzecode/ rather than bouzecode.py.
 """
 import sys
 from pathlib import Path
 
-_root = str(Path(__file__).resolve().parent)
 _src = str(Path(__file__).resolve().parent / "src")
 
-# 1. Remove rootdir from sys.path so bouzecode.py cannot shadow the package
-while _root in sys.path:
-    sys.path.remove(_root)
-
-# 2. Ensure src/ is first
-if _src not in sys.path:
-    sys.path.insert(0, _src)
-elif sys.path[0] != _src:
+# Ensure src/ is at position 0 (before rootdir)
+if _src in sys.path:
     sys.path.remove(_src)
-    sys.path.insert(0, _src)
+sys.path.insert(0, _src)
 
-# 3. Purge any already-loaded non-package 'bouzecode' module
-for _key in list(sys.modules):
-    if _key == "bouzecode" or _key.startswith("bouzecode."):
-        _mod = sys.modules[_key]
-        if _key == "bouzecode" and not hasattr(_mod, "__path__"):
-            del sys.modules[_key]
+# Purge any already-loaded non-package 'bouzecode' module (script, not package)
+_mod = sys.modules.get("bouzecode")
+if _mod is not None and not hasattr(_mod, "__path__"):
+    del sys.modules["bouzecode"]
