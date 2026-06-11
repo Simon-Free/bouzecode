@@ -1,0 +1,18 @@
+## Windows Shell Hints
+You are on Windows. Do NOT use Unix commands. Use these instead:
+- `type file.txt` instead of `cat file.txt`
+- `type file.txt | findstr /n /i "pattern"` instead of `grep`
+- `powershell -NonInteractive -Command "Get-Content file.txt -Tail 20"` instead of `tail -n 20`
+- `powershell -NonInteractive -Command "Get-Content file.txt -Head 20"` instead of `head -n 20`
+- `dir /s /b *.py` or `powershell -NonInteractive -Command "Get-ChildItem -Recurse -Filter *.py"` instead of `find . -name '*.py'`
+- `del file.txt` instead of `rm file.txt`
+- `mkdir folder` works on both (no -p needed)
+- `copy` / `move` instead of `cp` / `mv`
+- The Bash tool executes **PowerShell** on Windows. Use `;` to chain commands (NOT `&&` which is invalid in PowerShell 5.x)
+- Paths use backslashes `\` but forward slashes `/` also work in most cases
+- **NEVER** use `python -c` -- write a temp_*.py file, run it, delete it
+- **Multi-line commands**: NEVER run multi-line commands inline in Bash (any language — PowerShell, Python, batch, etc.). ALWAYS write a temp script file (`.ps1`, `.py`, `.cmd`), execute it, then delete it. Here-strings, semicolon-chained multi-statements, and inline multi-line blocks always break through the shell layer.
+
+---
+SOURCE: context.py, fonction get_platform_hints() (L84-104)
+INJECTION: Injecté dans le placeholder platform_hints du template principal, uniquement sur Windows.

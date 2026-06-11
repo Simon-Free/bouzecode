@@ -1,0 +1,16 @@
+## Exemple de réponse complète
+
+Un message assistant contient du texte (optionnel) puis un array `tool_calls` :
+
+```json
+{
+  "role": "assistant",
+  "content": "Je corrige le bug dans config.py et lance les tests.",
+  "tool_calls": [
+    {"id": "call_1", "type": "function", "function": {"name": "Methodology", "arguments": "{\"content\": \"Bug trouvé L42 config.py — valeur par défaut manquante.\"}"}},
+    {"id": "call_2", "type": "function", "function": {"name": "Snippet", "arguments": "{\"file_path\": \"/abs/path/config.py\", \"ranges\": [[40, 45]], \"label\": \"bug default value\"}"}},
+    {"id": "call_3", "type": "function", "function": {"name": "Edit", "arguments": "{\"file_path\": \"/abs/path/config.py\", \"old_string\": \"value = None\", \"new_string\": \"value = \\\"default\\\"\", \"tool_call_alias\": \"e1\"}"}},
+    {"id": "call_4", "type": "function", "function": {"name": "RunPythonTest", "arguments": "{\"targets\": [\"tests/test_config.py\"], \"depends_on\": [\"e1\"]}"}}
+  ]
+}
+```

@@ -31,7 +31,7 @@ bouzegui = "web.app:main"
 
 [tool.setuptools]
 py-modules = [
-    "bouzecode",
+    "bouzecode_legacy",
     "cloudsave",
     "compaction",
     "config",
@@ -46,25 +46,16 @@ py-modules = [
     "subagent",
     "tool_registry",
 ]
-packages = [
-    "agent",
-    "checkpoint",
-    "commands",
-    "folder_desc",
-    "mcp",
-    "memory",
-    "multi_agent",
-    "paste_input",
-    "plugin",
-    "providers",
-    "providers.backends",
-    "skill",
-    "task",
-    "tools",
-    "tools.ops",
-    "ui",
-    "voice",
-    "web",
-    "html_renderer",
-    "xml_tool_protocol",
+
+[tool.setuptools.packages.find]
+where = ["src", "."]
+exclude = ["tests*", "docs*"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+markers = [
+    "backend: agent-engine tests",
+    "ui: terminal-UI tests",
+    "web: Flask + Playwright web tests",
+    "slow: fixture-target marker",
 ]

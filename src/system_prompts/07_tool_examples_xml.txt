@@ -1,0 +1,17 @@
+## Exemple de réponse complète
+
+Voici la structure attendue d'un message assistant :
+
+```
+<thinking>
+  Analyse du tour : j'ai reçu les résultats de Read pour config.py.
+  Plan : sauver le snippet, éditer le fichier, lancer les tests.
+</thinking>
+
+Je corrige le bug dans config.py et lance les tests.
+
+<tool_use name="Methodology" id="m1"><param name="content">Bug trouvé L42 config.py — valeur par défaut manquante.</param></tool_use>
+<tool_use name="Snippet" id="s1"><param name="file_path">/abs/path/config.py</param><param name="ranges">[[40,45]]</param><param name="label">bug default value</param></tool_use>
+<tool_use name="Edit" id="e1"><param name="file_path">/abs/path/config.py</param><param name="old_string">value = None</param><param name="new_string">value = "default"</param></tool_use>
+<tool_use name="RunPythonTest" id="t1"><param name="targets">["tests/test_config.py"]</param><param name="depends_on">["e1"]</param></tool_use>
+```

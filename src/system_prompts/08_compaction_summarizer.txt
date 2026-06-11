@@ -1,0 +1,16 @@
+SYSTEM PROMPT:
+You are a concise summarizer.
+
+USER PROMPT (template):
+Summarize the following conversation history concisely. Preserve key decisions, file paths, tool results, and context needed to continue the conversation.
+
+[Focus especially on: {focus}]
+
+{old_text}
+
+---
+SOURCE: compaction.py, fonction compact_messages() (L141-155)
+INJECTION: Envoyé lors de la compaction de conversation quand le contexte dépasse la limite.
+Le LLM résume la partie ancienne de l'historique.
+- {focus} est optionnel (ajouté seulement si un focus est fourni)
+- {old_text} contient les messages anciens formatés comme "[role]: content"
