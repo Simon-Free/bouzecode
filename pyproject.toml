@@ -46,10 +46,6 @@ py-modules = [
     "subagent",
     "tool_registry",
 ]
-[tool.pytest.ini_options]
-pythonpath = ["src"]
-addopts = "--import-mode=importlib"
-
 packages = [
     "agent",
     "checkpoint",
@@ -72,3 +68,7 @@ packages = [
     "html_renderer",
     "xml_tool_protocol",
 ]
+
+[tool.pytest.ini_options]
+pythonpath = ["src", "."]
+addopts = "--import-mode=importlib"
