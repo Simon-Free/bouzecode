@@ -1,2 +1,1 @@
-# [desc] Empty package initializer. [/desc]
-# [desc] Empty package initializer. [/desc]
+"""Bouzecode test suite."""
