@@ -1,0 +1,22 @@
+<!doctype html>
+<html lang="fr">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>BouzéqUI v2</title>
+  <link rel="stylesheet" href="{{ url_for('static', filename='app.css') }}">
+  <link rel="stylesheet" href="{{ url_for('static', filename='pages.css') }}">
+</head>
+<body>
+<nav>
+  <span class="brand">bouzecode <b>v2</b></span>
+  <a href="/" class="{{ 'active' if page == 'home' else '' }}">Projets</a>
+  <a href="/files" class="{{ 'active' if page == 'files' else '' }}">Fichiers</a>
+  <a href="/api/schema" target="_blank">API</a>
+</nav>
+<main>
+{% block content %}{% endblock %}
+</main>
+{% block scripts %}{% endblock %}
+</body>
+</html>

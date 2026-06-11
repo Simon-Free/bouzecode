@@ -1,0 +1,72 @@
+/* [desc] Styles des pages home/projet/tours/fichiers (complète app.css). [/desc] */
+
+/* Home — cartes projets */
+.project-path { font-size: 12px; margin-top: 2px; word-break: break-all; }
+.project-card .badges { display: flex; gap: 8px; flex-wrap: wrap; margin-top: 6px; }
+.st-review { background: #4d3b15; color: var(--orange); }
+.st-ko, .verdict-KO { background: #4a1d1d; color: var(--red); }
+.verdict-OK { background: #1f3d36; color: var(--green); }
+.st-à_relire { background: #4d3b15; color: var(--orange); }
+.st-en_cours { background: #1c3a5e; color: var(--accent); }
+.st-validé { background: #1f3d36; color: var(--green); }
+.st-terminé, .st-à_faire { background: var(--panel2); color: var(--muted); }
+.error-text { color: var(--red); align-self: center; }
+.grow { flex: 1; }
+.full { width: 100%; box-sizing: border-box; margin-bottom: 10px; }
+
+/* Page projet — tickets */
+.ticket-form input#t-title { flex: 1; }
+.model-select { min-width: 200px; background: var(--panel); color: var(--text);
+  border: 1px solid var(--border); border-radius: 4px; padding: 6px; }
+.run-kind.validate { color: var(--purple); }
+.comment { padding: 4px 0; border-top: 1px dashed var(--border); font-size: 13px; }
+.comment-bar { display: flex; gap: 8px; margin-top: 8px; }
+
+/* Onglet Tours */
+.turns-table { width: 100%; border-collapse: collapse; font: 12.5px Consolas, monospace; }
+.turns-table th, .turns-table td { padding: 4px 8px; text-align: right;
+  border-bottom: 1px solid var(--border); }
+.turns-table th:last-child, .turns-table td:last-child { text-align: left; }
+.turns-table tbody tr { cursor: pointer; }
+.turns-table tbody tr:hover { background: var(--panel2); }
+.turns-table .warn { color: var(--orange); font-weight: 700; }
+.turns-table .ok { color: var(--green); }
+.turn-summary { margin: 14px 0 8px; color: var(--accent); }
+.payload-item { margin: 4px 0; border: 1px solid var(--border); border-radius: 5px; }
+.payload-item summary { padding: 4px 8px; cursor: pointer; font-size: 12.5px; }
+.payload-item.cs-cached { border-left: 4px solid var(--green); }
+.payload-item.cs-new-cache { border-left: 4px solid var(--accent); }
+.payload-item.cs-fresh { border-left: 4px solid var(--orange); }
+.cs-cached .cs-badge { background: #1f3d36; color: var(--green); }
+.cs-new-cache .cs-badge { background: #1c3a5e; color: var(--accent); }
+.cs-fresh .cs-badge { background: #4d3b15; color: var(--orange); }
+.pi-kind { color: var(--purple); margin: 0 6px; }
+.payload-item pre { margin: 6px; }
+
+/* Kanban tickets */
+.kanban { display: flex; gap: 12px; align-items: flex-start; overflow-x: auto; padding-bottom: 12px; }
+.kanban-col { flex: 1; min-width: 270px; background: var(--panel2); border-radius: 8px; padding: 8px; }
+.kanban-title { margin: 2px 4px 10px; font-size: 13px; text-transform: uppercase;
+  background: none !important; padding: 0; }
+.kanban .ticket { margin-bottom: 10px; cursor: grab; }
+.kanban .ticket:active { cursor: grabbing; }
+.ticket-head { justify-content: space-between; }
+.ticket-head .t-done { padding: 2px 8px; }
+.mr-link { display: block; color: var(--accent); font-size: 12.5px; padding: 2px 0;
+  overflow-wrap: anywhere; }
+.commit-line { font: 12px Consolas, monospace; color: var(--text); padding: 1px 0; }
+
+/* Monaco */
+.monaco-diff-box, #monaco-file-box { border: 1px solid var(--border); border-radius: 5px;
+  overflow: hidden; }
+#monaco-file-box { height: 78vh; }
+
+/* Page fichiers — panneau + pygments */
+#file-panel { width: 340px; min-width: 240px; position: sticky; top: 60px; }
+#file-panel #file-tree { background: var(--panel); border: 1px solid var(--border);
+  border-radius: 6px; padding: 8px; max-height: 74vh; overflow: auto; font-size: 13px; }
+.hl { background: #161616 !important; border: 1px solid var(--border); border-radius: 5px;
+  padding: 8px; overflow-x: auto; font: 12.5px/1.45 Consolas, monospace; }
+.hl pre { margin: 0; }
+.hl .linenos { color: #5a5a5a; padding-right: 12px; user-select: none; }
+.hltable { width: 100%; }

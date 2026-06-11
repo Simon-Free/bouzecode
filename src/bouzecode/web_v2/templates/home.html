@@ -1,0 +1,39 @@
+{% extends "base.html" %}
+{% block content %}
+<h2>Projets</h2>
+<div class="cards" id="projects-list">
+  {% for p in projects %}
+  <a class="card project-card" href="/p/{{ p.slug }}" data-slug="{{ p.slug }}">
+    <div class="card-title">{{ p.name }}</div>
+    <div class="project-path muted">{{ p.path }}</div>
+    <div class="badges">
+      <span class="badge st-running" data-count="running" {% if not p.agents_running %}hidden{% endif %}>
+        <b>{{ p.agents_running }}</b> en cours</span>
+      <span class="badge st-awaiting_input" data-count="awaiting" {% if not p.agents_awaiting %}hidden{% endif %}>
+        <b>{{ p.agents_awaiting }}</b> à répondre</span>
+      <span class="badge st-review" data-count="review" {% if not p.tickets_to_review %}hidden{% endif %}>
+        <b>{{ p.tickets_to_review }}</b> à relire</span>
+      <span class="badge st-ko" data-count="ko" {% if not p.validations_ko %}hidden{% endif %}>
+        <b>{{ p.validations_ko }}</b> validations KO</span>
+      <span class="badge" data-count="total"><b>{{ p.tickets_total }}</b> tickets</span>
+    </div>
+  </a>
+  {% else %}
+  <p class="muted">Aucun projet ouvert — ajoute-en un ci-dessous.</p>
+  {% endfor %}
+</div>
+
+<section class="launch-bar">
+  <input id="proj-name" placeholder="nom du projet">
+  <input id="proj-path" class="grow" placeholder="chemin absolu (ex: C:\Users\...\calypso_application)">
+  <button id="proj-add" class="primary">Ouvrir le projet</button>
+  <span id="proj-error" class="error-text"></span>
+</section>
+
+<h2>Sessions récentes (CLI & hors projet)</h2>
+<div id="recent-list" class="cards"><p class="muted">Chargement…</p></div>
+{% endblock %}
+
+{% block scripts %}
+<script src="{{ url_for('static', filename='js/home.js') }}"></script>
+{% endblock %}

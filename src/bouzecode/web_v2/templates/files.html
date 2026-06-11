@@ -1,0 +1,22 @@
+{% extends "base.html" %}
+{% block content %}
+<link rel="stylesheet" href="/api/files/pygments.css">
+<div class="files-layout">
+  <aside id="file-panel">
+    <select id="root-select" class="full">
+      <option value="">(racine serveur)</option>
+      {% for p in projects %}<option value="{{ p.slug }}">{{ p.name }}</option>{% endfor %}
+    </select>
+    <div id="file-tree"><p class="muted">Chargement…</p></div>
+  </aside>
+  <section id="file-viewer">
+    <div id="file-path" class="muted">Sélectionne un fichier à gauche.</div>
+    <div id="file-content"></div>
+  </section>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script src="{{ url_for('static', filename='js/lib/monaco_loader.js') }}"></script>
+<script src="{{ url_for('static', filename='js/files.js') }}"></script>
+{% endblock %}
