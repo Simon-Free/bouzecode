@@ -1,0 +1,72 @@
+{% extends "base.html" %}
+{% block content %}
+<header class="session-header">
+  <a href="/" class="back">← projets</a>
+  <h1 class="session-title">{{ project.name }}</h1>
+  <div class="project-path muted">{{ project.path }}</div>
+</header>
+
+<section class="launch-bar ticket-form">
+  <input id="t-title" placeholder="Titre du ticket">
+  <select id="t-typology" class="typology-select"></select>
+  <select id="t-model" class="model-select"></select>
+  <button id="t-classify" title="Déduire titre & typologie depuis le prompt">✨ Déduire</button>
+  <button id="t-create" class="primary">Créer & lancer</button>
+</section>
+<textarea id="t-prompt" rows="3" class="full" placeholder="Prompt du ticket — décris le travail attendu…"></textarea>
+
+<h2>Agents du projet</h2>
+<div id="agents-list" class="cards"><p class="muted">Chargement…</p></div>
+
+<h2>Tickets</h2>
+<div class="kanban">
+  {% for status in ['à faire', 'en cours', 'à relire', 'validé', 'terminé'] %}
+  <div class="kanban-col" data-status="{{ status }}">
+    <h3 class="kanban-title st-{{ status | replace(' ', '_') }}">{{ status }}</h3>
+    {% for t in tickets if t.status == status %}
+    <div class="card ticket" data-tid="{{ t.id }}" draggable="true">
+      <div class="ticket-head">
+        <span class="card-title">{{ t.title }}</span>
+        <button class="t-done" title="{{ 'Rouvrir' if t.done else 'Marquer terminé' }}">{{ "↩" if t.done else "✓" }}</button>
+      </div>
+      <div class="muted">{{ t.created_at }}</div>
+      <details><summary>prompt</summary><pre class="code">{{ t.prompt }}</pre></details>
+
+      {% for r in t.runs %}
+      <a class="run-row" href="/sessions/{{ r.key }}">
+        <span class="badge st-{{ r.state }}">{{ r.state }}</span>
+        <span class="run-kind {{ 'validate' if r.kind != 'work' }}">{{ r.kind | replace('validate_', '✔ ') }}</span>
+        {% if r.verdict %}<span class="badge verdict-{{ r.verdict }}">{{ r.verdict }}</span>{% endif %}
+      </a>
+      {% endfor %}
+
+      <details class="t-results"><summary>Résultats (MR, commits, fichiers)</summary>
+        <div class="results-body muted">…</div>
+      </details>
+
+      <div class="ticket-actions">
+        <button class="t-launch" title="Relancer un agent de travail">↻ agent</button>
+        <button class="t-validate" data-kind="tests">✔ tests</button>
+        <button class="t-validate" data-kind="refacto">✔ refacto</button>
+      </div>
+
+      {% for c in t.comments %}
+      <div class="comment"><span class="muted">{{ c.at }}{{ " · envoyé" if c.sent }}</span> {{ c.text }}</div>
+      {% endfor %}
+      <div class="comment-bar">
+        <input class="t-comment-text grow" placeholder="# TODO / commentaire…">
+        <button class="t-comment" title="Noter sans envoyer">✎</button>
+        <button class="t-comment-send primary" title="Envoyer au modèle">➤</button>
+      </div>
+    </div>
+    {% endfor %}
+  </div>
+  {% endfor %}
+</div>
+{% if not tickets %}<p class="muted">Aucun ticket — shoote le premier ci-dessus.</p>{% endif %}
+{% endblock %}
+
+{% block scripts %}
+<script>const PROJECT_SLUG = {{ project.slug | tojson }};</script>
+<script src="{{ url_for('static', filename='js/project.js') }}"></script>
+{% endblock %}

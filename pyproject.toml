@@ -59,3 +59,7 @@ markers = [
     "web: Flask + Playwright web tests",
     "slow: fixture-target marker",
 ]
+
+[tool.pytest.ini_options]
+pythonpath = ["src", "."]
+addopts = "--import-mode=importlib"
