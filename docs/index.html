@@ -1,4 +1,4 @@
-﻿<!DOCTYPE html>
+<!DOCTYPE html>
 <html lang="en">
 <head>
 <meta charset="UTF-8">
@@ -210,14 +210,14 @@ canvas { background: #f8f9fa; border: 1px solid #e1e4e8; border-radius: 4px; }
   <div class="slide" id="slide-0">
     <h1>Reducing Total Token Consumption<br>of Agentic Coding</h1>
     <div style="margin-top: 12px; padding: 10px 14px; background: #f8f9fa; border-left: 3px solid #1a1a1a; border-radius: 3px; text-align: left;">
-      <strong>TL;DR</strong> â€” Two levers reduce cost:<br>
-      <strong>1.</strong> Less turns (parallel tool calls â†’ fewer API round-trips)<br>
-      <strong>2.</strong> Less context (methodology + snippets â†’ only relevant info survives)
+      <strong>TL;DR</strong> — Two levers reduce cost:<br>
+      <strong>1.</strong> Less turns (parallel tool calls → fewer API round-trips)<br>
+      <strong>2.</strong> Less context (methodology + snippets → only relevant info survives)
     </div>
   </div>
 
   <details>
-  <summary>ðŸ“Š Understanding the problem: why tokens grow quadratically</summary>
+  <summary>📊 Understanding the problem: why tokens grow quadratically</summary>
 
   <!-- SLIDE 2 : Two-column animation -->
   <div class="slide" id="slide-1">
@@ -225,23 +225,23 @@ canvas { background: #f8f9fa; border: 1px solid #e1e4e8; border-radius: 4px; }
     <div class="two-cols">
       <div class="col">
         <div class="col-header">
-          <span class="label">ðŸ‘¤ User side</span>
+          <span class="label">👤 User side</span>
           <span class="counter" id="user-counter">0 chars</span>
         </div>
         <div class="col-body" id="user-col"></div>
       </div>
       <div class="col">
         <div class="col-header">
-          <span class="label">ðŸ¤– Sent to the API</span>
+          <span class="label">🤖 Sent to the API</span>
           <span class="counter" id="api-counter">0 chars</span>
         </div>
         <div class="col-body" id="api-col"></div>
       </div>
     </div>
     <div class="anim-controls">
-      <button onclick="nextStep()">â–¶ Next message</button>
-      <button onclick="autoPlay()" id="autoBtn">â© Auto</button>
-      <button class="reset" onclick="resetAnim()">â†º Reset</button>
+      <button onclick="nextStep()">▶ Next message</button>
+      <button onclick="autoPlay()" id="autoBtn">⏩ Auto</button>
+      <button class="reset" onclick="resetAnim()">↺ Reset</button>
     </div>
   </div>
 
@@ -250,23 +250,23 @@ canvas { background: #f8f9fa; border: 1px solid #e1e4e8; border-radius: 4px; }
     <h2>The bottom line after 10 exchanges</h2>
     <div class="stats-grid">
       <div class="stat-card">
-        <div class="number" id="stat-user-total">â€”</div>
+        <div class="number" id="stat-user-total">—</div>
         <div class="label">Characters typed by the user</div>
       </div>
       <div class="stat-card">
-        <div class="number" id="stat-api-total">â€”</div>
+        <div class="number" id="stat-api-total">—</div>
         <div class="label">Characters sent to the API (cumulative)</div>
       </div>
       <div class="stat-card">
-        <div class="number" id="stat-ratio">â€”</div>
+        <div class="number" id="stat-ratio">—</div>
         <div class="label">Multiplication factor</div>
       </div>
       <div class="stat-card">
-        <div class="number" id="stat-complexity">O(nÂ²)</div>
+        <div class="number" id="stat-complexity">O(n²)</div>
         <div class="label">Cumulative cost complexity</div>
       </div>
     </div>
-    <p style="margin-top: 10px;">Each new message resends the <em>entire</em> history. The total cost grows like the sum 1+2+3+â€¦+n = <strong>n(n+1)/2</strong>.</p>
+    <p style="margin-top: 10px;">Each new message resends the <em>entire</em> history. The total cost grows like the sum 1+2+3+…+n = <strong>n(n+1)/2</strong>.</p>
   </div>
 
   <!-- SLIDE 4 : Interactive simulation -->
@@ -298,38 +298,38 @@ canvas { background: #f8f9fa; border: 1px solid #e1e4e8; border-radius: 4px; }
     <h2>Classic chatbot vs. agentic coding</h2>
     <div class="flow-compare">
       <div class="flow-box" id="flow-classic">
-        <h4>ðŸ’¬ Classic chatbot</h4>
+        <h4>💬 Classic chatbot</h4>
         <div class="flow-timeline">
-          <div class="flow-step user-step"><span class="step-label">User: "Fix this bug"</span><span class="step-size">â†’ 200 chars</span></div>
+          <div class="flow-step user-step"><span class="step-label">User: "Fix this bug"</span><span class="step-size">→ 200 chars</span></div>
           <div class="flow-step api-step"><span class="step-label">API response #1</span><span class="step-size">system + msg = 4,200 chars</span></div>
-          <div class="flow-step user-step"><span class="step-label">User: "Also add tests"</span><span class="step-size">â†’ 150 chars</span></div>
+          <div class="flow-step user-step"><span class="step-label">User: "Also add tests"</span><span class="step-size">→ 150 chars</span></div>
           <div class="flow-step api-step"><span class="step-label">API response #2</span><span class="step-size">system + history = 8,500 chars</span></div>
-          <div class="flow-step user-step"><span class="step-label">User: "Rename the var"</span><span class="step-size">â†’ 100 chars</span></div>
+          <div class="flow-step user-step"><span class="step-label">User: "Rename the var"</span><span class="step-size">→ 100 chars</span></div>
           <div class="flow-step api-step"><span class="step-label">API response #3</span><span class="step-size">system + history = 12,800 chars</span></div>
         </div>
       </div>
       <div class="flow-box agent" id="flow-agent">
-        <h4>ðŸ¤– Agentic coding</h4>
+        <h4>🤖 Agentic coding</h4>
         <div class="flow-timeline">
-          <div class="flow-step user-step"><span class="step-label">User: "Fix this bug"</span><span class="step-size">â†’ 200 chars</span></div>
+          <div class="flow-step user-step"><span class="step-label">User: "Fix this bug"</span><span class="step-size">→ 200 chars</span></div>
           <div class="flow-step api-step"><span class="step-label">API call #1</span><span class="step-size">system + msg = 4,200 chars</span></div>
-          <div class="flow-step tool-step"><span class="step-label">â†’ Read(main.py)</span><span class="step-size">tool result: 3,000 chars</span></div>
+          <div class="flow-step tool-step"><span class="step-label">→ Read(main.py)</span><span class="step-size">tool result: 3,000 chars</span></div>
           <div class="flow-step api-step"><span class="step-label">API call #2</span><span class="step-size">everything + tool = 7,400 chars</span></div>
-          <div class="flow-step tool-step"><span class="step-label">â†’ Edit(main.py)</span><span class="step-size">tool result: 500 chars</span></div>
+          <div class="flow-step tool-step"><span class="step-label">→ Edit(main.py)</span><span class="step-size">tool result: 500 chars</span></div>
           <div class="flow-step api-step"><span class="step-label">API call #3</span><span class="step-size">everything + tools = 8,100 chars</span></div>
-          <div class="flow-step tool-step"><span class="step-label">â†’ RunTests()</span><span class="step-size">tool result: 2,000 chars</span></div>
+          <div class="flow-step tool-step"><span class="step-label">→ RunTests()</span><span class="step-size">tool result: 2,000 chars</span></div>
           <div class="flow-step api-step"><span class="step-label">API call #4</span><span class="step-size">everything + tools = 10,300 chars</span></div>
-          <div class="flow-step result-step"><span class="step-label">âœ“ Result returned to user</span><span class="step-size">1 user message â†’ 4 API calls</span></div>
+          <div class="flow-step result-step"><span class="step-label">✓ Result returned to user</span><span class="step-size">1 user message → 4 API calls</span></div>
         </div>
       </div>
     </div>
     <div class="anim-controls">
-      <button onclick="animateFlows()">â–¶ Animate</button>
-      <button class="reset" onclick="resetFlows()">â†º Reset</button>
+      <button onclick="animateFlows()">▶ Animate</button>
+      <button class="reset" onclick="resetFlows()">↺ Reset</button>
     </div>
     <div class="agentic-callout">
       <div class="big">1 user message = 3-15 API calls</div>
-      <p>Each tool call (Read, Edit, Bashâ€¦) triggers a new API call with the full accumulated context.</p>
+      <p>Each tool call (Read, Edit, Bash…) triggers a new API call with the full accumulated context.</p>
     </div>
   </div>
 
@@ -339,13 +339,13 @@ canvas { background: #f8f9fa; border: 1px solid #e1e4e8; border-radius: 4px; }
     <div class="cost-compare">
       <div class="cost-card">
         <div class="title">Classic chatbot</div>
-        <div class="formula">n Ã— s â†’ O(nÂ²)</div>
-        <div class="example">10 msgs Ã— 2k = ~110k chars total</div>
+        <div class="formula">n × s → O(n²)</div>
+        <div class="example">10 msgs × 2k = ~110k chars total</div>
       </div>
       <div class="cost-card bad">
         <div class="title">Agentic (k loops/turn)</div>
-        <div class="formula">n Ã— k Ã— s â†’ O(nÂ² Ã— k)</div>
-        <div class="example">10 msgs Ã— 5 loops Ã— 2k = ~550k chars</div>
+        <div class="formula">n × k × s → O(n² × k)</div>
+        <div class="example">10 msgs × 5 loops × 2k = ~550k chars</div>
       </div>
     </div>
     <p>With agentic coding, the context grows <strong>k times faster</strong>. A 20-message session with 5 tool loops per turn sends <em>millions</em> of characters to the API.</p>
@@ -359,56 +359,56 @@ canvas { background: #f8f9fa; border: 1px solid #e1e4e8; border-radius: 4px; }
     <p style="margin:0; font-size:0.85em;">Aggressive parallelization of tool calls reduces API round-trips. <em>I prefer a failed tool call to another full API call.</em></p>
   </div>
 
-  <!-- SLIDE 7 : Parallel DAG â€” 3-turn process -->
+  <!-- SLIDE 7 : Parallel DAG — 3-turn process -->
   <div class="slide" id="slide-6">
     <h2>The 3-turn process</h2>
-    <p style="margin-bottom: 12px;"><strong>Discover â†’ Read â†’ Act.</strong> Group independent calls in the same turn to minimize context resends.</p>
+    <p style="margin-bottom: 12px;"><strong>Discover → Read → Act.</strong> Group independent calls in the same turn to minimize context resends.</p>
     <div class="flow-compare">
       <div class="flow-box">
         <h4>Sequential (8 turns)</h4>
         <div style="display:flex; flex-direction:column; align-items:center; gap:3px; padding:8px;">
           <div class="seq-step" style="--delay:0; background:#f3f0ff; padding:4px 10px; border-radius:3px; font-size:0.72em; border:1px solid #d8d0ef;">Turn 1: Glob("**/*.py")</div>
-          <div class="seq-arrow" style="--delay:0.1; color:#999; font-size:0.7em;">â†“ wait</div>
+          <div class="seq-arrow" style="--delay:0.1; color:#999; font-size:0.7em;">↓ wait</div>
           <div class="seq-step" style="--delay:0.2; background:#f3f0ff; padding:4px 10px; border-radius:3px; font-size:0.72em; border:1px solid #d8d0ef;">Turn 2: Grep("handler")</div>
-          <div class="seq-arrow" style="--delay:0.3; color:#999; font-size:0.7em;">â†“ wait</div>
+          <div class="seq-arrow" style="--delay:0.3; color:#999; font-size:0.7em;">↓ wait</div>
           <div class="seq-step" style="--delay:0.4; background:#f3f0ff; padding:4px 10px; border-radius:3px; font-size:0.72em; border:1px solid #d8d0ef;">Turn 3: GetFolderDescription()</div>
-          <div class="seq-arrow" style="--delay:0.5; color:#999; font-size:0.7em;">â†“ wait</div>
+          <div class="seq-arrow" style="--delay:0.5; color:#999; font-size:0.7em;">↓ wait</div>
           <div class="seq-step" style="--delay:0.6; background:#e8f4fd; padding:4px 10px; border-radius:3px; font-size:0.72em; border:1px solid #b8daef;">Turn 4: Read(main.py)</div>
-          <div class="seq-arrow" style="--delay:0.7; color:#999; font-size:0.7em;">â†“ wait</div>
+          <div class="seq-arrow" style="--delay:0.7; color:#999; font-size:0.7em;">↓ wait</div>
           <div class="seq-step" style="--delay:0.8; background:#e8f4fd; padding:4px 10px; border-radius:3px; font-size:0.72em; border:1px solid #b8daef;">Turn 5: Read(config.py)</div>
-          <div class="seq-arrow" style="--delay:0.9; color:#999; font-size:0.7em;">â†“ wait</div>
+          <div class="seq-arrow" style="--delay:0.9; color:#999; font-size:0.7em;">↓ wait</div>
           <div class="seq-step" style="--delay:1.0; background:#e8f8e8; padding:4px 10px; border-radius:3px; font-size:0.72em; border:1px solid #b8e8b8;">Turn 6: Edit(main.py)</div>
-          <div class="seq-arrow" style="--delay:1.1; color:#999; font-size:0.7em;">â†“ wait</div>
+          <div class="seq-arrow" style="--delay:1.1; color:#999; font-size:0.7em;">↓ wait</div>
           <div class="seq-step" style="--delay:1.2; background:#e8f8e8; padding:4px 10px; border-radius:3px; font-size:0.72em; border:1px solid #b8e8b8;">Turn 7: Write(test.py)</div>
-          <div class="seq-arrow" style="--delay:1.3; color:#999; font-size:0.7em;">â†“ wait</div>
+          <div class="seq-arrow" style="--delay:1.3; color:#999; font-size:0.7em;">↓ wait</div>
           <div class="seq-step" style="--delay:1.4; background:#fff8e8; padding:4px 10px; border-radius:3px; font-size:0.72em; border:1px solid #e8dbb8;">Turn 8: RunTests()</div>
-          <div style="margin-top:8px; font-family:monospace; color:#c0392b; font-size:0.72em;">8 turns = 8 Ã— full context resent</div>
+          <div style="margin-top:8px; font-family:monospace; color:#c0392b; font-size:0.72em;">8 turns = 8 × full context resent</div>
         </div>
       </div>
       <div class="flow-box agent">
         <h4>DAG parallel (3 turns)</h4>
         <div style="display:flex; flex-direction:column; align-items:center; gap:4px; padding:8px;">
-          <div style="color:#666; font-size:0.68em; margin-bottom:2px;">TURN 1 â€” discover</div>
+          <div style="color:#666; font-size:0.68em; margin-bottom:2px;">TURN 1 — discover</div>
           <div class="dag-layer" style="--delay:0; display:flex; gap:6px; flex-wrap:wrap; justify-content:center;">
             <div style="background:#f3f0ff; padding:4px 8px; border-radius:3px; font-size:0.72em; border:1px solid #d8d0ef;">Glob("**/*.py")</div>
             <div style="background:#f3f0ff; padding:4px 8px; border-radius:3px; font-size:0.72em; border:1px solid #d8d0ef;">Grep("handler")</div>
             <div style="background:#f3f0ff; padding:4px 8px; border-radius:3px; font-size:0.72em; border:1px solid #d8d0ef;">GetFolderDescription()</div>
           </div>
-          <div class="dag-arrows" style="--delay:0.4; color:#999; font-size:0.68em;">â†“ need results to know what to read</div>
-          <div style="color:#666; font-size:0.68em; margin-top:2px;">TURN 2 â€” read</div>
+          <div class="dag-arrows" style="--delay:0.4; color:#999; font-size:0.68em;">↓ need results to know what to read</div>
+          <div style="color:#666; font-size:0.68em; margin-top:2px;">TURN 2 — read</div>
           <div class="dag-layer" style="--delay:0.8; display:flex; gap:6px;">
             <div style="background:#e8f4fd; padding:4px 8px; border-radius:3px; font-size:0.72em; border:1px solid #b8daef;">Read(main.py, symbol="handle")</div>
             <div style="background:#e8f4fd; padding:4px 8px; border-radius:3px; font-size:0.72em; border:1px solid #b8daef;">Read(config.py, symbol="Config")</div>
           </div>
-          <div class="dag-arrows" style="--delay:1.2; color:#999; font-size:0.68em;">â†“ need content to write correct code</div>
-          <div style="color:#666; font-size:0.68em; margin-top:2px;">TURN 3 â€” act (all at once with depends_on)</div>
+          <div class="dag-arrows" style="--delay:1.2; color:#999; font-size:0.68em;">↓ need content to write correct code</div>
+          <div style="color:#666; font-size:0.68em; margin-top:2px;">TURN 3 — act (all at once with depends_on)</div>
           <div class="dag-layer" style="--delay:1.6; display:flex; gap:6px; flex-wrap:wrap; justify-content:center;">
             <div style="background:#e8f8e8; padding:4px 8px; border-radius:3px; font-size:0.72em; border:1px solid #b8e8b8;">WritePlan</div>
             <div style="background:#e8f8e8; padding:4px 8px; border-radius:3px; font-size:0.72em; border:1px solid #b8e8b8;">Edit(main.py)</div>
             <div style="background:#e8f8e8; padding:4px 8px; border-radius:3px; font-size:0.72em; border:1px solid #b8e8b8;">Write(test.py)</div>
             <div style="background:#fff8e8; padding:4px 8px; border-radius:3px; font-size:0.72em; border:1px solid #e8dbb8;">RunTests()</div>
           </div>
-          <div class="dag-deps-label" style="--delay:2; margin-top:8px; font-family:monospace; color:#27ae60; font-size:0.72em;">3 turns = 3 Ã— context â†’ less tokens</div>
+          <div class="dag-deps-label" style="--delay:2; margin-top:8px; font-family:monospace; color:#27ae60; font-size:0.72em;">3 turns = 3 × context → less tokens</div>
         </div>
       </div>
     </div>
@@ -423,25 +423,25 @@ canvas { background: #f8f9fa; border: 1px solid #e1e4e8; border-radius: 4px; }
   <!-- SLIDE 7 : The naive approach -->
   <div class="slide" id="slide-7">
     <h2>The naive approach: keep everything</h2>
-    <p style="margin-bottom: 10px;">Each turn resends the <strong>entire</strong> conversation history. File reads, bash outputs, reasoning â€” nothing is thrown away.</p>
+    <p style="margin-bottom: 10px;">Each turn resends the <strong>entire</strong> conversation history. File reads, bash outputs, reasoning — nothing is thrown away.</p>
     <div style="display:flex; flex-direction:column; gap:6px; width:100%; max-width:700px;">
-      <div style="font-size:0.75em; color:#333; font-weight:600;">â†’ API Call 1</div>
+      <div style="font-size:0.75em; color:#333; font-weight:600;">→ API Call 1</div>
       <div class="context-bar" style="width:18%;">
         <div class="ctx-system" style="flex:2;">sys</div>
         <div class="ctx-user" style="flex:1;">u</div>
       </div>
-      <div style="font-size:0.72em; color:#27ae60; padding-left:16px;">â† Response: "I'll read main.py" + tool_call(Read)</div>
+      <div style="font-size:0.72em; color:#27ae60; padding-left:16px;">← Response: "I'll read main.py" + tool_call(Read)</div>
 
-      <div style="font-size:0.75em; color:#333; font-weight:600;">â†’ API Call 2</div>
+      <div style="font-size:0.75em; color:#333; font-weight:600;">→ API Call 2</div>
       <div class="context-bar" style="width:50%;">
         <div class="ctx-system" style="flex:1; opacity:0.5;">sys</div>
         <div class="ctx-user" style="flex:0.4; opacity:0.5;">u</div>
         <div style="flex:0.4; opacity:0.5; display:flex; align-items:center; justify-content:center; font-size:0.65em; background:#e8f8e8; border:1px solid #b8e8b8;">asst</div>
         <div class="ctx-tool" style="flex:3;">Read(main.py) 400L</div>
       </div>
-      <div style="font-size:0.72em; color:#27ae60; padding-left:16px;">â† Response: "Found bug at L42" + tool_call(Edit)</div>
+      <div style="font-size:0.72em; color:#27ae60; padding-left:16px;">← Response: "Found bug at L42" + tool_call(Edit)</div>
 
-      <div style="font-size:0.75em; color:#333; font-weight:600;">â†’ API Call 3</div>
+      <div style="font-size:0.75em; color:#333; font-weight:600;">→ API Call 3</div>
       <div class="context-bar" style="width:70%;">
         <div class="ctx-system" style="flex:0.5; opacity:0.5;">sys</div>
         <div class="ctx-user" style="flex:0.2; opacity:0.5;">u</div>
@@ -450,9 +450,9 @@ canvas { background: #f8f9fa; border: 1px solid #e1e4e8; border-radius: 4px; }
         <div style="flex:0.2; opacity:0.5; display:flex; align-items:center; justify-content:center; font-size:0.65em; background:#e8f8e8; border:1px solid #b8e8b8;">asst</div>
         <div class="ctx-tool" style="flex:0.4;">edit OK</div>
       </div>
-      <div style="font-size:0.72em; color:#27ae60; padding-left:16px;">â† Response: "Running tests" + tool_call(RunTests)</div>
+      <div style="font-size:0.72em; color:#27ae60; padding-left:16px;">← Response: "Running tests" + tool_call(RunTests)</div>
 
-      <div style="font-size:0.75em; color:#333; font-weight:600;">â†’ API Call 4</div>
+      <div style="font-size:0.75em; color:#333; font-weight:600;">→ API Call 4</div>
       <div class="context-bar" style="width:100%;">
         <div class="ctx-system" style="flex:0.4; opacity:0.5;">sys</div>
         <div class="ctx-user" style="flex:0.15; opacity:0.5;">u</div>
@@ -463,37 +463,37 @@ canvas { background: #f8f9fa; border: 1px solid #e1e4e8; border-radius: 4px; }
         <div style="flex:0.15; opacity:0.5; display:flex; align-items:center; justify-content:center; font-size:0.6em; background:#e8f8e8; border:1px solid #b8e8b8;">asst</div>
         <div class="ctx-tool" style="flex:1.2;">pytest 200L</div>
       </div>
-      <div style="font-size:0.72em; color:#666; font-style:italic;">â† Response: "all tests pass! Task done."</div>
+      <div style="font-size:0.72em; color:#666; font-style:italic;">← Response: "all tests pass! Task done."</div>
       <div style="display:flex; gap:12px; font-size:0.7em; margin-top:6px;">
-        <span style="opacity:0.5;">â–  cached prefix ($0.30/MTok)</span>
-        <span>â–  fresh content ($3.00/MTok)</span>
+        <span style="opacity:0.5;">■ cached prefix ($0.30/MTok)</span>
+        <span>■ fresh content ($3.00/MTok)</span>
       </div>
     </div>
-    <p style="font-size:0.82em; margin-top:10px;">Append-only: previous turns stay in place (cached), new content goes at the end (full price). The 400 lines of main.py are sent <strong>3 times</strong> â€” you only needed 1 function.</p>
+    <p style="font-size:0.82em; margin-top:10px;">Append-only: previous turns stay in place (cached), new content goes at the end (full price). The 400 lines of main.py are sent <strong>3 times</strong> — you only needed 1 function.</p>
   </div>
 
   <!-- SLIDE 7b : Same flow but with Snippets -->
   <div class="slide" id="slide-7b">
     <h2>With Snippets: same work, smaller context</h2>
-    <p style="margin-bottom:8px;">You still pay to Read once. But instead of carrying 400 lines forever, you save a <strong>20-line Snippet</strong> â€” the savings start next turn. Works with any tool result: Read, Grep, Skills, GetFolderDescriptionâ€¦</p>
+    <p style="margin-bottom:8px;">You still pay to Read once. But instead of carrying 400 lines forever, you save a <strong>20-line Snippet</strong> — the savings start next turn. Works with any tool result: Read, Grep, Skills, GetFolderDescription…</p>
     <div style="display:flex; flex-direction:column; gap:6px; width:100%; max-width:700px;">
-      <div style="font-size:0.75em; color:#333; font-weight:600;">â†’ API Call 1 <span style="font-weight:400; color:#666;">(same as naive)</span></div>
+      <div style="font-size:0.75em; color:#333; font-weight:600;">→ API Call 1 <span style="font-weight:400; color:#666;">(same as naive)</span></div>
       <div class="context-bar" style="width:20%;">
         <div class="ctx-system" style="flex:2;">S</div>
         <div class="ctx-user" style="flex:1;">U</div>
       </div>
-      <div style="font-size:0.72em; color:#666; font-style:italic;">â† Response: "I'll read main.py" â†’ tool_call(Read)</div>
+      <div style="font-size:0.72em; color:#666; font-style:italic;">← Response: "I'll read main.py" → tool_call(Read)</div>
 
-      <div style="font-size:0.75em; color:#333; font-weight:600;">â†’ API Call 2 <span style="font-weight:400; color:#666;">(same as naive â€” you pay the 400L once)</span></div>
+      <div style="font-size:0.75em; color:#333; font-weight:600;">→ API Call 2 <span style="font-weight:400; color:#666;">(same as naive — you pay the 400L once)</span></div>
       <div class="context-bar" style="width:50%;">
         <div class="ctx-system" style="flex:1; opacity:0.5;">S</div>
         <div class="ctx-user" style="flex:0.3; opacity:0.5;">U</div>
         <div style="flex:0.3; opacity:0.5; display:flex; align-items:center; justify-content:center; font-size:0.6em; background:#e8f8e8; border:1px solid #b8e8b8;">A</div>
         <div class="ctx-tool" style="flex:3;">Read(main.py) 400L FRESH</div>
       </div>
-      <div style="font-size:0.72em; color:#666; font-style:italic;">â† Response: finds bug, emits Snippet(L40-60) + Edit(main.py)</div>
+      <div style="font-size:0.72em; color:#666; font-style:italic;">← Response: finds bug, emits Snippet(L40-60) + Edit(main.py)</div>
 
-      <div style="font-size:0.75em; color:#333; font-weight:600;">â†’ API Call 3 <span style="font-weight:400; color:#c0392b;">(HERE the difference â€” 400L â†’ 20L Snippet)</span></div>
+      <div style="font-size:0.75em; color:#333; font-weight:600;">→ API Call 3 <span style="font-weight:400; color:#c0392b;">(HERE the difference — 400L → 20L Snippet)</span></div>
       <div class="context-bar" style="width:40%;">
         <div class="ctx-system" style="flex:0.8; opacity:0.5;">S</div>
         <div class="ctx-user" style="flex:0.2; opacity:0.5;">U</div>
@@ -502,9 +502,9 @@ canvas { background: #f8f9fa; border: 1px solid #e1e4e8; border-radius: 4px; }
         <div style="flex:0.2; display:flex; align-items:center; justify-content:center; font-size:0.6em; background:#e8f8e8; border:1px solid #b8e8b8;">A</div>
         <div class="ctx-tool" style="flex:0.4;">edit OK</div>
       </div>
-      <div style="font-size:0.72em; color:#666; font-style:italic;">â† Response: "done, running tests" â†’ tool_call(RunTests)</div>
+      <div style="font-size:0.72em; color:#666; font-style:italic;">← Response: "done, running tests" → tool_call(RunTests)</div>
 
-      <div style="font-size:0.75em; color:#333; font-weight:600;">â†’ API Call 4 <span style="font-weight:400; color:#666;">(still small)</span></div>
+      <div style="font-size:0.75em; color:#333; font-weight:600;">→ API Call 4 <span style="font-weight:400; color:#666;">(still small)</span></div>
       <div class="context-bar" style="width:55%;">
         <div class="ctx-system" style="flex:0.6; opacity:0.5;">S</div>
         <div class="ctx-user" style="flex:0.15; opacity:0.5;">U</div>
@@ -515,10 +515,10 @@ canvas { background: #f8f9fa; border: 1px solid #e1e4e8; border-radius: 4px; }
         <div style="flex:0.15; display:flex; align-items:center; justify-content:center; font-size:0.6em; background:#e8f8e8; border:1px solid #b8e8b8;">A</div>
         <div class="ctx-tool" style="flex:0.8;">pytest 200L</div>
       </div>
-      <div style="font-size:0.72em; color:#666; font-style:italic;">â† Response: "all tests pass! Task done."</div>
+      <div style="font-size:0.72em; color:#666; font-style:italic;">← Response: "all tests pass! Task done."</div>
 
       <div style="display:flex; gap:12px; font-size:0.72em; margin-top:8px; align-items:center;">
-        <span style="color:#27ae60; font-weight:600;">Same structure [S][U][A][...] â€” just 20L instead of 400L from Call 3 onward</span>
+        <span style="color:#27ae60; font-weight:600;">Same structure [S][U][A][...] — just 20L instead of 400L from Call 3 onward</span>
       </div>
     </div>
   </div>
@@ -526,16 +526,16 @@ canvas { background: #f8f9fa; border: 1px solid #e1e4e8; border-radius: 4px; }
   <!-- SLIDE 7c : With Methodology -->
   <div class="slide" id="slide-7c">
     <h2>With Methodology: append-only working memory</h2>
-    <p style="margin-bottom:8px;">Each turn, the model appends a <strong>Methodology note</strong> (goal, plan, discoveries) to the cached prefix. Old tool_results are destroyed â€” only Methodology + Snippets + the original user message survive.</p>
+    <p style="margin-bottom:8px;">Each turn, the model appends a <strong>Methodology note</strong> (goal, plan, discoveries) to the cached prefix. Old tool_results are destroyed — only Methodology + Snippets + the original user message survive.</p>
     <div style="display:flex; flex-direction:column; gap:6px; width:100%; max-width:700px;">
-      <div style="font-size:0.75em; color:#333; font-weight:600;">â†’ API Call 1</div>
+      <div style="font-size:0.75em; color:#333; font-weight:600;">→ API Call 1</div>
       <div class="context-bar" style="width:20%;">
         <div class="ctx-system" style="flex:1.5;">S</div>
         <div class="ctx-user" style="flex:1;">U</div>
       </div>
-      <div style="font-size:0.72em; color:#666; font-style:italic;">â† Response: tool_call(Read) + Methodology#1</div>
+      <div style="font-size:0.72em; color:#666; font-style:italic;">← Response: tool_call(Read) + Methodology#1</div>
 
-      <div style="font-size:0.75em; color:#333; font-weight:600;">â†’ API Call 2 <span style="font-weight:400; color:#666;">(400L paid once)</span></div>
+      <div style="font-size:0.75em; color:#333; font-weight:600;">→ API Call 2 <span style="font-weight:400; color:#666;">(400L paid once)</span></div>
       <div class="context-bar" style="width:55%;">
         <div class="ctx-system" style="flex:1; opacity:0.5;">S</div>
         <div class="ctx-user" style="flex:0.4; opacity:0.5;">U</div>
@@ -543,9 +543,9 @@ canvas { background: #f8f9fa; border: 1px solid #e1e4e8; border-radius: 4px; }
         <div class="ctx-tool" style="flex:0.4; opacity:0.5; background:#e0f0e0; border-color:#90d090;">Snippet</div>
         <div class="ctx-tool" style="flex:3;">Read(main.py) 400L FRESH</div>
       </div>
-      <div style="font-size:0.72em; color:#666; font-style:italic;">â† Response: Methodology#2 + Edit(main.py)</div>
+      <div style="font-size:0.72em; color:#666; font-style:italic;">← Response: Methodology#2 + Edit(main.py)</div>
 
-      <div style="font-size:0.75em; color:#333; font-weight:600;">â†’ API Call 3 <span style="font-weight:400; color:#c0392b;">(400L gone! prefix + last result only)</span></div>
+      <div style="font-size:0.75em; color:#333; font-weight:600;">→ API Call 3 <span style="font-weight:400; color:#c0392b;">(400L gone! prefix + last result only)</span></div>
       <div class="context-bar" style="width:30%;">
         <div class="ctx-system" style="flex:0.8; opacity:0.5;">S</div>
         <div class="ctx-user" style="flex:0.3; opacity:0.5;">U</div>
@@ -554,9 +554,9 @@ canvas { background: #f8f9fa; border: 1px solid #e1e4e8; border-radius: 4px; }
         <div style="flex:0.3; opacity:0.5; display:flex; align-items:center; justify-content:center; font-size:0.6em; background:#f0f0f0; border:1px solid #ccc;">M#2</div>
         <div class="ctx-tool" style="flex:0.4;">edit OK</div>
       </div>
-      <div style="font-size:0.72em; color:#666; font-style:italic;">â† Response: Methodology#3 + RunTests()</div>
+      <div style="font-size:0.72em; color:#666; font-style:italic;">← Response: Methodology#3 + RunTests()</div>
 
-      <div style="font-size:0.75em; color:#333; font-weight:600;">â†’ API Call 4 <span style="font-weight:400; color:#666;">(prefix grew, fresh = just pytest)</span></div>
+      <div style="font-size:0.75em; color:#333; font-weight:600;">→ API Call 4 <span style="font-weight:400; color:#666;">(prefix grew, fresh = just pytest)</span></div>
       <div class="context-bar" style="width:35%;">
         <div class="ctx-system" style="flex:0.6; opacity:0.5;">S</div>
         <div class="ctx-user" style="flex:0.2; opacity:0.5;">U</div>
@@ -566,16 +566,16 @@ canvas { background: #f8f9fa; border: 1px solid #e1e4e8; border-radius: 4px; }
         <div style="flex:0.25; opacity:0.5; display:flex; align-items:center; justify-content:center; font-size:0.6em; background:#f0f0f0; border:1px solid #ccc;">M#3</div>
         <div class="ctx-tool" style="flex:0.8;">pytest 200L</div>
       </div>
-      <div style="font-size:0.72em; color:#666; font-style:italic;">â† Response: "all tests pass! Task done."</div>
+      <div style="font-size:0.72em; color:#666; font-style:italic;">← Response: "all tests pass! Task done."</div>
 
       <div style="display:flex; gap:12px; font-size:0.72em; margin-top:8px; align-items:center;">
-        <span style="opacity:0.5;">â–  cached prefix: S + U + Meth#1..#N + Snippet</span>
-        <span>â–  fresh: only last tool_result</span>
+        <span style="opacity:0.5;">■ cached prefix: S + U + Meth#1..#N + Snippet</span>
+        <span>■ fresh: only last tool_result</span>
       </div>
     </div>
   </div>
 
-  <!-- SLIDE 8 : Demo â€” naive vs optimized -->
+  <!-- SLIDE 8 : Demo — naive vs optimized -->
   <div class="slide" id="slide-8">
     <h2>Demo: naive vs. optimized</h2>
     <p style="margin-bottom: 12px;">Same task: "fix the bug in main.py". 4 API calls each. Compare what's sent.</p>
@@ -589,43 +589,43 @@ canvas { background: #f8f9fa; border: 1px solid #e1e4e8; border-radius: 4px; }
       <!-- Brute force -->
       <div class="conv-col bad conv-brute">
         <div class="conv-col-header">
-          <span class="title">âŒ Naive (keep everything)</span>
+          <span class="title">❌ Naive (keep everything)</span>
           <span class="total" id="brute-total">0 chars</span>
         </div>
         <div class="conv-body">
           <!-- Call 1 -->
           <div class="conv-turn visible" data-turn="1" data-chars="2100">
-            <div class="conv-turn-label">â†’ API Call #1 (2,100 ch)</div>
+            <div class="conv-turn-label">→ API Call #1 (2,100 ch)</div>
             <div class="ctx-block methodology">System prompt <span class="chars">2,000ch</span></div>
             <div class="ctx-block user-msg">User: "fix the bug in main.py" <span class="chars">100ch</span></div>
-            <div class="conv-turn-label" style="color:#27ae60; margin-top:6px;">â† Response:</div>
-            <div class="ctx-block assistant-msg">Assistant: "I'll read main.py" â†’ tool_call(Read)</div>
+            <div class="conv-turn-label" style="color:#27ae60; margin-top:6px;">← Response:</div>
+            <div class="ctx-block assistant-msg">Assistant: "I'll read main.py" → tool_call(Read)</div>
           </div>
           <!-- Call 2 -->
           <div class="conv-turn" data-turn="2" data-chars="6300">
-            <div class="conv-turn-label">â†’ API Call #2 (6,300 ch)</div>
+            <div class="conv-turn-label">→ API Call #2 (6,300 ch)</div>
             <div class="ctx-block methodology" style="opacity:0.5;">System prompt <span class="chars">2,000ch</span></div>
             <div class="ctx-block user-msg" style="opacity:0.5;">User: "fix the bug" <span class="chars">100ch</span></div>
             <div class="ctx-block assistant-msg" style="opacity:0.5;">Asst#1: "I'll read main.py" <span class="chars">200ch</span></div>
-            <div class="ctx-block tool-result">tool_result: Read(main.py) â†’ 400 lines <span class="chars">4,000ch FRESH</span></div>
-            <div class="conv-turn-label" style="color:#27ae60; margin-top:6px;">â† Response:</div>
-            <div class="ctx-block assistant-msg">Assistant: "Found bug at L42, editing" â†’ tool_call(Edit)</div>
+            <div class="ctx-block tool-result">tool_result: Read(main.py) → 400 lines <span class="chars">4,000ch FRESH</span></div>
+            <div class="conv-turn-label" style="color:#27ae60; margin-top:6px;">← Response:</div>
+            <div class="ctx-block assistant-msg">Assistant: "Found bug at L42, editing" → tool_call(Edit)</div>
           </div>
           <!-- Call 3 -->
           <div class="conv-turn" data-turn="3" data-chars="6700">
-            <div class="conv-turn-label">â†’ API Call #3 (6,700 ch)</div>
+            <div class="conv-turn-label">→ API Call #3 (6,700 ch)</div>
             <div class="ctx-block methodology" style="opacity:0.5;">System prompt <span class="chars">2,000ch</span></div>
             <div class="ctx-block user-msg" style="opacity:0.5;">User <span class="chars">100ch</span></div>
             <div class="ctx-block assistant-msg" style="opacity:0.5;">Asst#1 <span class="chars">200ch</span></div>
             <div class="ctx-block tool-result" style="opacity:0.5;">Read(main.py) 400 lines <span class="chars">4,000ch STILL HERE</span></div>
             <div class="ctx-block assistant-msg" style="opacity:0.5;">Asst#2 <span class="chars">200ch</span></div>
             <div class="ctx-block tool-result">tool_result: Edit OK <span class="chars">200ch FRESH</span></div>
-            <div class="conv-turn-label" style="color:#27ae60; margin-top:6px;">â† Response:</div>
-            <div class="ctx-block assistant-msg">Assistant: "Fixed! Running tests" â†’ tool_call(RunTests)</div>
+            <div class="conv-turn-label" style="color:#27ae60; margin-top:6px;">← Response:</div>
+            <div class="ctx-block assistant-msg">Assistant: "Fixed! Running tests" → tool_call(RunTests)</div>
           </div>
           <!-- Call 4 -->
           <div class="conv-turn" data-turn="4" data-chars="8400">
-            <div class="conv-turn-label">â†’ API Call #4 (8,400 ch)</div>
+            <div class="conv-turn-label">→ API Call #4 (8,400 ch)</div>
             <div class="ctx-block methodology" style="opacity:0.5;">System prompt <span class="chars">2,000ch</span></div>
             <div class="ctx-block user-msg" style="opacity:0.5;">User <span class="chars">100ch</span></div>
             <div class="ctx-block assistant-msg" style="opacity:0.5;">Asst#1 <span class="chars">200ch</span></div>
@@ -634,7 +634,7 @@ canvas { background: #f8f9fa; border: 1px solid #e1e4e8; border-radius: 4px; }
             <div class="ctx-block tool-result" style="opacity:0.5;">Edit OK <span class="chars">200ch STILL HERE</span></div>
             <div class="ctx-block assistant-msg" style="opacity:0.5;">Asst#3 <span class="chars">200ch</span></div>
             <div class="ctx-block tool-result">tool_result: pytest output <span class="chars">1,500ch FRESH</span></div>
-            <div class="conv-turn-label" style="color:#27ae60; margin-top:6px;">â† Response:</div>
+            <div class="conv-turn-label" style="color:#27ae60; margin-top:6px;">← Response:</div>
             <div class="ctx-block assistant-msg">Assistant: "All tests pass! Task done."</div>
           </div>
         </div>
@@ -643,43 +643,43 @@ canvas { background: #f8f9fa; border: 1px solid #e1e4e8; border-radius: 4px; }
       <!-- Optimized -->
       <div class="conv-col good conv-opti">
         <div class="conv-col-header">
-          <span class="title">âœ… Optimized (Methodology + Snippets)</span>
+          <span class="title">✅ Optimized (Methodology + Snippets)</span>
           <span class="total" id="opti-total">0 chars</span>
         </div>
         <div class="conv-body">
           <!-- Call 1 -->
           <div class="conv-turn visible" data-turn="1" data-chars="2100">
-            <div class="conv-turn-label">â†’ API Call #1 (2,100 ch)</div>
+            <div class="conv-turn-label">→ API Call #1 (2,100 ch)</div>
             <div class="ctx-block methodology">System prompt <span class="chars">2,000ch</span></div>
             <div class="ctx-block user-msg">User: "fix the bug in main.py" <span class="chars">100ch</span></div>
-            <div class="conv-turn-label" style="color:#27ae60; margin-top:6px;">â† Response:</div>
+            <div class="conv-turn-label" style="color:#27ae60; margin-top:6px;">← Response:</div>
             <div class="ctx-block assistant-msg">tool_call(Read) + Methodology#1("Goal: fix bug")</div>
           </div>
           <!-- Call 2 -->
           <div class="conv-turn" data-turn="2" data-chars="6200">
-            <div class="conv-turn-label">â†’ API Call #2 (6,200 ch)</div>
+            <div class="conv-turn-label">→ API Call #2 (6,200 ch)</div>
             <div class="ctx-block methodology" style="opacity:0.5;">System prompt <span class="chars">2,000ch</span></div>
             <div class="ctx-block user-msg" style="opacity:0.5;">User: "fix the bug" <span class="chars">100ch</span></div>
             <div class="ctx-block methodology" style="opacity:0.5;">Meth#1: "Goal: fix bug. Reading main.py" <span class="chars">100ch (cached)</span></div>
-            <div class="ctx-block tool-result">tool_result: Read(main.py) â†’ 400 lines <span class="chars">4,000ch FRESH</span></div>
-            <div class="conv-turn-label" style="color:#27ae60; margin-top:6px;">â† Response:</div>
+            <div class="ctx-block tool-result">tool_result: Read(main.py) → 400 lines <span class="chars">4,000ch FRESH</span></div>
+            <div class="conv-turn-label" style="color:#27ae60; margin-top:6px;">← Response:</div>
             <div class="ctx-block assistant-msg">Methodology#2 + Snippet(L40-60) + tool_call(Edit)</div>
           </div>
           <!-- Call 3 -->
           <div class="conv-turn" data-turn="3" data-chars="2950">
-            <div class="conv-turn-label">â†’ API Call #3 (2,950 ch) â† 400L GONE!</div>
+            <div class="conv-turn-label">→ API Call #3 (2,950 ch) ← 400L GONE!</div>
             <div class="ctx-block methodology" style="opacity:0.5;">System prompt <span class="chars">2,000ch</span></div>
             <div class="ctx-block user-msg" style="opacity:0.5;">User <span class="chars">100ch</span></div>
             <div class="ctx-block methodology" style="opacity:0.5;">Meth#1 <span class="chars">100ch (cached)</span></div>
             <div class="ctx-block snippet" style="opacity:0.5;">Snippet: main.py L40-60 <span class="chars">300ch (cached)</span></div>
             <div class="ctx-block methodology" style="opacity:0.5;">Meth#2: "Found off-by-one at L42" <span class="chars">150ch (cached)</span></div>
             <div class="ctx-block tool-result">tool_result: Edit OK <span class="chars">200ch FRESH</span></div>
-            <div class="conv-turn-label" style="color:#27ae60; margin-top:6px;">â† Response:</div>
+            <div class="conv-turn-label" style="color:#27ae60; margin-top:6px;">← Response:</div>
             <div class="ctx-block assistant-msg">Methodology#3 + tool_call(RunTests)</div>
           </div>
           <!-- Call 4 -->
           <div class="conv-turn" data-turn="4" data-chars="4400">
-            <div class="conv-turn-label">â†’ API Call #4 (4,400 ch)</div>
+            <div class="conv-turn-label">→ API Call #4 (4,400 ch)</div>
             <div class="ctx-block methodology" style="opacity:0.5;">System prompt <span class="chars">2,000ch</span></div>
             <div class="ctx-block user-msg" style="opacity:0.5;">User <span class="chars">100ch</span></div>
             <div class="ctx-block methodology" style="opacity:0.5;">Meth#1 <span class="chars">100ch (cached)</span></div>
@@ -687,7 +687,7 @@ canvas { background: #f8f9fa; border: 1px solid #e1e4e8; border-radius: 4px; }
             <div class="ctx-block methodology" style="opacity:0.5;">Meth#2 <span class="chars">150ch (cached)</span></div>
             <div class="ctx-block methodology" style="opacity:0.5;">Meth#3: "Edit done. Running tests." <span class="chars">150ch (cached)</span></div>
             <div class="ctx-block tool-result">tool_result: pytest output <span class="chars">1,500ch FRESH</span></div>
-            <div class="conv-turn-label" style="color:#27ae60; margin-top:6px;">â† Response:</div>
+            <div class="conv-turn-label" style="color:#27ae60; margin-top:6px;">← Response:</div>
             <div class="ctx-block assistant-msg">"All tests pass! Task done."</div>
           </div>
         </div>
@@ -697,20 +697,20 @@ canvas { background: #f8f9fa; border: 1px solid #e1e4e8; border-radius: 4px; }
 
   <!-- ========== SECTION: Implementation Deep Dive ========== -->
 
-  <!-- SLIDE 9 : Section â€” Implementation Deep Dive -->
+  <!-- SLIDE 9 : Section — Implementation Deep Dive -->
   <div class="section-slide" id="slide-9">
     <h1>Implementation Deep Dive</h1>
-    <p>How we enforce discipline, compress outputs, manage snippets, and keep the agent on track â€” mechanism by mechanism.</p>
+    <p>How we enforce discipline, compress outputs, manage snippets, and keep the agent on track — mechanism by mechanism.</p>
   </div>
 
   <!-- SLIDE 10 : Error Rate Reduction -->
   <div class="slide" id="slide-10">
     <h2>Error Rate Reduction</h2>
-    <p style="margin-bottom: 12px;">LLMs forget instructions in long contexts. We enforce compliance via detection â†’ recovery side-calls, turning omission rates into near-zero.</p>
+    <p style="margin-bottom: 12px;">LLMs forget instructions in long contexts. We enforce compliance via detection → recovery side-calls, turning omission rates into near-zero.</p>
 
     <div class="stats-grid" style="margin-bottom: 12px;">
       <div class="stat-card">
-        <div class="number">81.8% â†’ 0%</div>
+        <div class="number">81.8% → 0%</div>
         <div class="label">Methodology omission (turn 1)<br><small>Seed placeholder fix</small></div>
       </div>
       <div class="stat-card">
@@ -718,31 +718,31 @@ canvas { background: #f8f9fa; border: 1px solid #e1e4e8; border-radius: 4px; }
         <div class="label">Snippet omission (Opus, spontaneous)<br><small>Before enforcement</small></div>
       </div>
       <div class="stat-card">
-        <div class="number">7.5% â†’ 1.3%</div>
-        <div class="label">Empty turns (Ã·6)<br><small>Bigctx-reminder A/B</small></div>
+        <div class="number">7.5% → 1.3%</div>
+        <div class="label">Empty turns (÷6)<br><small>Bigctx-reminder A/B</small></div>
       </div>
       <div class="stat-card">
-        <div class="number">307 â†’ 77</div>
-        <div class="label">Turns per task (Ã·4)<br><small>Bigctx-reminder A/B</small></div>
+        <div class="number">307 → 77</div>
+        <div class="label">Turns per task (÷4)<br><small>Bigctx-reminder A/B</small></div>
       </div>
     </div>
 
     <div class="memory-cards">
       <div class="memory-card meth">
-        <h4>ðŸ”’ Enforcement Methodology</h4>
-        <p><code>check_enforcement()</code> detects missing Methodology call â†’ <code>recover_methodology()</code> fires a side-call with <code>tool_choice</code> locked on Methodology. Triggered only when thinking is non-empty.</p>
+        <h4>🔒 Enforcement Methodology</h4>
+        <p><code>check_enforcement()</code> detects missing Methodology call → <code>recover_methodology()</code> fires a side-call with <code>tool_choice</code> locked on Methodology. Triggered only when thinking is non-empty.</p>
       </div>
       <div class="memory-card snip">
-        <h4>ðŸ“Ž Enforcement Snippet</h4>
-        <p><code>get_unsnippeted_reads()</code> scans for Read results â‰¥50 lines without a matching Snippet. Recovery side-call decides snippet/discard per result. Churn discard post-recovery: 45%.</p>
+        <h4>📎 Enforcement Snippet</h4>
+        <p><code>get_unsnippeted_reads()</code> scans for Read results ≥50 lines without a matching Snippet. Recovery side-call decides snippet/discard per result. Churn discard post-recovery: 45%.</p>
       </div>
       <div class="memory-card meth">
-        <h4>ðŸŒ± Seed Placeholder (Turn 1)</h4>
+        <h4>🌱 Seed Placeholder (Turn 1)</h4>
         <p>When methodology is empty, injects a transient system block with header + syntax + turn rule. Eliminates the 81.8% first-turn omission entirely.</p>
       </div>
       <div class="memory-card snip">
-        <h4>âš¡ Bigctx-Reminder</h4>
-        <p>~70 fresh tokens injected at the end of the last user message EVERY turn: "This turn MUST end with â‰¥1 tool_useâ€¦ Think â‰¤15 lines then ACT." Wire-only (not persisted).</p>
+        <h4>⚡ Bigctx-Reminder</h4>
+        <p>~70 fresh tokens injected at the end of the last user message EVERY turn: "This turn MUST end with ≥1 tool_use… Think ≤15 lines then ACT." Wire-only (not persisted).</p>
       </div>
     </div>
   </div>
@@ -754,48 +754,48 @@ canvas { background: #f8f9fa; border: 1px solid #e1e4e8; border-radius: 4px; }
 
     <div class="memory-cards" style="margin-bottom: 12px;">
       <div class="memory-card">
-        <h4>âœ‚ï¸ Generic Truncation</h4>
+        <h4>✂️ Generic Truncation</h4>
         <p>Thresholds: <code>max_lines=200</code>, <code>max_chars=8000</code>, <code>head_lines=80</code>. Overflows saved to disk, only first 80 lines returned with a pointer to the full output.</p>
       </div>
       <div class="memory-card">
-        <h4>ðŸ§ª Pytest Compaction</h4>
-        <p>Detects pytest output. On failure: keeps FAILURES/ERRORS/warnings/summary. On all-green with â‰¤20 tests: just lists test names + summary line.</p>
+        <h4>🧪 Pytest Compaction</h4>
+        <p>Detects pytest output. On failure: keeps FAILURES/ERRORS/warnings/summary. On all-green with ≤20 tests: just lists test names + summary line.</p>
       </div>
       <div class="memory-card">
-        <h4>ðŸ“ Edit â€” Enriched Diff</h4>
-        <p>Returns a unified diff (max 40 lines) + surrounding context Â±10 lines with the enclosing symbol name (<code>Class.method L42</code>). Middle truncated if region &gt;40 lines.</p>
+        <h4>📝 Edit — Enriched Diff</h4>
+        <p>Returns a unified diff (max 40 lines) + surrounding context ±10 lines with the enclosing symbol name (<code>Class.method L42</code>). Middle truncated if region &gt;40 lines.</p>
       </div>
       <div class="memory-card">
-        <h4>ðŸ” Edit â€” Fuzzy Error</h4>
-        <p>When <code>old_string</code> not found: <code>SequenceMatcher</code> sliding window finds the closest match, shows Â±7 lines of context around the best candidate.</p>
+        <h4>🔍 Edit — Fuzzy Error</h4>
+        <p>When <code>old_string</code> not found: <code>SequenceMatcher</code> sliding window finds the closest match, shows ±7 lines of context around the best candidate.</p>
       </div>
     </div>
 
     <div class="analogy-box">
-      <strong>Key principle:</strong> Edit/Write results are exempt from snippet wrapping (<code>_SNIPPET_EXEMPT_TOOLS</code>) â€” they're transient by nature and already compressed.
+      <strong>Key principle:</strong> Edit/Write results are exempt from snippet wrapping (<code>_SNIPPET_EXEMPT_TOOLS</code>) — they're transient by nature and already compressed.
     </div>
   </div>
 
   <!-- SLIDE 12 : Snippet Lifecycle -->
   <div class="slide" id="slide-12">
     <h2>Snippet Lifecycle</h2>
-    <p style="margin-bottom: 12px;">Snippets are the agent's long-term memory for code. They follow a strict lifecycle: wrap â†’ store â†’ re-resolve â†’ mark stale â†’ compact.</p>
+    <p style="margin-bottom: 12px;">Snippets are the agent's long-term memory for code. They follow a strict lifecycle: wrap → store → re-resolve → mark stale → compact.</p>
 
     <div style="display:flex; flex-direction:column; gap:3px; padding:8px; background:#f8f9fa; border:1px solid #e1e4e8; border-radius:4px; margin-bottom:12px;">
       <div style="display:flex; align-items:center; gap:8px; padding:6px 10px; background:#e8f4fd; border:1px solid #b8daef; border-radius:4px; font-size:0.8em;">
-        <strong style="min-width:24px;">1.</strong> <span><strong>Wrapping</strong> â€” Results â‰¥50 lines get markers: <code>==== A SNIPPETER id: file=â€¦ ====</code>. Lines numbered 1..N.</span>
+        <strong style="min-width:24px;">1.</strong> <span><strong>Wrapping</strong> — Results ≥50 lines get markers: <code>==== A SNIPPETER id: file=… ====</code>. Lines numbered 1..N.</span>
       </div>
       <div style="display:flex; align-items:center; gap:8px; padding:6px 10px; background:#e8f8e8; border:1px solid #b8e8b8; border-radius:4px; font-size:0.8em;">
-        <strong style="min-width:24px;">2.</strong> <span><strong>Storage</strong> â€” Agent calls <code>Snippet(symbol=â€¦)</code> or <code>Snippet(ranges=â€¦)</code>. Discard explicit covers unwanted results.</span>
+        <strong style="min-width:24px;">2.</strong> <span><strong>Storage</strong> — Agent calls <code>Snippet(symbol=…)</code> or <code>Snippet(ranges=…)</code>. Discard explicit covers unwanted results.</span>
       </div>
       <div style="display:flex; align-items:center; gap:8px; padding:6px 10px; background:#fff8e8; border:1px solid #e8dbb8; border-radius:4px; font-size:0.8em;">
-        <strong style="min-width:24px;">3.</strong> <span><strong>Re-resolution</strong> â€” Symbol snippets are re-resolved dynamically every turn via <code>find_symbol()</code>. Immune to line shifts after Edits.</span>
+        <strong style="min-width:24px;">3.</strong> <span><strong>Re-resolution</strong> — Symbol snippets are re-resolved dynamically every turn via <code>find_symbol()</code>. Immune to line shifts after Edits.</span>
       </div>
       <div style="display:flex; align-items:center; gap:8px; padding:6px 10px; background:#fde8e8; border:1px solid #f0b8b8; border-radius:4px; font-size:0.8em;">
-        <strong style="min-width:24px;">4.</strong> <span><strong>Stale marking</strong> â€” After Edit/Write, range-based snippets on the same file get marked <code>## snippet-stale:</code>. Append-only.</span>
+        <strong style="min-width:24px;">4.</strong> <span><strong>Stale marking</strong> — After Edit/Write, range-based snippets on the same file get marked <code>## snippet-stale:</code>. Append-only.</span>
       </div>
       <div style="display:flex; align-items:center; gap:8px; padding:6px 10px; background:#f0f1f3; border:1px solid #ddd; border-radius:4px; font-size:0.8em;">
-        <strong style="min-width:24px;">5.</strong> <span><strong>Compaction</strong> â€” Stale snippets, duplicates, and orphans (file deleted) are purged during structural compaction.</span>
+        <strong style="min-width:24px;">5.</strong> <span><strong>Compaction</strong> — Stale snippets, duplicates, and orphans (file deleted) are purged during structural compaction.</span>
       </div>
     </div>
 
@@ -806,7 +806,7 @@ canvas { background: #f8f9fa; border: 1px solid #e1e4e8; border-radius: 4px; }
       </div>
       <div class="stat-card">
         <div class="number">9.6%</div>
-        <div class="label">Dead snippets (Opus)<br><small>â‰ˆ3% of total cost</small></div>
+        <div class="label">Dead snippets (Opus)<br><small>≈3% of total cost</small></div>
       </div>
     </div>
   </div>
@@ -820,41 +820,41 @@ canvas { background: #f8f9fa; border: 1px solid #e1e4e8; border-radius: 4px; }
       <div class="cache-block cb-system" style="flex:3;">
         <h4>Snapshot (cached)</h4>
         <p>Stable prefix of the note already seen by the model. <code>cache_control: ephemeral</code></p>
-        <span class="cache-hit">âœ“ cache hit</span>
+        <span class="cache-hit">✓ cache hit</span>
       </div>
       <div class="cache-block cb-tools" style="flex:2;">
         <h4>Delta (cached)</h4>
         <p>New content appended this turn. Also gets <code>cache_control</code>.</p>
-        <span class="cache-hit">âœ“ cache hit</span>
+        <span class="cache-hit">✓ cache hit</span>
       </div>
       <div class="cache-block cb-volatile" style="flex:1;">
         <h4>Fresh tokens</h4>
         <p>Bigctx-reminder + messages</p>
-        <span class="cache-miss">âœ— fresh</span>
+        <span class="cache-miss">✗ fresh</span>
       </div>
     </div>
 
     <div class="memory-cards" style="margin-bottom: 12px;">
       <div class="memory-card meth">
-        <h4>ðŸ“ Compaction Trigger</h4>
-        <p>When note exceeds <code>20,000 tokens</code> (â‰ˆ P90 of all notes), structural compaction fires: purge stale snippets, deduplicate, remove orphans. No LLM needed.</p>
+        <h4>📏 Compaction Trigger</h4>
+        <p>When note exceeds <code>20,000 tokens</code> (≈ P90 of all notes), structural compaction fires: purge stale snippets, deduplicate, remove orphans. No LLM needed.</p>
       </div>
       <div class="memory-card snip">
-        <h4>ðŸ”„ Cache Invalidation</h4>
-        <p>After compaction, <code>_methodology_cache_snapshot = None</code> â†’ forces full reconstruction of system blocks on the next turn (prefix is no longer valid).</p>
+        <h4>🔄 Cache Invalidation</h4>
+        <p>After compaction, <code>_methodology_cache_snapshot = None</code> → forces full reconstruction of system blocks on the next turn (prefix is no longer valid).</p>
       </div>
       <div class="memory-card meth">
-        <h4>ðŸ’­ Thinking Overflow</h4>
-        <p>If thinking exceeds 20,000 chars with no tool_call parsed â†’ streaming is cut. Cost per occurrence: ~$0.10â€“0.15. Summarized via claude-sonnet-4-6 (â‰¤5 bullets, max 300 tokens).</p>
+        <h4>💭 Thinking Overflow</h4>
+        <p>If thinking exceeds 20,000 chars with no tool_call parsed → streaming is cut. Cost per occurrence: ~$0.10–0.15. Summarized via claude-sonnet-4-6 (≤5 bullets, max 300 tokens).</p>
       </div>
       <div class="memory-card snip">
-        <h4>ðŸ—ï¸ Wire Architecture</h4>
+        <h4>🏗️ Wire Architecture</h4>
         <p>Ordered blocks: <code>[stable_prefix+cc, tool_docs+cc, methodology+cc, seed, delta+cc, volatile]</code>. Only volatile + messages are fresh tokens.</p>
       </div>
     </div>
 
     <div class="analogy-box">
-      <strong>Cache TTL:</strong> 5 minutes by default (ephemeral). Accounts for ~15% of the top-10 session costs as cache_create (1.25Ã— one-shot price).
+      <strong>Cache TTL:</strong> 5 minutes by default (ephemeral). Accounts for ~15% of the top-10 session costs as cache_create (1.25× one-shot price).
     </div>
   </div>
 
@@ -865,20 +865,20 @@ canvas { background: #f8f9fa; border: 1px solid #e1e4e8; border-radius: 4px; }
 
     <div class="memory-cards" style="margin-bottom: 12px;">
       <div class="memory-card">
-        <h4>ðŸ” Loop Detection</h4>
-        <p>MD5 hash of each tool_call batch â†’ cycle detection (size 1â€“8, repeated â‰¥3Ã—). Injects a LoopWarning + resets. <code>MAX_CYCLE_SIZE=8</code>, <code>MIN_REPEATS=3</code>.</p>
+        <h4>🔁 Loop Detection</h4>
+        <p>MD5 hash of each tool_call batch → cycle detection (size 1–8, repeated ≥3×). Injects a LoopWarning + resets. <code>MAX_CYCLE_SIZE=8</code>, <code>MIN_REPEATS=3</code>.</p>
       </div>
       <div class="memory-card">
-        <h4>ðŸ§Š Paralysis Abort</h4>
-        <p>Configurable threshold (env <code>BOUZECODE_PARALYSIS_ABORT_AFTER</code>, default 12). If turns without progression reach this limit â†’ session aborted. Web runner sets 0 (disabled for supervised sessions).</p>
+        <h4>🧊 Paralysis Abort</h4>
+        <p>Configurable threshold (env <code>BOUZECODE_PARALYSIS_ABORT_AFTER</code>, default 12). If turns without progression reach this limit → session aborted. Web runner sets 0 (disabled for supervised sessions).</p>
       </div>
       <div class="memory-card">
-        <h4>âœ… Close Validator</h4>
-        <p>LLM side-call receives TASK + METHODOLOGY + FINAL ANSWER. Verdict: "OK" or "KO: reason". If KO â†’ session continues with feedback. Fail-open on exception.</p>
+        <h4>✅ Close Validator</h4>
+        <p>LLM side-call receives TASK + METHODOLOGY + FINAL ANSWER. Verdict: "OK" or "KO: reason". If KO → session continues with feedback. Fail-open on exception.</p>
       </div>
       <div class="memory-card">
-        <h4>ðŸ“¢ FinalAnswer Nudges</h4>
-        <p>Meta-only batch (Methodology/Snippet only) + final text â†’ nudge "Call FinalAnswer" (max 2, headless max 4). Cap exhausted â†’ force-close with <code>final_answer_nudge_exhausted</code>.</p>
+        <h4>📢 FinalAnswer Nudges</h4>
+        <p>Meta-only batch (Methodology/Snippet only) + final text → nudge "Call FinalAnswer" (max 2, headless max 4). Cap exhausted → force-close with <code>final_answer_nudge_exhausted</code>.</p>
       </div>
     </div>
 
@@ -894,7 +894,7 @@ canvas { background: #f8f9fa; border: 1px solid #e1e4e8; border-radius: 4px; }
     </div>
 
     <div class="analogy-box" style="margin-top: 12px;">
-      <strong>Read-only streak:</strong> Counter <code>ctx.readonly_streak</code> tracks consecutive turns with only read-only tools (Read, Glob, Grepâ€¦). Reset on any productive tool. Currently observability-only (no automatic nudge/abort).
+      <strong>Read-only streak:</strong> Counter <code>ctx.readonly_streak</code> tracks consecutive turns with only read-only tools (Read, Glob, Grep…). Reset on any productive tool. Currently observability-only (no automatic nudge/abort).
     </div>
   </div>
 
@@ -937,7 +937,7 @@ function nextStep() {
   // API side: show separator + full history
   const separator = document.createElement('div');
   separator.className = 'api-call';
-  separator.textContent = `â”€â”€ API Call #${Math.floor(step/2) + 1} â”€â”€`;
+  separator.textContent = `── API Call #${Math.floor(step/2) + 1} ──`;
   apiCol.appendChild(separator);
 
   apiHistory.push(msg);
@@ -969,15 +969,15 @@ function nextStep() {
   if (step === conversation.length) {
     document.getElementById('stat-user-total').textContent = userTotal.toLocaleString();
     document.getElementById('stat-api-total').textContent = apiTotal.toLocaleString();
-    document.getElementById('stat-ratio').textContent = 'Ã—' + (apiTotal / userTotal).toFixed(1);
+    document.getElementById('stat-ratio').textContent = '×' + (apiTotal / userTotal).toFixed(1);
   }
 }
 
 function autoPlay() {
-  if (autoInterval) { clearInterval(autoInterval); autoInterval = null; document.getElementById('autoBtn').textContent = 'â© Auto'; return; }
-  document.getElementById('autoBtn').textContent = 'â¸ Stop';
+  if (autoInterval) { clearInterval(autoInterval); autoInterval = null; document.getElementById('autoBtn').textContent = '⏩ Auto'; return; }
+  document.getElementById('autoBtn').textContent = '⏸ Stop';
   autoInterval = setInterval(() => {
-    if (step >= conversation.length) { clearInterval(autoInterval); autoInterval = null; document.getElementById('autoBtn').textContent = 'â© Auto'; return; }
+    if (step >= conversation.length) { clearInterval(autoInterval); autoInterval = null; document.getElementById('autoBtn').textContent = '⏩ Auto'; return; }
     nextStep();
   }, 800);
 }
@@ -989,7 +989,7 @@ function resetAnim() {
   document.getElementById('user-counter').textContent = '0 chars';
   document.getElementById('api-counter').textContent = '0 chars';
   if (autoInterval) { clearInterval(autoInterval); autoInterval = null; }
-  document.getElementById('autoBtn').textContent = 'â© Auto';
+  document.getElementById('autoBtn').textContent = '⏩ Auto';
 }
 
 // ===== SLIDE 4 : Interactive simulation =====
@@ -1009,9 +1009,9 @@ function updateSim() {
 
   const summary = document.getElementById('sim-summary');
   if (k > 1) {
-    summary.innerHTML = `<strong>${n} messages Ã— ${k} loops = ${totalCalls} API calls</strong><br>Total sent: <span style="color:#f0883e">${(totalChars/1e6).toFixed(1)}M chars</span> â€” Ideal: ${(idealChars/1000).toFixed(0)}k chars â€” <span style="color:#f85149">Ã—${ratio.toFixed(0)} overhead</span>`;
+    summary.innerHTML = `<strong>${n} messages × ${k} loops = ${totalCalls} API calls</strong><br>Total sent: <span style="color:#f0883e">${(totalChars/1e6).toFixed(1)}M chars</span> — Ideal: ${(idealChars/1000).toFixed(0)}k chars — <span style="color:#f85149">×${ratio.toFixed(0)} overhead</span>`;
   } else {
-    summary.innerHTML = `<strong>${n} messages = ${n} API calls</strong><br>Total sent: <span style="color:#f0883e">${(totalChars/1000).toFixed(0)}k chars</span> â€” Ideal: ${(idealChars/1000).toFixed(0)}k chars â€” <span style="color:#f85149">Ã—${ratio.toFixed(0)} overhead</span>`;
+    summary.innerHTML = `<strong>${n} messages = ${n} API calls</strong><br>Total sent: <span style="color:#f0883e">${(totalChars/1000).toFixed(0)}k chars</span> — Ideal: ${(idealChars/1000).toFixed(0)}k chars — <span style="color:#f85149">×${ratio.toFixed(0)} overhead</span>`;
   }
 
   drawChart(n, s, k);
@@ -1114,15 +1114,15 @@ function drawChart(n, s, k) {
   ctx.font = '12px -apple-system, Segoe UI, sans-serif';
   ctx.textAlign = 'left';
   ctx.fillStyle = '#27ae60';
-  ctx.fillText('â”ˆ Ideal: only send the last message', pad.left + 10, pad.top + 16);
+  ctx.fillText('┈ Ideal: only send the last message', pad.left + 10, pad.top + 16);
   if (k > 1) {
     ctx.fillStyle = '#2980b9';
-    ctx.fillText('â— Classic chatbot (' + n + ' calls)', pad.left + 10, pad.top + 34);
+    ctx.fillText('● Classic chatbot (' + n + ' calls)', pad.left + 10, pad.top + 34);
     ctx.fillStyle = '#d35400';
-    ctx.fillText('â— Agent with tool loops (' + totalCalls + ' calls)', pad.left + 10, pad.top + 52);
+    ctx.fillText('● Agent with tool loops (' + totalCalls + ' calls)', pad.left + 10, pad.top + 52);
   } else {
     ctx.fillStyle = '#d35400';
-    ctx.fillText('â— Reality: the ENTIRE history is resent', pad.left + 10, pad.top + 34);
+    ctx.fillText('● Reality: the ENTIRE history is resent', pad.left + 10, pad.top + 34);
   }
 }
 
@@ -1232,7 +1232,7 @@ function showConvTurn(turn) {
   const ratio = document.getElementById('conv-ratio');
   if (ratio && bruteCum > 0) {
     const r = (bruteCum / optiCum).toFixed(1);
-    ratio.textContent = 'Ã—' + r + ' more efficient';
+    ratio.textContent = '×' + r + ' more efficient';
   }
 }
 
