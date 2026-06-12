@@ -13,6 +13,7 @@
 | `feat/mr6-plugin-skill-task-memory` | ort (recursive) | Clean — no conflicts detected |
 | `feat/mr5-mcp` | ort (recursive) | Clean — no conflicts detected |
 | `feat/mr1-engine-core` (CI fixes) | ort (recursive) | Clean — 2 commits: isolation web-IPC conftest + parsable XML example |
+| `feat/mr8-internal-test-suite` | ort (recursive) | Clean — no conflicts detected (~190 files, 1282 tests) |
 
 ## Conflict Resolutions
 
@@ -64,17 +65,29 @@ The legacy flat `web/` directory (bouzegui) remains untouched.
 | Main (post-MR6) | `python -m pytest tests/ -q` | 637 passed, 3 failed* |
 | Main (post-MR5) | `python -m pytest tests/ -q` | 645 passed, 3 failed* |
 | **Main (post-MR1 CI fixes)** | `python -m pytest tests/ -q` | **648 passed, 0 failed** ✅ |
+| **Main (post-MR8 — FINAL)** | `python -m pytest tests/ -q` | **1381 passed, 44 skipped, 2 xfailed, 0 failed** ✅ |
 | Web V2 | `python -m pytest tests/web_v2 src/bouzecode/web_v2 -q` | 55 passed |
 | Web V2 (post-MR5) | `python -m pytest tests/web_v2 src/bouzecode/web_v2 -q` | 32 passed |
 | **Web V2 (post-MR1 CI fixes)** | `python -m pytest tests/web_v2 -q` | **32 passed, 0 failed** ✅ |
+| **Web V2 (post-MR8 — FINAL)** | `python -m pytest tests/web_v2 -q` | **32 passed, 0 failed** ✅ |
 
 \* Previously tolerated failures (3) — now **fixed** by feat/mr1-engine-core CI commits:
 - `tests/test_xml_docs.py::test_docs_include_a_parsable_xml_example` — fixed by e827ebe (parsable example in xml_tool_protocol/docs.py)
 - `tests/test_plugin.py::TestAskUserQuestion::test_…` (×2) — fixed by 2e3c6d0 (autouse `_disable_web_ipc` fixture)
 
+## Post-MR8 Fixes
+
+| Fix | File | Commit |
+|-----|------|--------|
+| Skip `test_memory_tools_not_registered` — Memory tools exist in OSS integration | `tests/backend/regression/removed/test_memory_removed.py` | f9906ac |
+| Add `"video-wizard"` to `EXPECTED_COMMANDS` — command added by MR6 | `tests/backend/tools/registry/test_commands_cleanup.py` | f9906ac |
+
 ## CI Status
 
-**🟢 CI 100% green** — All test suites pass with zero failures after merging feat/mr1-engine-core CI fixes.
+**🟢 CI 100% green** — All 9 MR branches merged. Migration complete.
+- Main suite: **1381 passed**, 44 skipped, 2 xfailed
+- Web V2 suite: **32 passed**
+- Total: **1413 tests passing**, zero failures.
 
 ## Environment Note
 
