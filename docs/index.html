@@ -706,28 +706,26 @@ canvas { background: #f8f9fa; border: 1px solid #e1e4e8; border-radius: 4px; }
   <!-- SLIDE 10 : Error Rate Reduction -->
   <div class="slide" id="slide-10">
     <h2>Error Rate Reduction</h2>
-    <p style="margin-bottom: 12px;">LLMs forget instructions in long contexts. We enforce compliance via detection → recovery side-calls, turning omission rates into near-zero.</p>
+    <p style="margin-bottom: 12px;">The whole wire only works if the model actually calls Methodology and Snippet. This page follows the causal order: the risk, the enforcement that neutralizes it, and how we then limit the cost of that enforcement.</p>
 
+    <!-- 1. The risk -->
+    <h3>1. The risk: LLMs forget instructions in long contexts</h3>
+    <p style="margin-bottom: 8px;">If the model skips Methodology, it develops amnesia: it no longer knows what it already tried and gets stuck in loops. If it skips Snippet, it re-reads files it has already seen. Measured spontaneous omission rates:</p>
     <div class="stats-grid" style="margin-bottom: 12px;">
       <div class="stat-card">
-        <div class="number">81.8% → 0%</div>
-        <div class="label">Methodology omission (turn 1)<br><small>Seed placeholder fix</small></div>
+        <div class="number">81.8%</div>
+        <div class="label">Methodology omission (turn 1)<br><small>Spontaneous, before any fix</small></div>
       </div>
       <div class="stat-card">
         <div class="number">34%</div>
-        <div class="label">Snippet omission (Opus, spontaneous)<br><small>Before enforcement</small></div>
-      </div>
-      <div class="stat-card">
-        <div class="number">7.5% → 1.3%</div>
-        <div class="label">Empty turns (÷6)<br><small>Bigctx-reminder A/B</small></div>
-      </div>
-      <div class="stat-card">
-        <div class="number">307 → 77</div>
-        <div class="label">Turns per task (÷4)<br><small>Bigctx-reminder A/B</small></div>
+        <div class="label">Snippet omission (Opus)<br><small>Spontaneous, before enforcement</small></div>
       </div>
     </div>
 
-    <div class="memory-cards">
+    <!-- 2. The enforcement -->
+    <h3>2. The enforcement: detection → recovery side-calls</h3>
+    <p style="margin-bottom: 8px;">Because these omissions break the system, harnesses are not optional: every turn is checked, and a detected omission triggers a recovery side-call that forces the missing call. Omission becomes near-zero.</p>
+    <div class="memory-cards" style="margin-bottom: 12px;">
       <div class="memory-card meth">
         <h4>🔒 Enforcement Methodology</h4>
         <p><code>check_enforcement()</code> detects missing Methodology call → <code>recover_methodology()</code> fires a side-call with <code>tool_choice</code> locked on Methodology. Triggered only when thinking is non-empty.</p>
@@ -736,13 +734,37 @@ canvas { background: #f8f9fa; border: 1px solid #e1e4e8; border-radius: 4px; }
         <h4>📎 Enforcement Snippet</h4>
         <p><code>get_unsnippeted_reads()</code> scans for Read results ≥50 lines without a matching Snippet. Recovery side-call decides snippet/discard per result. Churn discard post-recovery: 45%.</p>
       </div>
+    </div>
+
+    <!-- 3. Limiting the enforcement -->
+    <h3>3. The catch: each recovery costs one extra API turn — so we reduce how often it fires</h3>
+    <p style="margin-bottom: 8px;">Enforcement works, but at 34% omission it fires constantly. The final lever is prompt engineering that lowers the omission rate itself (placeholders, fresh-token reminders), so the harness almost never has to fire:</p>
+    <div class="memory-cards" style="margin-bottom: 12px;">
       <div class="memory-card meth">
         <h4>🌱 Seed Placeholder (Turn 1)</h4>
-        <p>When methodology is empty, injects a transient system block with header + syntax + turn rule. Eliminates the 81.8% first-turn omission entirely.</p>
+        <p>When methodology is empty, injects a transient system block with header + syntax + turn rule. Eliminates the 81.8% first-turn omission entirely — the methodology harness no longer fires on turn 1.</p>
       </div>
       <div class="memory-card snip">
         <h4>⚡ Bigctx-Reminder</h4>
         <p>~70 fresh tokens injected at the end of the last user message EVERY turn: "This turn MUST end with ≥1 tool_use… Think ≤15 lines then ACT." Wire-only (not persisted).</p>
+      </div>
+    </div>
+    <div class="stats-grid">
+      <div class="stat-card">
+        <div class="number">+1 turn</div>
+        <div class="label">Cost per harness firing<br><small>Why omission must be rare</small></div>
+      </div>
+      <div class="stat-card">
+        <div class="number">81.8% → 0%</div>
+        <div class="label">Methodology omission (turn 1)<br><small>Seed placeholder fix</small></div>
+      </div>
+      <div class="stat-card">
+        <div class="number">7.5% → 1.3%</div>
+        <div class="label">Empty turns (÷6)<br><small>Bigctx-reminder A/B</small></div>
+      </div>
+      <div class="stat-card">
+        <div class="number">307 → 77</div>
+        <div class="label">Turns per task (÷4)<br><small>Bigctx-reminder A/B</small></div>
       </div>
     </div>
   </div>
@@ -760,10 +782,6 @@ canvas { background: #f8f9fa; border: 1px solid #e1e4e8; border-radius: 4px; }
       <div class="memory-card">
         <h4>🧪 Pytest Compaction</h4>
         <p>Detects pytest output. On failure: keeps FAILURES/ERRORS/warnings/summary. On all-green with ≤20 tests: just lists test names + summary line.</p>
-      </div>
-      <div class="memory-card">
-        <h4>📝 Edit — Enriched Diff</h4>
-        <p>Returns a unified diff (max 40 lines) + surrounding context ±10 lines with the enclosing symbol name (<code>Class.method L42</code>). Purpose: gives the model immediate spatial awareness of what changed — not a token-reduction measure (returning just "Edit ok" would be equally cheap).</p>
       </div>
       <div class="memory-card">
         <h4>🔍 Edit — Fuzzy Error</h4>
