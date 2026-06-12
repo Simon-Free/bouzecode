@@ -1,0 +1,177 @@
+<!-- [desc] Jinja2 dashboard showing session stats, cost breakdown, and per-day/per-session tables [/desc] -->
+<!-- [desc] Jinja2 dashboard showing Fresh/Cache write/Cache read breakdown per session and per day. -->
+{% extends "base.html" %}
+{% block title %}Dashboard — BouzéqUI{% endblock %}
+{% block content %}
+
+<!-- Summary stat cards -->
+<div class="stat-grid">
+    <div class="stat-card">
+        <div class="stat-value">{{ data.total_sessions }}</div>
+        <div class="stat-label">Sessions</div>
+    </div>
+    <div class="stat-card">
+        <div class="stat-value">{{ "{:,}".format(data.total_turns) }}</div>
+        <div class="stat-label">Turns</div>
+    </div>
+    <div class="stat-card">
+        <div class="stat-value">{{ "{:,}".format(data.total_user_loops) }}</div>
+        <div class="stat-label">User loops</div>
+    </div>
+    <div class="stat-card">
+        <div class="stat-value">{{ "{:,}".format(data.total_tool_loops) }}</div>
+        <div class="stat-label">Tool loops</div>
+    </div>
+    <div class="stat-card">
+        <div class="stat-value">{{ "{:,}".format(data.total_tool_calls) }}</div>
+        <div class="stat-label">Tool calls</div>
+    </div>
+    <div class="stat-card">
+        <div class="stat-value">{{ "{:,}".format(data.total_fresh_input_tokens) }}</div>
+        <div class="stat-label">Fresh input (1×)</div>
+    </div>
+    <div class="stat-card">
+        <div class="stat-value">{{ "{:,}".format(data.total_cache_write_tokens) }}</div>
+        <div class="stat-label">Cache write (1.25×)</div>
+    </div>
+    <div class="stat-card">
+        <div class="stat-value">{{ "{:,}".format(data.total_cache_read_tokens) }}</div>
+        <div class="stat-label">Cache read (0.1×)</div>
+    </div>
+    <div class="stat-card">
+        <div class="stat-value">{{ "%.1f"|format(data.cache_hit_ratio * 100) }}%</div>
+        <div class="stat-label">Cache hit ratio</div>
+    </div>
+    <div class="stat-card">
+        <div class="stat-value">{{ "{:,}".format(data.total_output_tokens) }}</div>
+        <div class="stat-label">Output</div>
+    </div>
+    <div class="stat-card accent">
+        <div class="stat-value">${{ "%.2f"|format(data.total_cost) }}</div>
+        <div class="stat-label">Est. cost (Opus 4.6)</div>
+    </div>
+</div>
+
+<!-- Per-day breakdown -->
+{% if data.days %}
+<div class="card">
+    <h2>Par jour</h2>
+    <table>
+        <thead>
+            <tr>
+                <th>Date</th>
+                <th class="num">Sessions</th>
+                <th class="num">Turns</th>
+                <th class="num">User</th>
+                <th class="num">Tool loops</th>
+                <th class="num">Tool calls</th>
+                <th class="num">Fresh input</th>
+                <th class="num">Cache write</th>
+                <th class="num">Cache read</th>
+                <th class="num">Output</th>
+                <th class="num">Cost</th>
+                <th class="num">Avg Cost</th>
+                <th class="num">Med Cost</th>
+                <th class="num">Avg Tokens</th>
+                <th class="num">Med Tokens</th>
+            </tr>
+        </thead>
+        <tbody>
+        {% for d in data.days %}
+            <tr>
+                <td class="mono">{{ d.date }}</td>
+                <td class="num">{{ d.sessions }}</td>
+                <td class="num">{{ d.turns }}</td>
+                <td class="num">{{ d.user_loops }}</td>
+                <td class="num">{{ d.tool_loops }}</td>
+                <td class="num">{{ "{:,}".format(d.tool_calls) }}</td>
+                <td class="num">{{ "{:,}".format(d.fresh_input_tokens) }}</td>
+                <td class="num">{{ "{:,}".format(d.cache_write_tokens) }}</td>
+                <td class="num">{{ "{:,}".format(d.cache_read_tokens) }}</td>
+                <td class="num">{{ "{:,}".format(d.output_tokens) }}</td>
+                <td class="num">${{ "%.2f"|format(d.cost) }}</td>
+                <td class="num">${{ "%.4f"|format(d.avg_cost) }}</td>
+                <td class="num">${{ "%.4f"|format(d.median_cost) }}</td>
+                <td class="num">{{ "{:,.0f}".format(d.avg_tokens) }}</td>
+                <td class="num">{{ "{:,.0f}".format(d.median_tokens) }}</td>
+            </tr>
+        {% endfor %}
+        </tbody>
+        <tfoot>
+            {% set all_costs = data.sessions|map(attribute='cost')|list %}
+            {% set all_tokens = data.sessions|map(attribute='input_tokens')|list %}
+            {% set all_out = data.sessions|map(attribute='output_tokens')|list %}
+            {% set total_tok_list = [] %}
+            {% for i in range(all_costs|length) %}
+                {% if total_tok_list.append(all_tokens[i] + all_out[i]) %}{% endif %}
+            {% endfor %}
+            <tr class="total-row">
+                <td><strong>Total</strong></td>
+                <td class="num"><strong>{{ data.total_sessions }}</strong></td>
+                <td class="num"><strong>{{ "{:,}".format(data.total_turns) }}</strong></td>
+                <td class="num"><strong>{{ "{:,}".format(data.total_user_loops) }}</strong></td>
+                <td class="num"><strong>{{ "{:,}".format(data.total_tool_loops) }}</strong></td>
+                <td class="num"><strong>{{ "{:,}".format(data.total_tool_calls) }}</strong></td>
+                <td class="num"><strong>{{ "{:,}".format(data.total_fresh_input_tokens) }}</strong></td>
+                <td class="num"><strong>{{ "{:,}".format(data.total_cache_write_tokens) }}</strong></td>
+                <td class="num"><strong>{{ "{:,}".format(data.total_cache_read_tokens) }}</strong></td>
+                <td class="num"><strong>{{ "{:,}".format(data.total_output_tokens) }}</strong></td>
+                <td class="num"><strong>${{ "%.2f"|format(data.total_cost) }}</strong></td>
+                <td class="num"><strong>{% if data.total_sessions %}${{ "%.4f"|format(data.total_cost / data.total_sessions) }}{% else %}-{% endif %}</strong></td>
+                <td class="num"><strong>{% if all_costs|length > 0 %}${{ "%.4f"|format(all_costs|sort|batch((all_costs|length + 1) // 2)|first|last) }}{% else %}-{% endif %}</strong></td>
+                <td class="num"><strong>{% if data.total_sessions %}{{ "{:,.0f}".format((data.total_input_tokens + data.total_output_tokens) / data.total_sessions) }}{% else %}-{% endif %}</strong></td>
+                <td class="num"><strong>{% if total_tok_list|length > 0 %}{{ "{:,.0f}".format(total_tok_list|sort|batch((total_tok_list|length + 1) // 2)|first|last) }}{% else %}-{% endif %}</strong></td>
+            </tr>
+        </tfoot>
+    </table>
+</div>
+{% endif %}
+
+<!-- Full session list -->
+{% if data.sessions %}
+<div class="card">
+    <h2>Toutes les sessions ({{ data.sessions|length }})</h2>
+    <table>
+        <thead>
+            <tr>
+                <th>Date</th>
+                <th>ID</th>
+                <th>Premier message</th>
+                <th class="num">Turns</th>
+                <th class="num">User</th>
+                <th class="num">Tool loops</th>
+                <th class="num">Tool calls</th>
+                <th class="num">Fresh</th>
+                <th class="num">Cache write</th>
+                <th class="num">Cache read</th>
+                <th class="num">Output</th>
+                <th class="num">Cost</th>
+            </tr>
+        </thead>
+        <tbody>
+        {% for s in data.sessions %}
+            <tr>
+                <td class="mono muted">{{ s.saved_at|fmt_date }}</td>
+                <td class="mono">{{ s.session_id }}</td>
+                <td class="truncate">{{ s.first_message }}</td>
+                <td class="num">{{ s.turn_count }}</td>
+                <td class="num">{{ s.user_loop_count }}</td>
+                <td class="num">{{ s.tool_loop_count }}</td>
+                <td class="num">{{ "{:,}".format(s.tool_call_count) }}</td>
+                <td class="num">{{ "{:,}".format(s.fresh_input_tokens) }}</td>
+                <td class="num">{{ "{:,}".format(s.cache_write_tokens) }}</td>
+                <td class="num">{{ "{:,}".format(s.cache_read_tokens) }}</td>
+                <td class="num">{{ "{:,}".format(s.output_tokens) }}</td>
+                <td class="num">${{ "%.4f"|format(s.cost) }}</td>
+            </tr>
+        {% endfor %}
+        </tbody>
+    </table>
+</div>
+{% endif %}
+
+{% if not data.sessions %}
+<p class="muted text-center mt-1">Aucune session sauvegardée trouvée.</p>
+{% endif %}
+
+{% endblock %}

@@ -1,0 +1,74 @@
+<!-- [desc] Jinja2 template for the Projects management page with add/delete UI and Kanban links per project [/desc] -->
+{% extends "base.html" %}
+{% block title %}Projects — BouzéqUI{% endblock %}
+{% block content %}
+<div class="container" style="max-width:800px;margin:2rem auto;padding:0 1rem">
+    <h1 style="margin-bottom:1.5rem">Projets</h1>
+
+    <!-- Add project form -->
+    <form id="add-project-form" class="card" style="padding:1rem;margin-bottom:1.5rem;display:flex;gap:.75rem;align-items:end">
+        <div style="flex:1">
+            <label class="form-label">Nom</label>
+            <input type="text" id="proj-name" class="form-input" placeholder="mon-projet" required>
+        </div>
+        <div style="flex:2">
+            <label class="form-label">Chemin</label>
+            <input type="text" id="proj-path" class="form-input" placeholder="C:\path\to\project" required>
+        </div>
+        <button type="submit" class="btn btn-primary">Ajouter</button>
+    </form>
+
+    <!-- Projects table -->
+    <table class="table" id="projects-table">
+        <thead>
+            <tr><th>Nom</th><th>Chemin</th><th>Kanban</th><th></th></tr>
+        </thead>
+        <tbody></tbody>
+    </table>
+</div>
+
+<script>
+function loadProjects() {
+    fetch('/api/projects').then(r => r.json()).then(projects => {
+        const tbody = document.querySelector('#projects-table tbody');
+        tbody.innerHTML = '';
+        projects.forEach(p => {
+            const tr = document.createElement('tr');
+            tr.innerHTML = `
+                <td><strong>${p.name}</strong></td>
+                <td><code>${p.path}</code></td>
+                <td><a href="/kanban/${encodeURIComponent(p.name)}" class="btn btn-sm">Kanban</a> <a href="/todo/${encodeURIComponent(p.name)}" class="btn btn-sm">Todo</a></td>
+                <td><button class="btn btn-sm btn-danger" onclick="deleteProject('${p.name}')">✕</button></td>
+            `;
+            tbody.appendChild(tr);
+        });
+        if (!projects.length) {
+            tbody.innerHTML = '<tr><td colspan="4" class="muted" style="text-align:center">Aucun projet enregistré</td></tr>';
+        }
+    });
+}
+
+document.getElementById('add-project-form').addEventListener('submit', e => {
+    e.preventDefault();
+    const name = document.getElementById('proj-name').value.trim();
+    const path = document.getElementById('proj-path').value.trim();
+    if (!name || !path) return;
+    fetch('/api/projects', {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({name, path})
+    }).then(r => {
+        if (r.ok) { loadProjects(); document.getElementById('proj-name').value = ''; document.getElementById('proj-path').value = ''; }
+        else r.json().then(d => alert(d.error));
+    });
+});
+
+function deleteProject(name) {
+    if (!confirm(`Supprimer le projet "${name}" ?`)) return;
+    fetch(`/api/projects/${encodeURIComponent(name)}`, {method: 'DELETE'})
+        .then(() => loadProjects());
+}
+
+loadProjects();
+</script>
+{% endblock %}

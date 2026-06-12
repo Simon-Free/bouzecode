@@ -1,0 +1,38 @@
+<!-- [desc] Jinja2 base layout template with header navigation, content block, and footer for BouzéqUI. [/desc] -->
+<!doctype html>
+<html lang="fr">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>{% block title %}BouzéqUI{% endblock %}</title>
+<link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
+{% block extra_css %}{% endblock %}
+</head>
+<body>
+<header class="header">
+    <div class="header-left">
+        <a href="{{ url_for('agents_page') }}" class="logo">
+            <img src="{{ url_for('static', filename='bouzequi.webp') }}" alt="BouzéqUI" class="logo-img">
+            <span class="logo-text">BouzéqUI</span>
+        </a>
+        <nav class="header-nav">
+            <a href="{{ url_for('dashboard_page') }}" class="nav-link">Dashboard</a>
+            <a href="{{ url_for('agents_page') }}" class="nav-link">Agents</a>
+            <a href="{{ url_for('sessions_page') }}" class="nav-link">Sessions</a>
+            <a href="{{ url_for('skills_page') }}" class="nav-link">Skills</a>
+            <a href="{{ url_for('tools_page') }}" class="nav-link">Tools</a>
+            <a href="{{ url_for('projects_page') }}" class="nav-link">Projects</a>
+        </nav>
+    </div>
+</header>
+<main class="main-content">
+    <div class="container">
+        {% block content %}{% endblock %}
+    </div>
+</main>
+<footer class="footer">
+    <p>BouzéqUI — BouzéLab</p>
+</footer>
+{% block extra_js %}{% endblock %}
+</body>
+</html>

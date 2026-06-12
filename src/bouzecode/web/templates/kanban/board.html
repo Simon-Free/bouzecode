@@ -1,0 +1,190 @@
+<!-- [desc] Kanban board template with modal overlay for viewing/accepting plans and answering agent questions [/desc] -->
+{% extends "base.html" %}
+{% block title %}Kanban — {{ project_name }} — BouzéqUI{% endblock %}
+{% block extra_css %}
+<link rel="stylesheet" href="{{ url_for('static', filename='kanban.css') }}">
+<style>
+.kanban-modal-overlay {
+    display: none;
+    position: fixed;
+    inset: 0;
+    background: rgba(0,0,0,0.5);
+    z-index: 1000;
+    justify-content: center;
+    align-items: center;
+}
+.kanban-modal-overlay.active {
+    display: flex;
+}
+.kanban-modal {
+    background: var(--bg-primary, #1e1e2e);
+    border: 1px solid var(--border-color, #444);
+    border-radius: 12px;
+    width: 90%;
+    max-width: 700px;
+    max-height: 80vh;
+    display: flex;
+    flex-direction: column;
+}
+.kanban-modal-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 1rem 1.5rem;
+    border-bottom: 1px solid var(--border-color, #444);
+}
+.kanban-modal-header h2 {
+    margin: 0;
+    font-size: 1.1rem;
+}
+.modal-close {
+    background: none;
+    border: none;
+    color: var(--text-secondary, #aaa);
+    font-size: 1.4rem;
+    cursor: pointer;
+}
+.kanban-modal-body {
+    padding: 1.5rem;
+    overflow-y: auto;
+    flex: 1;
+}
+.kanban-modal-body .plan-content {
+    line-height: 1.6;
+}
+.kanban-modal-body .question-text {
+    font-size: 1.05rem;
+    margin-bottom: 1rem;
+}
+.kanban-modal-body .question-options {
+    display: flex;
+    flex-direction: column;
+    gap: 0.5rem;
+    margin-bottom: 1rem;
+}
+.kanban-modal-body .btn-option {
+    text-align: left;
+    padding: 0.6rem 1rem;
+}
+.kanban-modal-body .question-freetext textarea {
+    width: 100%;
+    resize: vertical;
+}
+.kanban-modal-footer {
+    padding: 1rem 1.5rem;
+    border-top: 1px solid var(--border-color, #444);
+    display: flex;
+    gap: 0.5rem;
+    justify-content: flex-end;
+}
+.loading { color: var(--text-secondary, #aaa); font-style: italic; }
+.empty { color: var(--text-secondary, #aaa); }
+</style>
+{% endblock %}
+{% block content %}
+<div class="project-tabs">
+    <a href="{{ url_for('kanban_page', project=project_name) }}" class="active">📋 Kanban</a>
+    <a href="{{ url_for('todo_page', project=project_name) }}">📝 Todo</a>
+</div>
+<div class="kanban-header">
+    <h1>📋 Kanban — {{ project_name }}</h1>
+    <form id="new-card-form" class="kanban-prompt-form" onsubmit="return false;">
+        <input type="text" id="card-desc" class="form-input" placeholder="Décris la tâche et appuie sur Entrée…" autocomplete="off">
+    </form>
+    <button id="toggle-archived-btn" class="btn btn-secondary btn-toggle-archives" onclick="toggleArchived()">📦 Afficher les archives</button>
+</div>
+
+<div id="kanban-board-main" class="kanban-board">
+    <div class="kanban-column" data-status="in_progress">
+        <div class="kanban-column-header">
+            <span>🔄 En cours</span>
+            <span class="col-count" id="count-in_progress">0</span>
+        </div>
+        <div class="kanban-column-cards"></div>
+    </div>
+    <div class="kanban-column" data-status="awaiting_plan_validation">
+        <div class="kanban-column-header">
+            <span>📝 Validation plan</span>
+            <span class="col-count" id="count-awaiting_plan_validation">0</span>
+        </div>
+        <div class="kanban-column-cards"></div>
+    </div>
+    <div class="kanban-column" data-status="awaiting_input">
+        <div class="kanban-column-header">
+            <span>❓ Question</span>
+            <span class="col-count" id="count-awaiting_input">0</span>
+        </div>
+        <div class="kanban-column-cards"></div>
+    </div>
+    <div class="kanban-column" data-status="done">
+        <div class="kanban-column-header">
+            <span>✅ Terminé</span>
+            <span class="col-count" id="count-done">0</span>
+        </div>
+        <div class="kanban-column-cards"></div>
+    </div>
+    <div class="kanban-column" data-status="failed">
+        <div class="kanban-column-header">
+            <span>❌ Échoué</span>
+            <span class="col-count" id="count-failed">0</span>
+        </div>
+        <div class="kanban-column-cards"></div>
+    </div>
+</div>
+
+<div id="kanban-archives-section" style="display: none;">
+    <div class="kanban-board">
+        <div class="kanban-column" data-status="archived-in_progress">
+            <div class="kanban-column-header">
+                <span>🔄 En cours</span>
+                <span class="col-count" id="count-archived-in_progress">0</span>
+            </div>
+            <div class="kanban-column-cards"></div>
+        </div>
+        <div class="kanban-column" data-status="archived-awaiting_plan_validation">
+            <div class="kanban-column-header">
+                <span>📝 Validation plan</span>
+                <span class="col-count" id="count-archived-awaiting_plan_validation">0</span>
+            </div>
+            <div class="kanban-column-cards"></div>
+        </div>
+        <div class="kanban-column" data-status="archived-awaiting_input">
+            <div class="kanban-column-header">
+                <span>❓ Question</span>
+                <span class="col-count" id="count-archived-awaiting_input">0</span>
+            </div>
+            <div class="kanban-column-cards"></div>
+        </div>
+        <div class="kanban-column" data-status="archived-done">
+            <div class="kanban-column-header">
+                <span>✅ Terminé</span>
+                <span class="col-count" id="count-archived-done">0</span>
+            </div>
+            <div class="kanban-column-cards"></div>
+        </div>
+        <div class="kanban-column" data-status="archived-failed">
+            <div class="kanban-column-header">
+                <span>❌ Échoué</span>
+                <span class="col-count" id="count-archived-failed">0</span>
+            </div>
+            <div class="kanban-column-cards"></div>
+        </div>
+    </div>
+</div>
+
+<!-- Modal -->
+<div id="kanban-modal" class="kanban-modal-overlay">
+    <div class="kanban-modal">
+        <div class="kanban-modal-header">
+            <h2 id="modal-title"></h2>
+            <button class="modal-close" onclick="closeModal()">✕</button>
+        </div>
+        <div class="kanban-modal-body" id="modal-body"></div>
+        <div class="kanban-modal-footer" id="modal-footer"></div>
+    </div>
+</div>
+
+<script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
+<script src="{{ url_for('static', filename='kanban.js') }}"></script>
+<script>initKanban("{{ project_name }}");</script>
+{% endblock %}

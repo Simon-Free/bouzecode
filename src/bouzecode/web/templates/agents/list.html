@@ -1,0 +1,187 @@
+<!-- [desc] Jinja2 template listing agents by status (awaiting input, running, finished) with a prompt bar to launch new ones. [/desc] -->
+{% extends "base.html" %}
+{% block title %}Agents — BouzéqUI{% endblock %}
+{% block content %}
+
+<!-- Compact prompt bar -->
+<form method="post" action="{{ url_for('agents_new') }}" class="prompt-bar">
+    <div class="project-selector-wrap">
+        <svg class="project-selector-icon" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M22 19a2 2 0 01-2 2H4a2 2 0 01-2-2V5a2 2 0 012-2h5l2 3h9a2 2 0 012 2z"/></svg>
+        <input type="text" id="project-input" class="project-selector" tabindex="1"
+               placeholder="Projet…" list="projects-datalist" autocomplete="off"
+               onfocus="loadProjects()" oninput="selectProject(this.value)">
+        <datalist id="projects-datalist"></datalist>
+    </div>
+    <textarea name="prompt" rows="1" class="prompt-input" required autofocus tabindex="2"
+              placeholder="Décris la tâche à exécuter…"
+              onkeydown="if(event.key==='Enter'&&!event.shiftKey){event.preventDefault();this.form.submit()}"
+              oninput="this.style.height='auto';this.style.height=this.scrollHeight+'px'"></textarea>
+    <input type="hidden" name="model" id="hid-model" value="claude-opus-4-6">
+    <input type="hidden" name="cwd" id="hid-cwd" value="">
+    <div class="prompt-actions">
+        <button type="button" class="btn-icon" onclick="toggleOptions()" title="Options">
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
+        </button>
+        <button type="submit" class="btn-icon btn-send" title="Lancer (Enter)">
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="22" y1="2" x2="11" y2="13"/><polygon points="22 2 15 22 11 13 2 9 22 2"/></svg>
+        </button>
+    </div>
+    <!-- Options popover -->
+    <div id="optionsPopover" class="options-popover" style="display:none">
+        <div class="form-group">
+            <label for="opt-model">Modèle</label>
+            <input id="opt-model" type="text" class="form-input" value="claude-opus-4-6"
+                   oninput="document.getElementById('hid-model').value=this.value">
+        </div>
+        <div class="form-group" style="margin-bottom:0">
+            <label for="opt-cwd">Working dir</label>
+            <input id="opt-cwd" type="text" class="form-input" placeholder="cwd courant"
+                   oninput="document.getElementById('hid-cwd').value=this.value">
+        </div>
+        <hr style="margin:.75rem 0;border:none;border-top:1px solid var(--border-color)">
+        <div class="form-group" style="margin-bottom:0">
+            <label>Enregistrer projet</label>
+            <div style="display:flex;gap:.5rem">
+                <input id="new-proj-name" type="text" class="form-input" placeholder="Nom" style="flex:1">
+                <button type="button" class="btn btn-sm btn-primary" onclick="addCurrentProject()">+</button>
+            </div>
+            <small class="muted">Enregistre le working dir ci-dessus comme projet</small>
+        </div>
+    </div>
+</form>
+<script>
+let _projects = [];
+function loadProjects() {
+    fetch('/api/projects').then(r => r.json()).then(data => {
+        _projects = data;
+        const dl = document.getElementById('projects-datalist');
+        dl.innerHTML = '';
+        data.forEach(p => {
+            const opt = document.createElement('option');
+            opt.value = p.name;
+            opt.label = p.path;
+            dl.appendChild(opt);
+        });
+    });
+}
+function selectProject(val) {
+    const match = _projects.find(p => p.name === val);
+    document.getElementById('hid-cwd').value = match ? match.path : val;
+    document.getElementById('opt-cwd').value = match ? match.path : val;
+}
+function addCurrentProject() {
+    const name = document.getElementById('new-proj-name').value.trim();
+    const path = document.getElementById('opt-cwd').value.trim() || document.getElementById('hid-cwd').value.trim();
+    if (!name || !path) { alert('Nom et working dir requis'); return; }
+    fetch('/api/projects', {method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({name, path})})
+        .then(r => { if(r.ok) { loadProjects(); alert('Projet enregistré !'); } else { r.json().then(d => alert(d.error)); }});
+}
+loadProjects();
+</script>
+
+{% if awaiting %}
+<div class="card">
+    <h2>Besoin input utilisateur ({{ awaiting|length }})</h2>
+    <table>
+        <thead><tr><th>ID</th><th>Prompt</th><th>Modèle</th><th>PID</th><th>Démarré</th><th></th></tr></thead>
+        <tbody>
+        {% for a in awaiting %}
+            <tr>
+                <td><a href="{{ url_for('agent_detail', agent_id=a.agent_id) }}">{{ a.agent_id }}</a></td>
+                <td class="truncate">{{ a.prompt }}</td>
+                <td class="mono">{{ a.model or '—' }}</td>
+                <td>{{ a.pid }}</td>
+                <td class="muted">{{ a.started_at|fmt_date }}</td>
+                <td><a href="{{ url_for('agent_detail', agent_id=a.agent_id) }}" class="tag" style="background:#cce5ff;color:#004085;text-decoration:none">Répondre</a></td>
+            </tr>
+        {% endfor %}
+        </tbody>
+    </table>
+</div>
+{% endif %}
+
+{% if running %}
+<div class="card">
+    <h2>En cours ({{ running|length }})</h2>
+    <table>
+        <thead><tr><th>ID</th><th>Prompt</th><th>Modèle</th><th>PID</th><th>Démarré</th><th></th></tr></thead>
+        <tbody>
+        {% for a in running %}
+            <tr>
+                <td><a href="{{ url_for('agent_detail', agent_id=a.agent_id) }}">{{ a.agent_id }}</a></td>
+                <td class="truncate">{{ a.prompt }}</td>
+                <td class="mono">{{ a.model or '—' }}</td>
+                <td>{{ a.pid }}</td>
+                <td class="muted">{{ a.started_at|fmt_date }}</td>
+                <td><span class="tag running"><span class="spinner-inline"></span>running</span></td>
+            </tr>
+        {% endfor %}
+        </tbody>
+    </table>
+</div>
+{% endif %}
+
+{% if finished %}
+<div class="card">
+    <h2>Terminés ({{ finished|length }})</h2>
+    <table>
+        <thead><tr><th>ID</th><th>Prompt</th><th>Modèle</th><th>Démarré</th><th>Terminé</th><th>rc</th></tr></thead>
+        <tbody>
+        {% for a in finished %}
+            <tr>
+                <td><a href="{{ url_for('agent_detail', agent_id=a.agent_id) }}">{{ a.agent_id }}</a></td>
+                <td class="truncate">{{ a.prompt }}</td>
+                <td class="mono">{{ a.model or '—' }}</td>
+                <td class="muted">{{ a.started_at|fmt_date }}</td>
+                <td class="muted">{{ a.finished_at|fmt_date or '—' }}</td>
+                <td>{{ a.returncode if a.returncode is not none else '—' }}</td>
+            </tr>
+        {% endfor %}
+        </tbody>
+    </table>
+</div>
+{% endif %}
+
+{% if not running and not awaiting and not finished %}
+<p class="muted text-center mt-1">Aucun agent pour le moment.</p>
+{% endif %}
+
+{% endblock %}
+
+{% block extra_js %}
+<script>
+function toggleOptions() {
+    var pop = document.getElementById('optionsPopover');
+    pop.style.display = pop.style.display === 'none' ? 'block' : 'none';
+}
+document.addEventListener('click', function(e) {
+    var pop = document.getElementById('optionsPopover');
+    if (!pop.contains(e.target) && !e.target.closest('.btn-icon[onclick]')) {
+        pop.style.display = 'none';
+    }
+});
+
+/* Push-based updates: reload when any agent changes category */
+(function() {
+    var initial = {
+        {% for a in running %}'{{ a.agent_id }}': 'running',{% endfor %}
+        {% for a in awaiting %}'{{ a.agent_id }}': 'awaiting',{% endfor %}
+    };
+    var source = new EventSource('/agents/stream');
+    source.addEventListener('agents', function(event) {
+        var snapshot = JSON.parse(event.data);
+        for (var i = 0; i < snapshot.length; i++) {
+            var item = snapshot[i];
+            if (initial.hasOwnProperty(item.id) && initial[item.id] !== item.cat) {
+                location.reload();
+                return;
+            }
+            if (!initial.hasOwnProperty(item.id) && item.cat !== 'finished') {
+                location.reload();
+                return;
+            }
+        }
+    });
+})();
+</script>
+{% endblock %}

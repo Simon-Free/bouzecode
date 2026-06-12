@@ -1,0 +1,21 @@
+<!-- [desc] Jinja2 template listing all skills in a styled table with source, name, description, and editability. [/desc] -->
+{% extends "base.html" %}
+{% block title %}Skills — BouzéqUI{% endblock %}
+{% block content %}
+<div class="card">
+    <h2>Skills ({{ skills|length }})</h2>
+    <table>
+        <thead><tr><th>Source</th><th>Nom</th><th>Description</th><th></th></tr></thead>
+        <tbody>
+        {% for s in skills %}
+            <tr>
+                <td><span class="tag src-{{ s.source }}">{{ s.source }}</span></td>
+                <td><a href="{{ url_for('skill_detail', name=s.name) }}">{{ s.name }}</a></td>
+                <td class="truncate">{{ s.description }}</td>
+                <td>{% if s.editable %}<span class="muted small">éditable</span>{% else %}<span class="muted small">builtin</span>{% endif %}</td>
+            </tr>
+        {% endfor %}
+        </tbody>
+    </table>
+</div>
+{% endblock %}
