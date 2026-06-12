@@ -43,6 +43,7 @@ EXPECTED_COMMANDS = {
     "history", "context", "cost", "timing",
     # OSS shims (ported from flat-package features)
     "voice", "mcp", "plugin", "memory", "video",
+    "video-wizard",
 }
 
 REMOVED_COMMANDS = {
