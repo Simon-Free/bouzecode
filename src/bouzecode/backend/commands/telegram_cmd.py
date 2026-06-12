@@ -19,6 +19,13 @@ except ImportError:
 
 from bouzecode.backend.tools import ask_input_interactive, _tg_thread_local
 
+# ── Optional dependency check ──────────────────────────────────────────────
+try:
+    import telegram  # noqa: F401 — python-telegram-bot (optional)
+    HAS_PTB = True
+except ImportError:
+    HAS_PTB = False
+
 # ── Globals ───────────────────────────────────────────────────────────────
 _telegram_thread = None
 _telegram_stop = threading.Event()
@@ -274,6 +281,10 @@ def cmd_telegram(args: str, _state, config) -> bool:
     if _telegram_thread and _telegram_thread.is_alive():
         warn("Telegram bridge is already running. Use /telegram stop first.")
         return True
+
+    if not HAS_PTB:
+        info("Note: 'python-telegram-bot' not installed. Using built-in urllib bridge (fully functional).")
+        info("Install with: pip install bouzecode[telegram]")
 
     me = _tg_api(token, "getMe")
     if not me or not me.get("ok"):
