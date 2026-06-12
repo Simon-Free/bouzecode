@@ -66,7 +66,7 @@
 |------|--------|
 | `web_v2/` | Parallel MR by another agent |
 | `web/` (legacy Flask app) | Already exists in OSS as flat package — not touched |
-| `/demo` command | No clear demo runner in flat `demos/` — deferred |
+| `/demo` command | `demo.py` requires live Anthropic API (`agent.run()` streaming); `demos/make_*.py` are PIL GIF generators, not replay runners. No offline replay mechanism exists — cannot be wired without a mock agent layer. Deferred. |
 | Telegram integration | Internal `telegram_cmd.py` ported but requires `python-telegram-bot` not in deps |
 | Proactive sentinel | Ported in dispatcher but `proactive/` flat package may need wiring |
 | Full e2e test suite from internal | Only smoke tests ported; full backend/ test tree left for next MR |
