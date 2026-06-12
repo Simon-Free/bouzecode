@@ -3,32 +3,44 @@ from __future__ import annotations
 
 
 def cmd_memory(args: str, config: dict) -> str | None:
-    """Handle /memory [query|consolidate]."""
+    """Handle /memory [list|search <query>|consolidate]."""
     try:
-        from memory import memory_manager
+        from memory.store import load_entries
+        from memory.context import find_relevant_memories
+
         parts = args.strip().split(None, 1)
         sub = parts[0] if parts else ""
 
         if sub == "consolidate":
-            getattr(memory_manager, "consolidate", lambda c: None)(config)
-            from bouzecode.ui.ansi import ok
-            ok("Memory consolidation complete.")
+            from bouzecode.ui.ansi import info
+            info("Memory consolidation: use MemorySave tool for new entries.")
             return None
-        elif sub == "":
-            memories = getattr(memory_manager, "list_memories", lambda: [])()
-            if not memories:
+        elif sub in ("", "list"):
+            entries = []
+            for scope in ("user", "project"):
+                entries.extend(load_entries(scope))
+            if not entries:
                 from bouzecode.ui.ansi import info
                 info("No memories stored.")
                 return None
-            return "\n".join(str(m) for m in memories[:20])
+            lines = [f"{len(entries)} memory/memories:"]
+            for e in entries[:20]:
+                lines.append(f"  [{e.scope:7s}] {e.name}")
+                if e.description:
+                    lines.append(f"    {e.description}")
+            return "\n".join(lines)
         else:
             # Search query
-            results = getattr(memory_manager, "search", lambda q: [])(sub)
+            query = args.strip()
+            results = find_relevant_memories(query)
             if not results:
                 from bouzecode.ui.ansi import info
-                info(f"No memories matching: {sub}")
+                info(f"No memories matching: {query}")
                 return None
-            return "\n".join(str(r) for r in results[:10])
+            lines = [f"Found {len(results)} result(s):"]
+            for r in results[:10]:
+                lines.append(f"  {r.name}: {r.description or '(no description)'}")
+            return "\n".join(lines)
     except ImportError:
         from bouzecode.ui.ansi import warn
         warn("Memory package not available.")
