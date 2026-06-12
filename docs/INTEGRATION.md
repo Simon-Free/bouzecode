@@ -6,6 +6,7 @@
 |--------|----------|--------|
 | `feat/mr1-engine-core` | fast-forward | Clean (1df5ed3→1675ac6) |
 | `feat/mr2-web-v2` | ort (recursive) | Clean — no conflicts detected |
+| `feat/mr7-demos-htmlrenderer-folderdesc` | ort (recursive) | Clean — no conflicts detected |
 
 ## Conflict Resolutions
 
@@ -50,11 +51,12 @@ The legacy flat `web/` directory (bouzegui) remains untouched.
 
 | Suite | Command | Result |
 |-------|---------|--------|
-| Main | `python -m pytest tests/ -q` | 588 passed, 1 failed* |
+| Main | `python -m pytest tests/ -q` | 596 passed, 3 failed* |
 | Web V2 | `python -m pytest tests/web_v2 src/bouzecode/web_v2 -q` | 55 passed |
 
-\* `tests/test_xml_docs.py::test_docs_include_a_parsable_xml_example` — pre-existing
-failure (XML doc generation drift), tolerated per instructions.
+\* Tolerated pre-existing failures (3):
+- `tests/test_xml_docs.py::test_docs_include_a_parsable_xml_example` — XML doc generation drift
+- `tests/test_plugin.py::TestAskUserQuestion::test_…` (×2) — fix in progress on feat/mr1-engine-core
 
 ## Environment Note
 
