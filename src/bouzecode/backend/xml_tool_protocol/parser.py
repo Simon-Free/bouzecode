@@ -75,6 +75,49 @@ def _has_unclosed_fence(text: str) -> bool:
     return in_fence
 
 
+def _text_for_code_tracking(text: str) -> tuple[str, bool]:
+    """Strip <thinking>...</thinking> regions from *text* for code-state tracking.
+
+    Returns (clean_text, enters_thinking):
+      - clean_text: text with closed thinking regions removed
+      - enters_thinking: True if text ends inside an unclosed thinking block
+    """
+    OPEN = "<thinking>"
+    CLOSE = "</thinking>"
+    parts: list[str] = []
+    i = 0
+    while True:
+        start = text.find(OPEN, i)
+        if start == -1:
+            parts.append(text[i:])
+            return ("".join(parts), False)
+        # Only treat as real thinking block if at start of line
+        if start > 0 and text[start - 1] != '\n':
+            parts.append(text[i:start + len(OPEN)])
+            i = start + len(OPEN)
+            continue
+        # Real thinking opener
+        parts.append(text[i:start])
+        # Find matching close (at start of line)
+        search_from = start + len(OPEN)
+        end = -1
+        while True:
+            candidate = text.find(CLOSE, search_from)
+            if candidate == -1:
+                break
+            if candidate == 0 or text[candidate - 1] == '\n':
+                end = candidate
+                break
+            search_from = candidate + len(CLOSE)
+        if end == -1:
+            # Unclosed thinking — everything from <thinking> onward is thinking
+            return ("".join(parts), True)
+        # Closed thinking — skip the whole region
+        i = end + len(CLOSE)
+    # unreachable but keeps mypy happy
+    return ("".join(parts), False)
+
+
 def _has_unclosed_inline(text: str) -> int:
     """Return backtick count if *text* ends inside an unclosed inline code span, else 0."""
     i = 0
@@ -256,9 +299,16 @@ def _find_skip_cdata(buf: str, target: str, start: int = 0) -> int:
 def _find_param_close(buf: str, start: int) -> int:
     """Find PARAM_CLOSE, skipping CDATA and nested <param>...</param> regions.
 
-    A param body may legitimately contain a literal ``<param>...</param>`` (e.g.
-    an Edit's new_string showing example XML). The naive first-match scan would
-    treat the nested close as the outer param's close. We recurse instead.
+    A param body may legitimately contain literal angle brackets including
+    ``<param>`` or ``</param>`` (e.g. an Edit showing example XML).  We only
+    treat a ``<param`` occurrence as a *real* nested tag if its attribute string
+    contains a valid ``name="..."`` attribute — the mandatory attribute for our
+    protocol.  Bare ``<param>`` without ``name=`` is literal text.
+
+    Note: the only case that STILL requires CDATA wrapping is a value that
+    contains the exact sequence ``</param>`` immediately followed by
+    ``</tool_use>`` or another ``<param name=`` — i.e. something
+    indistinguishable from real protocol framing.
     """
     i = start
     while i < len(buf):
@@ -271,8 +321,20 @@ def _find_param_close(buf: str, start: int) -> int:
         if buf.startswith(PARAM_OPEN_PREFIX, i):
             attr_end = buf.find(">", i + len(PARAM_OPEN_PREFIX))
             if attr_end == -1:
-                return -1
-            if buf[attr_end - 1] == "/":  # self-closing <param .../> - no body to match
+                # Unclosed angle bracket — treat as literal text, advance past '<'
+                i += 1
+                continue
+            attr_str = buf[i + len(PARAM_OPEN_PREFIX):attr_end]
+            # A *real* nested param tag must have a name="..." attribute.
+            # If it doesn't, this is just literal text containing '<param'.
+            is_self_closing = attr_str.endswith("/")
+            attr_to_parse = attr_str[:-1] if is_self_closing else attr_str
+            attrs = _parse_attributes(attr_to_parse) if attr_to_parse.strip() else {}
+            if attrs is None or "name" not in (attrs or {}):
+                # Not a real param tag — literal text, skip past the '<'
+                i += 1
+                continue
+            if is_self_closing:
                 i = attr_end + 1
                 continue
             inner_close = _find_param_close(buf, attr_end + 1)
@@ -292,6 +354,10 @@ def _find_tool_close(buf: str, start: int) -> int:
     This keeps the outer tool_use framing robust when a param value contains
     a literal ``</tool_use>`` that the LLM forgot to wrap in CDATA: such a
     stray close tag inside a param body no longer terminates the outer block.
+
+    Only ``<param`` occurrences with a valid ``name="..."`` attribute are
+    treated as real param tags whose body is skipped.  Bare angle-bracket
+    sequences are treated as literal text.
     """
     i = start
     while i < len(buf):
@@ -304,8 +370,18 @@ def _find_tool_close(buf: str, start: int) -> int:
         if buf.startswith(PARAM_OPEN_PREFIX, i):
             attr_end = buf.find(">", i + len(PARAM_OPEN_PREFIX))
             if attr_end == -1:
-                return -1
-            if buf[attr_end - 1] == "/":  # self-closing <param .../> - no body to skip
+                # Unclosed — treat as literal, skip past '<'
+                i += 1
+                continue
+            attr_str = buf[i + len(PARAM_OPEN_PREFIX):attr_end]
+            is_self_closing = attr_str.endswith("/")
+            attr_to_parse = attr_str[:-1] if is_self_closing else attr_str
+            attrs = _parse_attributes(attr_to_parse) if attr_to_parse.strip() else {}
+            if attrs is None or "name" not in (attrs or {}):
+                # Not a real param tag — literal text
+                i += 1
+                continue
+            if is_self_closing:
                 i = attr_end + 1
                 continue
             pe = _find_param_close(buf, attr_end + 1)
@@ -606,10 +682,14 @@ class XmlToolStreamParser:
                     result.append(stripped)
                 self._buffer = self._buffer[emit_to - nl_hold:]
                 # Track fenced/inline code state for next chunk
-                if _has_unclosed_fence(stripped):
+                # BUT exclude thinking content from code tracking
+                tracking_text, enters_thinking = _text_for_code_tracking(stripped)
+                if enters_thinking:
+                    self._in_thinking = True
+                elif _has_unclosed_fence(tracking_text):
                     self._in_fenced_block = True
                 else:
-                    bt = _has_unclosed_inline(stripped)
+                    bt = _has_unclosed_inline(tracking_text)
                     if bt:
                         self._in_inline_code = bt
                 break
@@ -622,10 +702,14 @@ class XmlToolStreamParser:
                     result.append(stripped)
                 self._buffer = self._buffer[i - nl_hold:]
                 # Track fenced/inline code state for next chunk
-                if _has_unclosed_fence(stripped):
+                # BUT exclude thinking content from code tracking
+                tracking_text, enters_thinking = _text_for_code_tracking(stripped)
+                if enters_thinking:
+                    self._in_thinking = True
+                elif _has_unclosed_fence(tracking_text):
                     self._in_fenced_block = True
                 else:
-                    bt = _has_unclosed_inline(stripped)
+                    bt = _has_unclosed_inline(tracking_text)
                     if bt:
                         self._in_inline_code = bt
                 break
@@ -651,6 +735,12 @@ class XmlToolStreamParser:
 
             # --- Code region check ---
             code_info = _is_in_code(self._buffer, i)
+            if code_info is not None:
+                skip_to, region_start, is_fence = code_info
+                # FIX: backticks inside a closed <thinking> region must not
+                # prevent parsing of real tool_use tags outside that region.
+                if _is_in_thinking(self._buffer, region_start) is not None:
+                    code_info = None
             if code_info is not None:
                 skip_to, region_start, is_fence = code_info
                 if skip_to >= 0:
