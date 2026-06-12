@@ -52,6 +52,8 @@ where = ["src", "."]
 exclude = ["tests*", "docs*"]
 
 [tool.pytest.ini_options]
+pythonpath = ["src", "."]
+addopts = "--import-mode=importlib"
 testpaths = ["tests"]
 markers = [
     "backend: agent-engine tests",
@@ -59,7 +61,3 @@ markers = [
     "web: Flask + Playwright web tests",
     "slow: fixture-target marker",
 ]
-
-[tool.pytest.ini_options]
-pythonpath = ["src", "."]
-addopts = "--import-mode=importlib"
