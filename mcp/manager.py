@@ -98,3 +98,9 @@ def get_mcp_manager() -> MCPManager:
     if _manager is None:
         _manager = MCPManager()
     return _manager
+
+
+def reset_mcp_manager() -> None:
+    """Reset the singleton — for test teardown."""
+    global _manager
+    _manager = None

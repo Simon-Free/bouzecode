@@ -311,3 +311,10 @@ _DEFAULT_ENABLED = {
 for _tool_name in list(_registry.keys()):
     if _tool_name not in _DEFAULT_ENABLED:
         disable_tool(_tool_name)
+
+# ── MCP tools (registered after disable loop → stay enabled) ─────────────────
+try:
+    from mcp.tools import initialize_mcp as _initialize_mcp
+    _initialize_mcp()
+except Exception:
+    pass  # No MCP config or mcp package issue — non-fatal

@@ -17,7 +17,7 @@ from __future__ import annotations
 import threading
 from typing import Dict, List, Optional
 
-from tool_registry import ToolDef, register_tool
+from bouzecode.backend.core.tool_registry import ToolDef, register_tool, enable_tool
 from .client import MCPClient, MCPManager, get_mcp_manager
 from .config import load_mcp_configs
 from .types import MCPServerConfig, MCPTool
@@ -52,6 +52,7 @@ def _register_tool(tool: MCPTool) -> None:
         concurrent_safe=False,
     )
     register_tool(td)
+    enable_tool(tool.qualified_name)
 
 
 # ── Initialization ────────────────────────────────────────────────────────────
@@ -118,15 +119,13 @@ def get_connect_errors() -> Dict[str, Optional[str]]:
     return dict(_connect_errors)
 
 
-# ── Auto-initialize on import ─────────────────────────────────────────────────
-# Connect in a background thread so startup is not blocked.
-
-def _background_init():
-    try:
-        initialize_mcp()
-    except Exception:
-        pass
-
-
-_bg_thread = threading.Thread(target=_background_init, daemon=True)
-_bg_thread.start()
+def reset_mcp() -> None:
+    """Reset MCP state — for test teardown."""
+    global _initialized, _connect_errors
+    from .manager import reset_mcp_manager
+    with _init_lock:
+        mgr = get_mcp_manager()
+        mgr.disconnect_all()
+        reset_mcp_manager()
+        _initialized = False
+        _connect_errors = {}
