@@ -750,7 +750,7 @@ canvas { background: #f8f9fa; border: 1px solid #e1e4e8; border-radius: 4px; }
   <!-- SLIDE 11 : Output Compression -->
   <div class="slide" id="slide-11">
     <h2>Output Compression</h2>
-    <p style="margin-bottom: 12px;">Tool results are the #1 source of context bloat. We compress them aggressively before they enter the conversation history.</p>
+    <p style="margin-bottom: 12px;">Tool results are the #1 source of <strong>fresh-token bloat</strong> (they are not cached). We compress them aggressively before they enter the conversation turn.</p>
 
     <div class="memory-cards" style="margin-bottom: 12px;">
       <div class="memory-card">
@@ -763,16 +763,16 @@ canvas { background: #f8f9fa; border: 1px solid #e1e4e8; border-radius: 4px; }
       </div>
       <div class="memory-card">
         <h4>📝 Edit — Enriched Diff</h4>
-        <p>Returns a unified diff (max 40 lines) + surrounding context ±10 lines with the enclosing symbol name (<code>Class.method L42</code>). Middle truncated if region &gt;40 lines.</p>
+        <p>Returns a unified diff (max 40 lines) + surrounding context ±10 lines with the enclosing symbol name (<code>Class.method L42</code>). Purpose: gives the model immediate spatial awareness of what changed — not a token-reduction measure (returning just "Edit ok" would be equally cheap).</p>
       </div>
       <div class="memory-card">
         <h4>🔍 Edit — Fuzzy Error</h4>
-        <p>When <code>old_string</code> not found: <code>SequenceMatcher</code> sliding window finds the closest match, shows ±7 lines of context around the best candidate.</p>
+        <p>When <code>old_string</code> not found: <code>SequenceMatcher</code> sliding window finds the closest match, shows ±7 lines of context. Benefit: potentially saves one full re-read turn that the model would otherwise need to locate the mismatch.</p>
       </div>
     </div>
 
     <div class="analogy-box">
-      <strong>Key principle:</strong> Edit/Write results are exempt from snippet wrapping (<code>_SNIPPET_EXEMPT_TOOLS</code>) — they're transient by nature and already compressed.
+      <strong>Key principle:</strong> Edit/Write results are exempt from snippet wrapping (<code>_SNIPPET_EXEMPT_TOOLS</code>) — they are never stored in the persistent context (methodology note), so there is no snippet to manage. Meanwhile, symbol-based snippet re-resolution exists precisely to avoid re-reading files: the agent can reference a function by name and the system resolves it fresh each turn without an explicit <code>Read</code> call.
     </div>
   </div>
 
@@ -795,18 +795,18 @@ canvas { background: #f8f9fa; border: 1px solid #e1e4e8; border-radius: 4px; }
         <strong style="min-width:24px;">4.</strong> <span><strong>Stale marking</strong> — After Edit/Write, range-based snippets on the same file get marked <code>## snippet-stale:</code>. Append-only.</span>
       </div>
       <div style="display:flex; align-items:center; gap:8px; padding:6px 10px; background:#f0f1f3; border:1px solid #ddd; border-radius:4px; font-size:0.8em;">
-        <strong style="min-width:24px;">5.</strong> <span><strong>Compaction</strong> — Stale snippets, duplicates, and orphans (file deleted) are purged during structural compaction.</span>
+        <strong style="min-width:24px;">5.</strong> <span><strong>Compaction</strong> — When the methodology note exceeds <strong>20,000 tokens</strong> (≈ P90 of all notes), structural compaction fires immediately: stale snippets, duplicates, and orphans (file deleted) are purged — no LLM call needed.</span>
       </div>
     </div>
 
     <div class="stats-grid">
       <div class="stat-card">
         <div class="number">50 lines</div>
-        <div class="label">SNIPPET_MIN_LINES threshold<br><small>Below = no wrapping, no obligation</small></div>
+        <div class="label">SNIPPET_MIN_LINES threshold<br><small>Tool results under 50 lines are not wrapped in snippet markers and impose no save-or-discard obligation on the model.</small></div>
       </div>
       <div class="stat-card">
         <div class="number">9.6%</div>
-        <div class="label">Dead snippets (Opus)<br><small>≈3% of total cost</small></div>
+        <div class="label">Dead snippets (Opus)<br><small>Snippets saved but never re-referenced (file path/label never reappears in a later tool_call or Methodology). Measured on 202 Opus sessions. These dead snippets account for ≈3% of total session cost.</small></div>
       </div>
     </div>
   </div>
@@ -829,27 +829,36 @@ canvas { background: #f8f9fa; border: 1px solid #e1e4e8; border-radius: 4px; }
       </div>
       <div class="cache-block cb-volatile" style="flex:1;">
         <h4>Fresh tokens</h4>
-        <p>Bigctx-reminder + messages</p>
+        <p>Bigctx-reminder + messages + tool outputs</p>
         <span class="cache-miss">✗ fresh</span>
       </div>
     </div>
 
+    <!-- Sub-section: Wire Architecture -->
+    <div class="memory-cards" style="margin-bottom: 12px;">
+      <div class="memory-card snip">
+        <h4>🏗️ Wire Architecture</h4>
+        <p>Ordered blocks sent to the API each turn: <code>[stable_prefix+cc, tool_docs+cc, methodology+cc, seed, delta+cc, volatile]</code> then messages. Blocks marked <code>+cc</code> carry a <code>cache_control</code> breakpoint (TTL 5 min). Only <strong>volatile + messages + tool_results</strong> are fresh tokens — everything else is served from cache when the prefix matches.</p>
+      </div>
+    </div>
+
+    <!-- Sub-section: Compaction Lifecycle -->
     <div class="memory-cards" style="margin-bottom: 12px;">
       <div class="memory-card meth">
         <h4>📏 Compaction Trigger</h4>
-        <p>When note exceeds <code>20,000 tokens</code> (≈ P90 of all notes), structural compaction fires: purge stale snippets, deduplicate, remove orphans. No LLM needed.</p>
+        <p>When the methodology note exceeds <code>20,000 tokens</code> (≈ P90 of all notes), structural compaction fires <strong>immediately</strong>: purge stale snippets, deduplicate, remove orphans. Pure code logic — no LLM call.</p>
       </div>
       <div class="memory-card snip">
         <h4>🔄 Cache Invalidation</h4>
-        <p>After compaction, <code>_methodology_cache_snapshot = None</code> → forces full reconstruction of system blocks on the next turn (prefix is no longer valid).</p>
+        <p>After compaction, <code>_methodology_cache_snapshot = None</code> → the cached prefix is no longer valid. On the next turn the system rebuilds all blocks from scratch (one-time cache_create cost, amortized over subsequent turns).</p>
       </div>
+    </div>
+
+    <!-- Sub-section: Thinking Overflow -->
+    <div class="memory-cards" style="margin-bottom: 12px;">
       <div class="memory-card meth">
         <h4>💭 Thinking Overflow</h4>
-        <p>If thinking exceeds 20,000 chars with no tool_call parsed → streaming is cut. Cost per occurrence: ~$0.10–0.15. Summarized via claude-sonnet-4-6 (≤5 bullets, max 300 tokens).</p>
-      </div>
-      <div class="memory-card snip">
-        <h4>🏗️ Wire Architecture</h4>
-        <p>Ordered blocks: <code>[stable_prefix+cc, tool_docs+cc, methodology+cc, seed, delta+cc, volatile]</code>. Only volatile + messages are fresh tokens.</p>
+        <p>If the model's thinking exceeds <strong>20,000 chars</strong> without emitting a tool_call → streaming is cut with a system interrupt. Cost per occurrence: ~$0.10–0.15 (the cut tokens are billed but discarded). Recovery: the overflow is summarized via <code>claude-sonnet-4-6</code> into ≤5 bullets / max 300 tokens, injected as fresh context on the next turn.</p>
       </div>
     </div>
 
@@ -893,8 +902,35 @@ canvas { background: #f8f9fa; border: 1px solid #e1e4e8; border-radius: 4px; }
       </div>
     </div>
 
-    <div class="analogy-box" style="margin-top: 12px;">
-      <strong>Read-only streak:</strong> Counter <code>ctx.readonly_streak</code> tracks consecutive turns with only read-only tools (Read, Glob, Grep…). Reset on any productive tool. Currently observability-only (no automatic nudge/abort).
+
+  </div>
+
+  <!-- SLIDE 15 : The Causal Chain -->
+  <div class="slide" id="slide-15">
+    <h2>The Causal Chain: Why All This Matters</h2>
+    <p style="margin-bottom: 12px;">The token-reduction architecture follows a strict causal sequence. Each layer exists because of the previous one's limitations.</p>
+
+    <div class="memory-cards" style="margin-bottom: 12px;">
+      <div class="memory-card meth">
+        <h4>1️⃣ The Problem</h4>
+        <p>Without Methodology → amnesia effects trap the model in loops (it forgets what it already tried). Without Snippets → redundant re-reads of files already seen. Both waste turns and tokens.</p>
+      </div>
+      <div class="memory-card snip">
+        <h4>2️⃣ The Solution: Enforcement Harnesses</h4>
+        <p>Harnesses verify the model uses Snippet/Methodology correctly: if it doesn't snippet a result, a side-call forces the decision. If it doesn't write methodology, the system nudges. This prevents amnesia and re-reads.</p>
+      </div>
+      <div class="memory-card meth">
+        <h4>3️⃣ The Cost of Enforcement</h4>
+        <p>Each harness trigger costs <strong>one extra API turn</strong> (the side-call). At 34% omission rate (Opus), that's significant overhead. Enforcement works — but it's expensive when it fires often.</p>
+      </div>
+      <div class="memory-card snip">
+        <h4>4️⃣ The Optimization: Prompt Engineering</h4>
+        <p>Reduce trigger frequency by modifying the system prompt: methodology placeholders, fresh-token reminders, obligation rules. The model "forgets less" → fewer harness firings → fewer extra turns → lower cost. This is the final lever.</p>
+      </div>
+    </div>
+
+    <div class="analogy-box">
+      <strong>Summary:</strong> Amnesia/re-reads → need harnesses → harnesses cost turns → optimize the prompt to reduce omissions → fewer triggers → net savings. Each step justifies the next.
     </div>
   </div>
 
