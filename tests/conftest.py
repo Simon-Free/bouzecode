@@ -70,6 +70,12 @@ def pytest_collection_modifyitems(config, items):
 
 
 @pytest.fixture(autouse=True)
+def _disable_web_ipc(monkeypatch):
+    """Neutralize web-IPC mode so tests never raise PausedForInput."""
+    monkeypatch.delenv("BOUZECODE_WEB_IPC_DIR", raising=False)
+
+
+@pytest.fixture(autouse=True)
 def _llm_network_guard(monkeypatch):
     """Hermetic guard: blocks real LLM calls unless explicitly opted in."""
     from tests import cache_conversation_helpers as cch
