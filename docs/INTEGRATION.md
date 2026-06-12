@@ -9,6 +9,8 @@
 | `feat/mr7-demos-htmlrenderer-folderdesc` | ort (recursive) | Clean — no conflicts detected |
 | `feat/mr3-voice` | ort (recursive) | Clean — no conflicts detected |
 | `feat/mr9-telegram-proactive` | ort (recursive) | Clean — auto-merged pyproject.toml optional-deps |
+| `feat/mr4-video` | ort (recursive) | Clean — no conflicts detected |
+| `feat/mr6-plugin-skill-task-memory` | ort (recursive) | Clean — no conflicts detected |
 
 ## Conflict Resolutions
 
@@ -56,6 +58,8 @@ The legacy flat `web/` directory (bouzegui) remains untouched.
 | Main (post-MR7) | `python -m pytest tests/ -q` | 596 passed, 3 failed* |
 | Main (post-MR3) | `python -m pytest tests/ -q` | 606 passed, 3 failed* |
 | Main (post-MR9) | `python -m pytest tests/ -q` | 627 passed, 3 failed* |
+| Main (post-MR4) | `python -m pytest tests/ -q` | 637 passed, 3 failed* |
+| Main (post-MR6) | `python -m pytest tests/ -q` | 637 passed, 3 failed* |
 | Web V2 | `python -m pytest tests/web_v2 src/bouzecode/web_v2 -q` | 55 passed |
 
 \* Tolerated pre-existing failures (3):
