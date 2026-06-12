@@ -21,9 +21,10 @@ dependencies = [
 ]
 
 [project.optional-dependencies]
-voice  = ["sounddevice"]
-vision = ["Pillow"]
-test   = ["pytest", "pytest-xdist", "pytest-playwright"]
+voice    = ["sounddevice"]
+vision   = ["Pillow"]
+telegram = ["python-telegram-bot>=20"]
+test     = ["pytest", "pytest-xdist", "pytest-playwright"]
 
 [project.scripts]
 bouzecode = "bouzecode:main"
