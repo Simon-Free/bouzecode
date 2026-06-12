@@ -11,6 +11,8 @@
 | `feat/mr9-telegram-proactive` | ort (recursive) | Clean — auto-merged pyproject.toml optional-deps |
 | `feat/mr4-video` | ort (recursive) | Clean — no conflicts detected |
 | `feat/mr6-plugin-skill-task-memory` | ort (recursive) | Clean — no conflicts detected |
+| `feat/mr5-mcp` | ort (recursive) | Clean — no conflicts detected |
+| `feat/mr1-engine-core` (CI fixes) | ort (recursive) | Clean — 2 commits: isolation web-IPC conftest + parsable XML example |
 
 ## Conflict Resolutions
 
@@ -60,11 +62,19 @@ The legacy flat `web/` directory (bouzegui) remains untouched.
 | Main (post-MR9) | `python -m pytest tests/ -q` | 627 passed, 3 failed* |
 | Main (post-MR4) | `python -m pytest tests/ -q` | 637 passed, 3 failed* |
 | Main (post-MR6) | `python -m pytest tests/ -q` | 637 passed, 3 failed* |
+| Main (post-MR5) | `python -m pytest tests/ -q` | 645 passed, 3 failed* |
+| **Main (post-MR1 CI fixes)** | `python -m pytest tests/ -q` | **648 passed, 0 failed** ✅ |
 | Web V2 | `python -m pytest tests/web_v2 src/bouzecode/web_v2 -q` | 55 passed |
+| Web V2 (post-MR5) | `python -m pytest tests/web_v2 src/bouzecode/web_v2 -q` | 32 passed |
+| **Web V2 (post-MR1 CI fixes)** | `python -m pytest tests/web_v2 -q` | **32 passed, 0 failed** ✅ |
 
-\* Tolerated pre-existing failures (3):
-- `tests/test_xml_docs.py::test_docs_include_a_parsable_xml_example` — XML doc generation drift
-- `tests/test_plugin.py::TestAskUserQuestion::test_…` (×2) — fix in progress on feat/mr1-engine-core
+\* Previously tolerated failures (3) — now **fixed** by feat/mr1-engine-core CI commits:
+- `tests/test_xml_docs.py::test_docs_include_a_parsable_xml_example` — fixed by e827ebe (parsable example in xml_tool_protocol/docs.py)
+- `tests/test_plugin.py::TestAskUserQuestion::test_…` (×2) — fixed by 2e3c6d0 (autouse `_disable_web_ipc` fixture)
+
+## CI Status
+
+**🟢 CI 100% green** — All test suites pass with zero failures after merging feat/mr1-engine-core CI fixes.
 
 ## Environment Note
 
