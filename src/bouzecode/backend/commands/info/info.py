@@ -10,7 +10,7 @@ except ImportError:
 
 def cmd_history(_args: str, state, config) -> bool:
     """Show conversation history (used internally by session_load)."""
-    from ...replay import replay_messages
+    from bouzecode.ui.replay import replay_messages
     replay_messages(state.messages)
     return True
 

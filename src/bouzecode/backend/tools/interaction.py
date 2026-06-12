@@ -39,8 +39,11 @@ class PausedForInput(Exception):
 
 def is_web_ipc_active() -> bool:
     """True when the subprocess runs under BouzéqUI (IPC dir set via env)."""
-    from bouzecode.web import ipc
-    return ipc.from_env() is not None
+    try:
+        from bouzecode.web import ipc
+        return ipc.from_env() is not None
+    except (ImportError, ModuleNotFoundError):
+        return False
 
 
 def _ask_user_question_via_web_ipc(
