@@ -41,6 +41,46 @@
 | `/plugin` | `plugin/` | `oss_shims/plugin_cmd.py` |
 | `/memory` | `memory/` (flat module) | `oss_shims/memory_cmd.py` |
 
+## Extensibility — Plugin / Skill / Task / Memory (MR6)
+
+### Registry Unification Policy
+
+The OSS repo has **two** tool registry lineages:
+1. **Root `tool_registry.py`** — standalone dict, used by flat packages (`memory/`, `plugin/`).
+2. **Backend `src/bouzecode/backend/core/tool_registry.py`** — engine registry with thread-local overlays, disable/enable.
+
+**Decision:** Root `tool_registry.py` is now a **thin re-export shim** that delegates entirely to the backend registry. Any flat package importing `from tool_registry import register_tool` now registers directly into the engine's canonical store.
+
+### Doublon Resolution — Who Wins?
+
+| Feature | Backend (`tools/`) | Flat package | Winner |
+|---------|-------------------|--------------|--------|
+| Skill   | `tools/skill/` (loader, tools, builtin) | — | **Backend** (LLM tools: Skill, SkillList) |
+| Task    | `tools/task/` (store, tools, types) | — | **Backend** (LLM tools: TaskCreate, TaskUpdate, TaskGet, TaskList) |
+| Memory  | — (no backend equivalent) | `memory/` (store, tools, context, scan) | **Flat package** via registry shim |
+| Plugin  | — (no backend equivalent) | `plugin/` (store, loader, types, recommend) | **Flat package** via registry shim |
+
+### Slash Commands (OSS Shims)
+
+`/plugin` and `/memory` are **slash commands** (user-typed, NOT LLM tools). They live in `oss_shims/` and delegate to the flat packages:
+- `/plugin list|install|uninstall` → `plugin.store.list_plugins`, `plugin.store.install_plugin`, etc.
+- `/memory [query]` → `memory.store.load_entries`, `memory.context.find_relevant_memories`
+
+### LLM Tools — DEFAULT_ENABLED
+
+The following tools are enabled by default for the model:
+- **Skill/Task:** `Skill`, `SkillList`, `TaskList` (TaskCreate/Update/Get available but disabled)
+- **Memory:** `MemorySave`, `MemoryList` (MemoryDelete/Search available but disabled)
+- **Plugin:** Plugin tools registered dynamically via `register_plugin_tools()`
+
+### Test Strategy
+
+All e2e tests use `MockLLM` (no network). Features tested:
+- Skill execution with custom `.md` skill file
+- Task create → list → done lifecycle
+- Memory save → list → verify persistence
+- Plugin discovery + tool registration from fake plugin in tmp_path
+
 ## Collision Resolution
 
 - `bouzecode.py` (flat module) → renamed to `bouzecode_legacy.py`
