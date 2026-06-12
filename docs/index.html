@@ -751,20 +751,20 @@ canvas { background: #f8f9fa; border: 1px solid #e1e4e8; border-radius: 4px; }
     </div>
     <div class="stats-grid">
       <div class="stat-card">
-        <div class="number">+1 turn</div>
-        <div class="label">Cost per harness firing<br><small>Why omission must be rare</small></div>
+        <div class="number">81.8% → 0%</div>
+        <div class="label">Methodology omission, turn 1<br><small>All Opus sessions before the seed deploy (18/22) vs all sessions after (0/36) — Fisher p &lt; 10⁻¹⁰</small></div>
       </div>
       <div class="stat-card">
-        <div class="number">81.8% → 0%</div>
-        <div class="label">Methodology omission (turn 1)<br><small>Seed placeholder fix</small></div>
+        <div class="number">1.07%</div>
+        <div class="label">Empty turns in production<br><small>24/2,247 turns, all 183 Opus sessions over 4 days, reminders + recovery active</small></div>
       </div>
       <div class="stat-card">
         <div class="number">7.5% → 1.3%</div>
-        <div class="label">Empty turns (÷6)<br><small>Bigctx-reminder A/B</small></div>
+        <div class="label">Empty turns (÷6)<br><small>Controlled A/B, same task ± bigctx-reminder (single run — indicative)</small></div>
       </div>
       <div class="stat-card">
         <div class="number">307 → 77</div>
-        <div class="label">Turns per task (÷4)<br><small>Bigctx-reminder A/B</small></div>
+        <div class="label">Turns per task (÷4)<br><small>Same A/B run (single run — indicative)</small></div>
       </div>
     </div>
   </div>
@@ -832,7 +832,11 @@ canvas { background: #f8f9fa; border: 1px solid #e1e4e8; border-radius: 4px; }
   <!-- SLIDE 13 : Context & Methodology Management -->
   <div class="slide" id="slide-13">
     <h2>Context &amp; Methodology Management</h2>
-    <p style="margin-bottom: 12px;">The methodology note is the agent's working memory. It must stay compact, cacheable, and always up-to-date.</p>
+    <p style="margin-bottom: 12px;">Every mechanism here answers one of four questions: how do we reduce <strong>fresh input tokens</strong>, <strong>fresh output tokens</strong>, the <strong>number of API calls</strong>, and the <strong>size of the cached note</strong> itself.</p>
+
+    <!-- Q1: fresh input tokens -->
+    <h3>1. How do we reduce fresh input tokens?</h3>
+    <p style="margin-bottom: 8px;">By making everything heavy cacheable. System blocks are sent in a fixed order — <code>[stable_prefix+cc, tool_docs+cc, methodology+cc, seed, delta+cc, volatile]</code> — where <code>+cc</code> marks a <code>cache_control</code> breakpoint (TTL 5 min). What stays fresh is tiny: the volatile block, the last user message and the last batch of tool outputs — ~1–3k tokens per call on the minimal wire.</p>
 
     <div class="cache-diagram" style="margin-bottom: 12px;">
       <div class="cache-block cb-system" style="flex:3;">
@@ -852,15 +856,38 @@ canvas { background: #f8f9fa; border: 1px solid #e1e4e8; border-radius: 4px; }
       </div>
     </div>
 
-    <!-- Sub-section: Wire Architecture -->
+    <div class="analogy-box" style="margin-bottom: 12px;">
+      <strong>Why doesn't the seed get <code>+cc</code>?</strong> The seed placeholder only exists on turn 1, while the methodology note is still empty, and vanishes as soon as the first Methodology call lands. Caching content that is guaranteed to disappear on the next turn would burn one of the 4 available cache breakpoints for zero future hits.
+    </div>
+
+    <!-- Q2: fresh output tokens -->
+    <h3>2. How do we reduce fresh output tokens?</h3>
     <div class="memory-cards" style="margin-bottom: 12px;">
       <div class="memory-card snip">
-        <h4>🏗️ Wire Architecture</h4>
-        <p>Ordered blocks sent to the API each turn: <code>[stable_prefix+cc, tool_docs+cc, methodology+cc, seed, delta+cc, volatile]</code> then messages. Blocks marked <code>+cc</code> carry a <code>cache_control</code> breakpoint (TTL 5 min). Only <strong>volatile + messages + tool_results</strong> are fresh tokens — everything else is served from cache when the prefix matches.</p>
+        <h4>⚡ Think less, act more</h4>
+        <p>The bigctx-reminder ends every turn's input with "Think ≤15 lines then ACT". Output tokens cost 5× input tokens, so shorter deliberation is a direct saving.</p>
+      </div>
+      <div class="memory-card meth">
+        <h4>💭 Thinking Overflow</h4>
+        <p>If thinking exceeds <strong>20,000 chars</strong> with no tool_call parsed → streaming is cut (~$0.10–0.15 per occurrence: the cut tokens are billed but discarded). The overflow is summarized via <code>claude-sonnet-4-6</code> into ≤5 bullets / max 300 tokens for the next turn.</p>
       </div>
     </div>
 
-    <!-- Sub-section: Compaction Lifecycle -->
+    <!-- Q3: number of API calls -->
+    <h3>3. How do we reduce the number of API calls?</h3>
+    <div class="memory-cards" style="margin-bottom: 12px;">
+      <div class="memory-card meth">
+        <h4>🌱 Avoided harness firings</h4>
+        <p>Every omission the prompt prevents is one recovery side-call that never happens (see Error Rate Reduction). The seed placeholder alone removes the turn-1 recovery in virtually every session.</p>
+      </div>
+      <div class="memory-card snip">
+        <h4>🔁 Fewer turns per task</h4>
+        <p>The action-first reminder cut turns per task ÷4 in the A/B. Loop detection and capped FinalAnswer nudges stop runaway sessions from burning calls indefinitely.</p>
+      </div>
+    </div>
+
+    <!-- Q4: cache size -->
+    <h3>4. How do we keep the cached note small and valid?</h3>
     <div class="memory-cards" style="margin-bottom: 12px;">
       <div class="memory-card meth">
         <h4>📏 Compaction Trigger</h4>
@@ -869,14 +896,6 @@ canvas { background: #f8f9fa; border: 1px solid #e1e4e8; border-radius: 4px; }
       <div class="memory-card snip">
         <h4>🔄 Cache Invalidation</h4>
         <p>After compaction, <code>_methodology_cache_snapshot = None</code> → the cached prefix is no longer valid. On the next turn the system rebuilds all blocks from scratch (one-time cache_create cost, amortized over subsequent turns).</p>
-      </div>
-    </div>
-
-    <!-- Sub-section: Thinking Overflow -->
-    <div class="memory-cards" style="margin-bottom: 12px;">
-      <div class="memory-card meth">
-        <h4>💭 Thinking Overflow</h4>
-        <p>If the model's thinking exceeds <strong>20,000 chars</strong> without emitting a tool_call → streaming is cut with a system interrupt. Cost per occurrence: ~$0.10–0.15 (the cut tokens are billed but discarded). Recovery: the overflow is summarized via <code>claude-sonnet-4-6</code> into ≤5 bullets / max 300 tokens, injected as fresh context on the next turn.</p>
       </div>
     </div>
 
@@ -910,10 +929,6 @@ canvas { background: #f8f9fa; border: 1px solid #e1e4e8; border-radius: 4px; }
     </div>
 
     <div class="stats-grid">
-      <div class="stat-card">
-        <div class="number">1.07%</div>
-        <div class="label">Actual empty turn rate<br><small>24/2,247 turns measured</small></div>
-      </div>
       <div class="stat-card">
         <div class="number">MAX 3</div>
         <div class="label">No-tool recovery attempts<br><small>Then abort/nudge</small></div>
