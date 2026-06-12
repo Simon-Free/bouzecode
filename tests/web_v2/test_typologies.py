@@ -8,6 +8,15 @@ import yaml
 from bouzecode.web_v2.services.typologies import get_typology, list_typologies
 
 
+@pytest.fixture(autouse=True)
+def _isolate_global_typologies(tmp_path, monkeypatch):
+    """Prevent the real ~/.bouzecode/web_typologies.yaml from leaking into tests."""
+    fake_global = tmp_path / "_no_global" / "web_typologies.yaml"
+    monkeypatch.setattr(
+        "bouzecode.web_v2.services.typologies._GLOBAL_FILE", fake_global
+    )
+
+
 @pytest.fixture
 def typology_project(tmp_path):
     """Create a project dir with .bouzecode/web_typologies.yaml."""
