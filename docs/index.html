@@ -700,17 +700,17 @@ canvas { background: #f8f9fa; border: 1px solid #e1e4e8; border-radius: 4px; }
   <!-- SLIDE 9 : Section — Implementation Deep Dive -->
   <div class="section-slide" id="slide-9">
     <h1>Implementation Deep Dive</h1>
-    <p>How we enforce discipline, compress outputs, manage snippets, and keep the agent on track — mechanism by mechanism.</p>
+    <p>An agent's bill is <strong>number of API calls × (fresh input + output + cache writes)</strong>. Every mechanism in this section pulls one of four levers: <strong>1</strong> make fewer API calls · <strong>2</strong> send less fresh input · <strong>3</strong> emit less output · <strong>4</strong> pay cache prices instead of fresh prices.</p>
   </div>
 
-  <!-- SLIDE 10 : Error Rate Reduction -->
+  <!-- SLIDE 10 : Lever 1 — Fewer API calls -->
   <div class="slide" id="slide-10">
-    <h2>Error Rate Reduction</h2>
-    <p style="margin-bottom: 12px;">The whole wire only works if the model actually calls Methodology and Snippet. This page follows the causal order: the risk, the enforcement that neutralizes it, and how we then limit the cost of that enforcement.</p>
+    <h2>Lever 1 — Make Fewer API Calls</h2>
+    <p style="margin-bottom: 12px;">The biggest lever: every avoided call saves its entire input and output. The story is a causal chain — a risk, an expensive cure, then an optimization that makes the cure rarely needed.</p>
 
     <!-- 1. The risk -->
     <h3>1. The risk: LLMs forget instructions in long contexts</h3>
-    <p style="margin-bottom: 8px;">If the model skips Methodology, it develops amnesia: it no longer knows what it already tried and gets stuck in loops. If it skips Snippet, it re-reads files it has already seen. Measured spontaneous omission rates:</p>
+    <p style="margin-bottom: 8px;">If the model skips Methodology, it develops amnesia: it no longer knows what it already tried and gets stuck in loops. If it skips Snippet, it re-reads files it has already seen. Both burn extra calls. Measured spontaneous omission rates:</p>
     <div class="stats-grid" style="margin-bottom: 12px;">
       <div class="stat-card">
         <div class="number">81.8%</div>
@@ -723,7 +723,7 @@ canvas { background: #f8f9fa; border: 1px solid #e1e4e8; border-radius: 4px; }
     </div>
 
     <!-- 2. The enforcement -->
-    <h3>2. The enforcement: detection → recovery side-calls</h3>
+    <h3>2. The cure: enforcement — detection → recovery side-calls</h3>
     <p style="margin-bottom: 8px;">Because these omissions break the system, harnesses are not optional: every turn is checked, and a detected omission triggers a recovery side-call that forces the missing call. Omission becomes near-zero.</p>
     <div class="memory-cards" style="margin-bottom: 12px;">
       <div class="memory-card meth">
@@ -737,8 +737,8 @@ canvas { background: #f8f9fa; border: 1px solid #e1e4e8; border-radius: 4px; }
     </div>
 
     <!-- 3. Limiting the enforcement -->
-    <h3>3. The catch: each recovery costs one extra API turn — so we reduce how often it fires</h3>
-    <p style="margin-bottom: 8px;">Enforcement works, but at 34% omission it fires constantly. The final lever is prompt engineering that lowers the omission rate itself (placeholders, fresh-token reminders), so the harness almost never has to fire:</p>
+    <h3>3. The catch: each recovery is one extra API call — so we make firings rare</h3>
+    <p style="margin-bottom: 8px;">Enforcement works, but at 34% omission it fires constantly. The cheapest call is the one that never happens: prompt engineering lowers the omission rate itself (placeholders, fresh-token reminders), so the harness almost never has to fire:</p>
     <div class="memory-cards" style="margin-bottom: 12px;">
       <div class="memory-card meth">
         <h4>🌱 Seed Placeholder (Turn 1)</h4>
@@ -767,12 +767,29 @@ canvas { background: #f8f9fa; border: 1px solid #e1e4e8; border-radius: 4px; }
         <div class="label">Turns per task (÷4)<br><small>Same A/B run (single run — indicative)</small></div>
       </div>
     </div>
+
+    <!-- 4. Runaway stoppers -->
+    <h3>4. Last-resort stoppers: cap what a derailed session can burn</h3>
+    <div class="memory-cards" style="margin-bottom: 12px;">
+      <div class="memory-card meth">
+        <h4>🔁 Loop Detection</h4>
+        <p>MD5 hash of each tool_call batch → cycle detection (size 1–8, repeated ≥3×) → a LoopWarning is injected. A session stuck in a cycle stops burning identical calls on the spot.</p>
+      </div>
+      <div class="memory-card snip">
+        <h4>🧊 Paralysis Abort</h4>
+        <p>If turns without progression reach a threshold (default 12), the session is aborted: a frozen agent can never burn more than a bounded number of calls.</p>
+      </div>
+    </div>
+
+    <div class="analogy-box">
+      <strong>The chain in one line:</strong> amnesia/re-reads → harnesses are mandatory → each firing costs one call → optimize the prompt so omissions are rare → fewer firings, fewer turns, net savings.
+    </div>
   </div>
 
-  <!-- SLIDE 11 : Output Compression -->
+  <!-- SLIDE 11 : Lever 2a — Less fresh input: compress tool results -->
   <div class="slide" id="slide-11">
-    <h2>Output Compression</h2>
-    <p style="margin-bottom: 12px;">Tool results are the #1 source of <strong>fresh-token bloat</strong> (they are not cached). We compress them aggressively before they enter the conversation turn.</p>
+    <h2>Lever 2 — Send Less Fresh Input · a. Compress Tool Results</h2>
+    <p style="margin-bottom: 12px;">Fresh input per call is just the last user message + the last batch of tool results (~1–3k tokens on the minimal wire). Tool results are its #1 source — so every result is compressed before it enters the turn.</p>
 
     <div class="memory-cards" style="margin-bottom: 12px;">
       <div class="memory-card">
@@ -785,19 +802,15 @@ canvas { background: #f8f9fa; border: 1px solid #e1e4e8; border-radius: 4px; }
       </div>
       <div class="memory-card">
         <h4>🔍 Edit — Fuzzy Error</h4>
-        <p>When <code>old_string</code> not found: <code>SequenceMatcher</code> sliding window finds the closest match, shows ±7 lines of context. Benefit: potentially saves one full re-read turn that the model would otherwise need to locate the mismatch.</p>
+        <p>When <code>old_string</code> not found: <code>SequenceMatcher</code> sliding window finds the closest match, shows ±7 lines of context. Saving: the full re-read turn the model would otherwise need to locate the mismatch.</p>
       </div>
-    </div>
-
-    <div class="analogy-box">
-      <strong>Key principle:</strong> Edit/Write results are exempt from snippet wrapping (<code>_SNIPPET_EXEMPT_TOOLS</code>) — they are never stored in the persistent context (methodology note), so there is no snippet to manage. Meanwhile, symbol-based snippet re-resolution exists precisely to avoid re-reading files: the agent can reference a function by name and the system resolves it fresh each turn without an explicit <code>Read</code> call.
     </div>
   </div>
 
-  <!-- SLIDE 12 : Snippet Lifecycle -->
+  <!-- SLIDE 12 : Lever 2b — Less fresh input: never re-read -->
   <div class="slide" id="slide-12">
-    <h2>Snippet Lifecycle</h2>
-    <p style="margin-bottom: 12px;">Snippets are the agent's long-term memory for code. They follow a strict lifecycle: wrap → store → re-resolve → mark stale → compact.</p>
+    <h2>Lever 2 — Send Less Fresh Input · b. Never Re-Read a File</h2>
+    <p style="margin-bottom: 12px;">The other big source of fresh input is re-reading files already seen. Snippets eliminate it: read once, keep the useful part in the cached methodology note, re-resolve it every turn at cache price. Lifecycle:</p>
 
     <div style="display:flex; flex-direction:column; gap:3px; padding:8px; background:#f8f9fa; border:1px solid #e1e4e8; border-radius:4px; margin-bottom:12px;">
       <div style="display:flex; align-items:center; gap:8px; padding:6px 10px; background:#e8f4fd; border:1px solid #b8daef; border-radius:4px; font-size:0.8em;">
@@ -827,16 +840,33 @@ canvas { background: #f8f9fa; border: 1px solid #e1e4e8; border-radius: 4px; }
         <div class="label">Dead snippets (Opus)<br><small>Snippets saved but never re-referenced (file path/label never reappears in a later tool_call or Methodology). Measured on 202 Opus sessions. These dead snippets account for ≈3% of total session cost.</small></div>
       </div>
     </div>
+
+    <div class="analogy-box">
+      <strong>Key principle:</strong> Edit/Write results are exempt from snippet wrapping (<code>_SNIPPET_EXEMPT_TOOLS</code>) — they are never stored in the persistent context (methodology note), so there is no snippet to manage. Meanwhile, symbol-based snippet re-resolution exists precisely to avoid re-reading files: the agent can reference a function by name and the system resolves it fresh each turn without an explicit <code>Read</code> call.
+    </div>
   </div>
 
-  <!-- SLIDE 13 : Context & Methodology Management -->
+  <!-- SLIDE 13 : Lever 3 — Emit less output -->
   <div class="slide" id="slide-13">
-    <h2>Context &amp; Methodology Management</h2>
-    <p style="margin-bottom: 12px;">Every mechanism here answers one of four questions: how do we reduce <strong>fresh input tokens</strong>, <strong>fresh output tokens</strong>, the <strong>number of API calls</strong>, and the <strong>size of the cached note</strong> itself.</p>
+    <h2>Lever 3 — Emit Less Output</h2>
+    <p style="margin-bottom: 12px;">Output tokens cost 5× input tokens — every line of deliberation is the most expensive line of the call. Two mechanisms keep it short.</p>
 
-    <!-- Q1: fresh input tokens -->
-    <h3>1. How do we reduce fresh input tokens?</h3>
-    <p style="margin-bottom: 8px;">By making everything heavy cacheable. System blocks are sent in a fixed order — <code>[stable_prefix+cc, tool_docs+cc, methodology+cc, seed, delta+cc, volatile]</code> — where <code>+cc</code> marks a <code>cache_control</code> breakpoint (TTL 5 min). What stays fresh is tiny: the volatile block, the last user message and the last batch of tool outputs — ~1–3k tokens per call on the minimal wire.</p>
+    <div class="memory-cards" style="margin-bottom: 12px;">
+      <div class="memory-card snip">
+        <h4>⚡ Think less, act more</h4>
+        <p>The bigctx-reminder (Lever 1) ends every turn's input with "Think ≤15 lines then ACT" — shorter deliberation is a direct output saving on top of the turn reduction.</p>
+      </div>
+      <div class="memory-card meth">
+        <h4>💭 Thinking Overflow</h4>
+        <p>If thinking exceeds <strong>20,000 chars</strong> with no tool_call parsed → streaming is cut (~$0.10–0.15 per occurrence: the cut tokens are billed but discarded). The overflow is summarized via <code>claude-sonnet-4-6</code> into ≤5 bullets / max 300 tokens for the next turn.</p>
+      </div>
+    </div>
+  </div>
+
+  <!-- SLIDE 14 : Lever 4 — Pay cache prices -->
+  <div class="slide" id="slide-14">
+    <h2>Lever 4 — Pay Cache Prices, Not Fresh Prices</h2>
+    <p style="margin-bottom: 12px;">Whatever still has to travel should be cached, not re-billed. System blocks are sent in a fixed order — <code>[stable_prefix+cc, tool_docs+cc, methodology+cc, seed, delta+cc, volatile]</code> — where <code>+cc</code> marks a <code>cache_control</code> breakpoint (TTL 5 min). Only the tail is fresh.</p>
 
     <div class="cache-diagram" style="margin-bottom: 12px;">
       <div class="cache-block cb-system" style="flex:3;">
@@ -860,34 +890,8 @@ canvas { background: #f8f9fa; border: 1px solid #e1e4e8; border-radius: 4px; }
       <strong>Why doesn't the seed get <code>+cc</code>?</strong> The seed placeholder only exists on turn 1, while the methodology note is still empty, and vanishes as soon as the first Methodology call lands. Caching content that is guaranteed to disappear on the next turn would burn one of the 4 available cache breakpoints for zero future hits.
     </div>
 
-    <!-- Q2: fresh output tokens -->
-    <h3>2. How do we reduce fresh output tokens?</h3>
-    <div class="memory-cards" style="margin-bottom: 12px;">
-      <div class="memory-card snip">
-        <h4>⚡ Think less, act more</h4>
-        <p>The bigctx-reminder ends every turn's input with "Think ≤15 lines then ACT". Output tokens cost 5× input tokens, so shorter deliberation is a direct saving.</p>
-      </div>
-      <div class="memory-card meth">
-        <h4>💭 Thinking Overflow</h4>
-        <p>If thinking exceeds <strong>20,000 chars</strong> with no tool_call parsed → streaming is cut (~$0.10–0.15 per occurrence: the cut tokens are billed but discarded). The overflow is summarized via <code>claude-sonnet-4-6</code> into ≤5 bullets / max 300 tokens for the next turn.</p>
-      </div>
-    </div>
-
-    <!-- Q3: number of API calls -->
-    <h3>3. How do we reduce the number of API calls?</h3>
-    <div class="memory-cards" style="margin-bottom: 12px;">
-      <div class="memory-card meth">
-        <h4>🌱 Avoided harness firings</h4>
-        <p>Every omission the prompt prevents is one recovery side-call that never happens (see Error Rate Reduction). The seed placeholder alone removes the turn-1 recovery in virtually every session.</p>
-      </div>
-      <div class="memory-card snip">
-        <h4>🔁 Fewer turns per task</h4>
-        <p>The action-first reminder cut turns per task ÷4 in the A/B. Loop detection and capped FinalAnswer nudges stop runaway sessions from burning calls indefinitely.</p>
-      </div>
-    </div>
-
-    <!-- Q4: cache size -->
-    <h3>4. How do we keep the cached note small and valid?</h3>
+    <!-- Keep the note small and valid -->
+    <h3>Keep the cached note small and valid</h3>
     <div class="memory-cards" style="margin-bottom: 12px;">
       <div class="memory-card meth">
         <h4>📏 Compaction Trigger</h4>
@@ -901,69 +905,6 @@ canvas { background: #f8f9fa; border: 1px solid #e1e4e8; border-radius: 4px; }
 
     <div class="analogy-box">
       <strong>Cache TTL:</strong> 5 minutes by default (ephemeral). Accounts for ~15% of the top-10 session costs as cache_create (1.25× one-shot price).
-    </div>
-  </div>
-
-  <!-- SLIDE 14 : Reliability Guardrails -->
-  <div class="slide" id="slide-14">
-    <h2>Reliability Guardrails</h2>
-    <p style="margin-bottom: 12px;">Even with enforcement, agents can loop, freeze, or produce invalid closures. These guardrails catch the remaining failure modes.</p>
-
-    <div class="memory-cards" style="margin-bottom: 12px;">
-      <div class="memory-card">
-        <h4>🔁 Loop Detection</h4>
-        <p>MD5 hash of each tool_call batch → cycle detection (size 1–8, repeated ≥3×). Injects a LoopWarning + resets. <code>MAX_CYCLE_SIZE=8</code>, <code>MIN_REPEATS=3</code>.</p>
-      </div>
-      <div class="memory-card">
-        <h4>🧊 Paralysis Abort</h4>
-        <p>Configurable threshold (env <code>BOUZECODE_PARALYSIS_ABORT_AFTER</code>, default 12). If turns without progression reach this limit → session aborted. Web runner sets 0 (disabled for supervised sessions).</p>
-      </div>
-      <div class="memory-card">
-        <h4>✅ Close Validator</h4>
-        <p>LLM side-call receives TASK + METHODOLOGY + FINAL ANSWER. Verdict: "OK" or "KO: reason". If KO → session continues with feedback. Fail-open on exception.</p>
-      </div>
-      <div class="memory-card">
-        <h4>📢 FinalAnswer Nudges</h4>
-        <p>Meta-only batch (Methodology/Snippet only) + final text → nudge "Call FinalAnswer" (max 2, headless max 4). Cap exhausted → force-close with <code>final_answer_nudge_exhausted</code>.</p>
-      </div>
-    </div>
-
-    <div class="stats-grid">
-      <div class="stat-card">
-        <div class="number">MAX 3</div>
-        <div class="label">No-tool recovery attempts<br><small>Then abort/nudge</small></div>
-      </div>
-    </div>
-
-
-  </div>
-
-  <!-- SLIDE 15 : The Causal Chain -->
-  <div class="slide" id="slide-15">
-    <h2>The Causal Chain: Why All This Matters</h2>
-    <p style="margin-bottom: 12px;">The token-reduction architecture follows a strict causal sequence. Each layer exists because of the previous one's limitations.</p>
-
-    <div class="memory-cards" style="margin-bottom: 12px;">
-      <div class="memory-card meth">
-        <h4>1️⃣ The Problem</h4>
-        <p>Without Methodology → amnesia effects trap the model in loops (it forgets what it already tried). Without Snippets → redundant re-reads of files already seen. Both waste turns and tokens.</p>
-      </div>
-      <div class="memory-card snip">
-        <h4>2️⃣ The Solution: Enforcement Harnesses</h4>
-        <p>Harnesses verify the model uses Snippet/Methodology correctly: if it doesn't snippet a result, a side-call forces the decision. If it doesn't write methodology, the system nudges. This prevents amnesia and re-reads.</p>
-      </div>
-      <div class="memory-card meth">
-        <h4>3️⃣ The Cost of Enforcement</h4>
-        <p>Each harness trigger costs <strong>one extra API turn</strong> (the side-call). At 34% omission rate (Opus), that's significant overhead. Enforcement works — but it's expensive when it fires often.</p>
-      </div>
-      <div class="memory-card snip">
-        <h4>4️⃣ The Optimization: Prompt Engineering</h4>
-        <p>Reduce trigger frequency by modifying the system prompt: methodology placeholders, fresh-token reminders, obligation rules. The model "forgets less" → fewer harness firings → fewer extra turns → lower cost. This is the final lever.</p>
-      </div>
-    </div>
-
-    <div class="analogy-box">
-      <strong>Summary:</strong> Amnesia/re-reads → need harnesses → harnesses cost turns → optimize the prompt to reduce omissions → fewer triggers → net savings. Each step justifies the next.
     </div>
   </div>
 
