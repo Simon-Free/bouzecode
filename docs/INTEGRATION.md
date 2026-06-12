@@ -14,6 +14,7 @@
 | `feat/mr5-mcp` | ort (recursive) | Clean — no conflicts detected |
 | `feat/mr1-engine-core` (CI fixes) | ort (recursive) | Clean — 2 commits: isolation web-IPC conftest + parsable XML example |
 | `feat/mr8-internal-test-suite` | ort (recursive) | Clean — no conflicts detected (~190 files, 1282 tests) |
+| `fix/parser-thinking-backticks` | fast-forward | Clean — 2 commits, +612 lines (MR10: parser fix) |
 
 ## Conflict Resolutions
 
@@ -65,11 +66,13 @@ The legacy flat `web/` directory (bouzegui) remains untouched.
 | Main (post-MR6) | `python -m pytest tests/ -q` | 637 passed, 3 failed* |
 | Main (post-MR5) | `python -m pytest tests/ -q` | 645 passed, 3 failed* |
 | **Main (post-MR1 CI fixes)** | `python -m pytest tests/ -q` | **648 passed, 0 failed** ✅ |
-| **Main (post-MR8 — FINAL)** | `python -m pytest tests/ -q` | **1381 passed, 44 skipped, 2 xfailed, 0 failed** ✅ |
+| **Main (post-MR8)** | `python -m pytest tests/ -q` | **1381 passed, 44 skipped, 2 xfailed, 0 failed** ✅ |
+| **Main (post-MR10 — FINAL)** | `python -m pytest tests/ -q` | **1402 passed, 44 skipped, 2 xfailed, 0 failed** ✅ |
 | Web V2 | `python -m pytest tests/web_v2 src/bouzecode/web_v2 -q` | 55 passed |
 | Web V2 (post-MR5) | `python -m pytest tests/web_v2 src/bouzecode/web_v2 -q` | 32 passed |
 | **Web V2 (post-MR1 CI fixes)** | `python -m pytest tests/web_v2 -q` | **32 passed, 0 failed** ✅ |
-| **Web V2 (post-MR8 — FINAL)** | `python -m pytest tests/web_v2 -q` | **32 passed, 0 failed** ✅ |
+| **Web V2 (post-MR8)** | `python -m pytest tests/web_v2 -q` | **32 passed, 0 failed** ✅ |
+| **Web V2 (post-MR10 — FINAL)** | `python -m pytest tests/web_v2 -q` | **32 passed, 0 failed** ✅ |
 
 \* Previously tolerated failures (3) — now **fixed** by feat/mr1-engine-core CI commits:
 - `tests/test_xml_docs.py::test_docs_include_a_parsable_xml_example` — fixed by e827ebe (parsable example in xml_tool_protocol/docs.py)
@@ -84,10 +87,10 @@ The legacy flat `web/` directory (bouzegui) remains untouched.
 
 ## CI Status
 
-**🟢 CI 100% green** — All 9 MR branches merged. Migration complete.
-- Main suite: **1381 passed**, 44 skipped, 2 xfailed
+**🟢 CI 100% green** — All 10 MR branches merged. Migration complete.
+- Main suite: **1402 passed**, 44 skipped, 2 xfailed
 - Web V2 suite: **32 passed**
-- Total: **1413 tests passing**, zero failures.
+- Total: **1434 tests passing**, zero failures.
 
 ## Environment Note
 
