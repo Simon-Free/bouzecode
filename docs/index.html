@@ -1,0 +1,1244 @@
+﻿<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Reducing total token consumption of agentic coding</title>
+<style>
+* { margin: 0; padding: 0; box-sizing: border-box; }
+body { font-family: -apple-system, 'Segoe UI', system-ui, sans-serif; background: #fff; color: #1a1a1a; line-height: 1.6; }
+
+/* Layout */
+.slides { max-width: 780px; margin: 0 auto; padding: 20px 24px; }
+.slide { padding: 12px 0; }
+.section-slide { padding: 16px 0 6px; margin-top: 24px; }
+
+/* Typography */
+h1 { font-size: 1.6em; margin-bottom: 0.2em; color: #1a1a1a; font-weight: 700; }
+h2 { font-size: 1.2em; margin-bottom: 0.3em; color: #1a1a1a; font-weight: 600; }
+h3 { font-size: 1em; color: #555; margin-bottom: 0.4em; font-weight: 500; }
+p { font-size: 0.9em; line-height: 1.5; max-width: 780px; color: #444; text-align: left; }
+
+
+
+/* Details/Summary */
+details { margin: 16px 0; border: 1px solid #e1e4e8; border-radius: 4px; }
+details summary { padding: 8px 12px; cursor: pointer; font-size: 0.85em; font-weight: 600; color: #444; background: #fafafa; border-radius: 4px; }
+details[open] summary { border-bottom: 1px solid #e1e4e8; border-radius: 4px 4px 0 0; }
+details > .slide { padding: 12px 14px; }
+
+/* Two columns animation */
+.two-cols { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; width: 100%; height: 320px; }
+.col { display: flex; flex-direction: column; background: #f8f9fa; border-radius: 6px; border: 1px solid #e1e4e8; overflow: hidden; }
+.col-header { padding: 8px 12px; background: #f0f1f3; border-bottom: 1px solid #e1e4e8; font-weight: 600; font-size: 0.8em; display: flex; justify-content: space-between; align-items: center; }
+.col-header .label { color: #1a1a1a; }
+.col-header .counter { color: #d35400; font-family: monospace; font-size: 0.85em; }
+.col-body { flex: 1; overflow-y: auto; padding: 8px; display: flex; flex-direction: column; gap: 4px; }
+
+/* Messages */
+.msg { padding: 6px 10px; border-radius: 4px; font-size: 0.78em; line-height: 1.4; animation: fadeIn 0.3s ease; max-width: 95%; }
+.msg.user { background: #e8f4fd; border: 1px solid #b8daef; align-self: flex-end; }
+.msg.assistant { background: #e8f8e8; border: 1px solid #b8e8b8; align-self: flex-start; }
+.msg.system { background: #fff8e8; border: 1px solid #e8dbb8; align-self: flex-start; font-style: italic; }
+.msg .role { font-size: 0.7em; color: #666; margin-bottom: 2px; text-transform: uppercase; font-weight: 600; }
+.msg.faded { opacity: 0.35; }
+
+/* API call separator */
+.api-call { padding: 4px 8px; background: #fff3e8; border: 1px dashed #d35400; border-radius: 4px; font-size: 0.7em; color: #d35400; text-align: center; margin: 4px 0; font-family: monospace; }
+
+@keyframes fadeIn { from { opacity: 0; transform: translateY(4px); } to { opacity: 1; transform: translateY(0); } }
+
+/* Stats */
+.stats-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; width: 100%; }
+.stat-card { background: #f8f9fa; border: 1px solid #e1e4e8; border-radius: 4px; padding: 10px; text-align: center; }
+.stat-card .number { font-size: 1.4em; font-weight: 700; color: #d35400; font-family: monospace; }
+.stat-card .label { color: #666; margin-top: 2px; font-size: 0.78em; }
+
+/* Interactive */
+.interactive { display: flex; flex-direction: column; gap: 8px; width: 100%; }
+.slider-row { display: flex; align-items: center; gap: 12px; width: 100%; }
+.slider-row label { font-size: 0.85em; color: #444; white-space: nowrap; min-width: 180px; }
+.slider-row input[type=range] { flex: 1; accent-color: #1a1a1a; }
+.slider-row .val { font-family: monospace; color: #1a1a1a; font-size: 1em; min-width: 40px; text-align: right; }
+canvas { background: #f8f9fa; border: 1px solid #e1e4e8; border-radius: 4px; }
+
+/* Controls */
+.anim-controls { display: flex; gap: 8px; margin-top: 8px; }
+.anim-controls button { background: #1a1a1a; border: none; color: white; padding: 5px 14px; border-radius: 4px; cursor: pointer; font-size: 0.8em; }
+.anim-controls button:hover { background: #333; }
+.anim-controls button.reset { background: #fff; border: 1px solid #ccc; color: #444; }
+
+/* Flow compare */
+.flow-compare { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; width: 100%; }
+.flow-box { background: #f8f9fa; border: 1px solid #e1e4e8; border-radius: 4px; padding: 10px; }
+.flow-box h4 { color: #1a1a1a; margin-bottom: 8px; font-size: 0.9em; text-align: center; }
+.flow-box.agent h4 { color: #d35400; }
+.flow-timeline { display: flex; flex-direction: column; gap: 0; position: relative; padding-left: 20px; }
+.flow-timeline::before { content: ''; position: absolute; left: 6px; top: 8px; bottom: 8px; width: 1px; background: #ddd; }
+.flow-step { position: relative; padding: 5px 8px; font-size: 0.75em; border-radius: 4px; margin: 2px 0; opacity: 0; transform: translateX(-6px); transition: all 0.3s ease; }
+.flow-step.visible { opacity: 1; transform: translateX(0); }
+.flow-step::before { content: ''; position: absolute; left: -17px; top: 50%; transform: translateY(-50%); width: 7px; height: 7px; border-radius: 50%; background: #ddd; border: 1px solid #fff; }
+.flow-step.user-step { background: #e8f4fd; border: 1px solid #b8daef; }
+.flow-step.user-step::before { background: #2980b9; }
+.flow-step.api-step { background: #fde8e8; border: 1px solid #f0b8b8; }
+.flow-step.api-step::before { background: #c0392b; }
+.flow-step.tool-step { background: #e8f8e8; border: 1px solid #b8e8b8; }
+.flow-step.tool-step::before { background: #27ae60; }
+.flow-step.result-step { background: #fff8e8; border: 1px solid #e8dbb8; }
+.flow-step.result-step::before { background: #d35400; }
+.flow-step .step-label { font-weight: 600; color: #1a1a1a; }
+.flow-step .step-size { color: #666; font-family: monospace; font-size: 0.8em; }
+
+.agentic-callout { background: #fff8f0; border: 1px solid #f0d0a0; border-radius: 4px; padding: 8px 12px; margin-top: 10px; text-align: center; }
+.agentic-callout .big { font-size: 1.1em; font-weight: 700; color: #d35400; font-family: monospace; }
+.agentic-callout p { font-size: 0.82em; color: #666; margin-top: 4px; }
+
+/* Cost cards */
+.cost-compare { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; width: 100%; margin-bottom: 10px; }
+.cost-card { background: #f8f9fa; border-radius: 4px; padding: 12px; border: 1px solid #e1e4e8; text-align: center; }
+.cost-card.bad { border-color: #f0b8b8; }
+.cost-card .title { color: #666; font-size: 0.78em; margin-bottom: 6px; text-transform: uppercase; letter-spacing: 0.5px; }
+.cost-card .formula { font-size: 1.2em; font-family: monospace; color: #1a1a1a; margin-bottom: 4px; }
+.cost-card .example { font-size: 0.8em; color: #d35400; font-family: monospace; }
+
+/* Context & Cache */
+.context-bar {
+  display: flex; border-radius: 4px; overflow: hidden; height: 36px; margin: 12px 0;
+  font-size: 0.7em; font-weight: 600;
+}
+.context-bar > div { display: flex; align-items: center; justify-content: center; padding: 0 6px; }
+.ctx-system { background: #e8f4fd; color: #2980b9; flex: 1; }
+.ctx-user { background: #e8f8e8; color: #27ae60; flex: 0.5; }
+.ctx-tool { background: #fde8e8; color: #c0392b; flex: 4; }
+.ctx-trash { background: #fff0f0; color: #c0392b; flex: 4; border: 1px dashed #c0392b; animation: pulse-border 2s infinite; }
+
+@keyframes pulse-border { 0%,100%{border-color:#c0392b;} 50%{border-color:transparent;} }
+
+.cache-diagram {
+  display: flex; gap: 0; margin: 10px 0; border-radius: 4px; overflow: hidden; border: 1px solid #e1e4e8;
+}
+.cache-block {
+  padding: 12px 10px; text-align: center; display: flex; flex-direction: column; gap: 3px;
+}
+.cache-block h4 { margin: 0; font-size: 0.78em; }
+.cache-block p { margin: 0; font-size: 0.68em; color: #666; }
+.cb-system { background: #f0f7ff; flex: 2; border-right: 1px solid #e1e4e8; }
+.cb-tools { background: #f0fff0; flex: 3; border-right: 1px solid #e1e4e8; }
+.cb-volatile { background: #fff5f5; flex: 2; }
+.cache-hit { color: #27ae60; font-weight: 700; font-size: 0.8em; }
+.cache-miss { color: #c0392b; font-weight: 700; font-size: 0.8em; }
+
+.cache-arrow {
+  display: flex; align-items: center; justify-content: center; gap: 6px;
+  margin: 8px 0; font-size: 0.75em; color: #666;
+}
+.cache-arrow .arrow-line { flex: 1; height: 1px; background: linear-gradient(90deg, #27ae60, #c0392b); }
+.cache-arrow .arrow-label { white-space: nowrap; padding: 2px 8px; background: #f8f9fa; border-radius: 3px; border: 1px solid #e1e4e8; }
+
+.memory-cards {
+  display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin: 10px 0;
+}
+.memory-card {
+  background: #f8f9fa; border: 1px solid #e1e4e8; border-radius: 4px; padding: 10px;
+}
+.memory-card h4 { margin: 0 0 4px; color: #1a1a1a; font-size: 0.85em; }
+.memory-card p { margin: 0; font-size: 0.75em; color: #444; line-height: 1.4; }
+.memory-card code { background: #eef; padding: 1px 4px; border-radius: 2px; font-size: 0.85em; }
+.memory-card.meth { border-color: #9b59b6; }
+.memory-card.meth h4 { color: #8e44ad; }
+.memory-card.snip { border-color: #d35400; }
+.memory-card.snip h4 { color: #d35400; }
+
+.analogy-box {
+  background: #f0f7ff; border-left: 3px solid #2980b9; border-radius: 0 4px 4px 0;
+  padding: 8px 12px; margin: 10px 0; font-size: 0.82em; color: #333;
+}
+.analogy-box strong { color: #2980b9; }
+
+.cost-item {
+  text-align: center; padding: 10px 16px; border-radius: 4px; background: #f8f9fa; border: 1px solid #e1e4e8;
+}
+.cost-item .price { font-size: 1.4em; font-weight: 800; }
+.cost-item .label { font-size: 0.7em; color: #666; margin-top: 2px; }
+.cost-item.cached .price { color: #27ae60; }
+.cost-item.normal .price { color: #c0392b; }
+.cost-vs { font-size: 1.2em; color: #999; font-weight: 700; }
+
+/* Conv demo */
+.conv-demo { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; width: 100%; }
+.conv-col { background: #f8f9fa; border-radius: 4px; border: 1px solid #e1e4e8; overflow: hidden; }
+.conv-col.bad { border-color: #f0b8b8; }
+.conv-col.good { border-color: #b8e8b8; }
+.conv-col-header { padding: 6px 10px; background: #f0f1f3; border-bottom: 1px solid #e1e4e8; display: flex; justify-content: space-between; align-items: center; }
+.conv-col-header .title { font-weight: 700; font-size: 0.78em; }
+.conv-col.bad .title { color: #c0392b; }
+.conv-col.good .title { color: #27ae60; }
+.conv-col-header .total { font-family: monospace; font-size: 0.75em; color: #d35400; }
+.conv-body { padding: 8px; max-height: 300px; overflow-y: auto; }
+.conv-turn { margin-bottom: 6px; border-left: 2px solid #ddd; padding-left: 8px; display: none; }
+.conv-turn.visible { display: block; animation: fadeIn 0.3s ease; }
+.conv-turn-label { font-size: 0.65em; color: #888; font-family: monospace; margin-bottom: 3px; font-weight: 600; }
+.ctx-block { padding: 4px 6px; border-radius: 3px; font-size: 0.7em; margin-bottom: 2px; font-family: monospace; line-height: 1.4; }
+.ctx-block.user-msg { background: #e8f4fd; border: 1px solid #b8daef; color: #1a5276; }
+.ctx-block.tool-result { background: #fff8e8; border: 1px solid #e8dbb8; color: #7d5a00; }
+.ctx-block.assistant-msg { background: #e8f8e8; border: 1px solid #b8e8b8; color: #1a5c1a; }
+.ctx-block.methodology { background: #f3e8ff; border: 1px solid #d4b8f0; color: #5b2d8e; }
+.ctx-block.snippet { background: #e8fff3; border: 1px solid #b8e8d4; color: #1a5c3a; }
+.ctx-block.compacted { opacity: 0.3; text-decoration: line-through; }
+.ctx-block .chars { float: right; color: #888; font-size: 0.85em; }
+.conv-controls { display: flex; gap: 8px; margin-bottom: 10px; }
+.conv-btn { padding: 4px 12px; border-radius: 3px; border: 1px solid #ddd; background: #fff; color: #444; cursor: pointer; font-size: 0.8em; transition: all 0.2s; }
+.conv-btn:hover { background: #f0f0f0; }
+.conv-btn.active { background: #1a1a1a; color: #fff; border-color: #1a1a1a; font-weight: 600; }
+.conv-summary { display: flex; gap: 12px; margin-top: 10px; align-items: center; }
+.conv-summary .sum-card { text-align: center; padding: 8px 12px; border-radius: 4px; background: #f8f9fa; border: 1px solid #e1e4e8; }
+.conv-summary .sum-card.bad { border-color: #f0b8b8; }
+.conv-summary .sum-card.good { border-color: #b8e8b8; }
+.conv-summary .sum-number { font-size: 1.2em; font-weight: 800; font-family: monospace; }
+.conv-summary .sum-card.bad .sum-number { color: #c0392b; }
+.conv-summary .sum-card.good .sum-number { color: #27ae60; }
+.conv-summary .sum-label { font-size: 0.68em; color: #666; margin-top: 2px; }
+.conv-summary .sum-vs { font-size: 1em; color: #999; font-weight: 700; }
+</style>
+</head>
+<body>
+
+
+
+<div class="slides">
+  <!-- SLIDE 1 : Title -->
+  <div class="slide" id="slide-0">
+    <h1>Reducing Total Token Consumption<br>of Agentic Coding</h1>
+    <div style="margin-top: 12px; padding: 10px 14px; background: #f8f9fa; border-left: 3px solid #1a1a1a; border-radius: 3px; text-align: left;">
+      <strong>TL;DR</strong> â€” Two levers reduce cost:<br>
+      <strong>1.</strong> Less turns (parallel tool calls â†’ fewer API round-trips)<br>
+      <strong>2.</strong> Less context (methodology + snippets â†’ only relevant info survives)
+    </div>
+  </div>
+
+  <details>
+  <summary>ðŸ“Š Understanding the problem: why tokens grow quadratically</summary>
+
+  <!-- SLIDE 2 : Two-column animation -->
+  <div class="slide" id="slide-1">
+    <h2>What you see vs. what is sent</h2>
+    <div class="two-cols">
+      <div class="col">
+        <div class="col-header">
+          <span class="label">ðŸ‘¤ User side</span>
+          <span class="counter" id="user-counter">0 chars</span>
+        </div>
+        <div class="col-body" id="user-col"></div>
+      </div>
+      <div class="col">
+        <div class="col-header">
+          <span class="label">ðŸ¤– Sent to the API</span>
+          <span class="counter" id="api-counter">0 chars</span>
+        </div>
+        <div class="col-body" id="api-col"></div>
+      </div>
+    </div>
+    <div class="anim-controls">
+      <button onclick="nextStep()">â–¶ Next message</button>
+      <button onclick="autoPlay()" id="autoBtn">â© Auto</button>
+      <button class="reset" onclick="resetAnim()">â†º Reset</button>
+    </div>
+  </div>
+
+  <!-- SLIDE 3 : Summary stats -->
+  <div class="slide" id="slide-2">
+    <h2>The bottom line after 10 exchanges</h2>
+    <div class="stats-grid">
+      <div class="stat-card">
+        <div class="number" id="stat-user-total">â€”</div>
+        <div class="label">Characters typed by the user</div>
+      </div>
+      <div class="stat-card">
+        <div class="number" id="stat-api-total">â€”</div>
+        <div class="label">Characters sent to the API (cumulative)</div>
+      </div>
+      <div class="stat-card">
+        <div class="number" id="stat-ratio">â€”</div>
+        <div class="label">Multiplication factor</div>
+      </div>
+      <div class="stat-card">
+        <div class="number" id="stat-complexity">O(nÂ²)</div>
+        <div class="label">Cumulative cost complexity</div>
+      </div>
+    </div>
+    <p style="margin-top: 10px;">Each new message resends the <em>entire</em> history. The total cost grows like the sum 1+2+3+â€¦+n = <strong>n(n+1)/2</strong>.</p>
+  </div>
+
+  <!-- SLIDE 4 : Interactive simulation -->
+  <div class="slide" id="slide-3">
+    <h2>Interactive simulation</h2>
+    <div class="interactive">
+      <div class="slider-row">
+        <label>Messages (n):</label>
+        <input type="range" min="3" max="50" value="10" id="slider-n" oninput="updateSim()">
+        <span class="val" id="val-n">10</span>
+      </div>
+      <div class="slider-row">
+        <label>Avg size per message (s):</label>
+        <input type="range" min="500" max="10000" step="500" value="2000" id="slider-s" oninput="updateSim()">
+        <span class="val" id="val-s">2k</span>
+      </div>
+      <div class="slider-row">
+        <label>Tool loops per turn (k):</label>
+        <input type="range" min="1" max="10" value="1" id="slider-k" oninput="updateSim()">
+        <span class="val" id="val-k">1</span>
+      </div>
+      <canvas id="chart" width="700" height="250"></canvas>
+      <p id="sim-summary" style="font-size: 1em;"></p>
+    </div>
+  </div>
+
+  <!-- SLIDE 5 : Agentic flow -->
+  <div class="slide" id="slide-4">
+    <h2>Classic chatbot vs. agentic coding</h2>
+    <div class="flow-compare">
+      <div class="flow-box" id="flow-classic">
+        <h4>ðŸ’¬ Classic chatbot</h4>
+        <div class="flow-timeline">
+          <div class="flow-step user-step"><span class="step-label">User: "Fix this bug"</span><span class="step-size">â†’ 200 chars</span></div>
+          <div class="flow-step api-step"><span class="step-label">API response #1</span><span class="step-size">system + msg = 4,200 chars</span></div>
+          <div class="flow-step user-step"><span class="step-label">User: "Also add tests"</span><span class="step-size">â†’ 150 chars</span></div>
+          <div class="flow-step api-step"><span class="step-label">API response #2</span><span class="step-size">system + history = 8,500 chars</span></div>
+          <div class="flow-step user-step"><span class="step-label">User: "Rename the var"</span><span class="step-size">â†’ 100 chars</span></div>
+          <div class="flow-step api-step"><span class="step-label">API response #3</span><span class="step-size">system + history = 12,800 chars</span></div>
+        </div>
+      </div>
+      <div class="flow-box agent" id="flow-agent">
+        <h4>ðŸ¤– Agentic coding</h4>
+        <div class="flow-timeline">
+          <div class="flow-step user-step"><span class="step-label">User: "Fix this bug"</span><span class="step-size">â†’ 200 chars</span></div>
+          <div class="flow-step api-step"><span class="step-label">API call #1</span><span class="step-size">system + msg = 4,200 chars</span></div>
+          <div class="flow-step tool-step"><span class="step-label">â†’ Read(main.py)</span><span class="step-size">tool result: 3,000 chars</span></div>
+          <div class="flow-step api-step"><span class="step-label">API call #2</span><span class="step-size">everything + tool = 7,400 chars</span></div>
+          <div class="flow-step tool-step"><span class="step-label">â†’ Edit(main.py)</span><span class="step-size">tool result: 500 chars</span></div>
+          <div class="flow-step api-step"><span class="step-label">API call #3</span><span class="step-size">everything + tools = 8,100 chars</span></div>
+          <div class="flow-step tool-step"><span class="step-label">â†’ RunTests()</span><span class="step-size">tool result: 2,000 chars</span></div>
+          <div class="flow-step api-step"><span class="step-label">API call #4</span><span class="step-size">everything + tools = 10,300 chars</span></div>
+          <div class="flow-step result-step"><span class="step-label">âœ“ Result returned to user</span><span class="step-size">1 user message â†’ 4 API calls</span></div>
+        </div>
+      </div>
+    </div>
+    <div class="anim-controls">
+      <button onclick="animateFlows()">â–¶ Animate</button>
+      <button class="reset" onclick="resetFlows()">â†º Reset</button>
+    </div>
+    <div class="agentic-callout">
+      <div class="big">1 user message = 3-15 API calls</div>
+      <p>Each tool call (Read, Edit, Bashâ€¦) triggers a new API call with the full accumulated context.</p>
+    </div>
+  </div>
+
+  <!-- SLIDE 6 : Cost formula -->
+  <div class="slide" id="slide-5">
+    <h2>Agentic cost: the hidden multiplier</h2>
+    <div class="cost-compare">
+      <div class="cost-card">
+        <div class="title">Classic chatbot</div>
+        <div class="formula">n Ã— s â†’ O(nÂ²)</div>
+        <div class="example">10 msgs Ã— 2k = ~110k chars total</div>
+      </div>
+      <div class="cost-card bad">
+        <div class="title">Agentic (k loops/turn)</div>
+        <div class="formula">n Ã— k Ã— s â†’ O(nÂ² Ã— k)</div>
+        <div class="example">10 msgs Ã— 5 loops Ã— 2k = ~550k chars</div>
+      </div>
+    </div>
+    <p>With agentic coding, the context grows <strong>k times faster</strong>. A 20-message session with 5 tool loops per turn sends <em>millions</em> of characters to the API.</p>
+  </div>
+
+  </details>
+
+  <!-- SECTION 1 : Less Turns -->
+  <div class="slide section-slide" id="section-1">
+    <h2 style="font-size:1.3em; margin-bottom:4px;">1. Less Turns = Less Token Consumption</h2>
+    <p style="margin:0; font-size:0.85em;">Aggressive parallelization of tool calls reduces API round-trips. <em>I prefer a failed tool call to another full API call.</em></p>
+  </div>
+
+  <!-- SLIDE 7 : Parallel DAG â€” 3-turn process -->
+  <div class="slide" id="slide-6">
+    <h2>The 3-turn process</h2>
+    <p style="margin-bottom: 12px;"><strong>Discover â†’ Read â†’ Act.</strong> Group independent calls in the same turn to minimize context resends.</p>
+    <div class="flow-compare">
+      <div class="flow-box">
+        <h4>Sequential (8 turns)</h4>
+        <div style="display:flex; flex-direction:column; align-items:center; gap:3px; padding:8px;">
+          <div class="seq-step" style="--delay:0; background:#f3f0ff; padding:4px 10px; border-radius:3px; font-size:0.72em; border:1px solid #d8d0ef;">Turn 1: Glob("**/*.py")</div>
+          <div class="seq-arrow" style="--delay:0.1; color:#999; font-size:0.7em;">â†“ wait</div>
+          <div class="seq-step" style="--delay:0.2; background:#f3f0ff; padding:4px 10px; border-radius:3px; font-size:0.72em; border:1px solid #d8d0ef;">Turn 2: Grep("handler")</div>
+          <div class="seq-arrow" style="--delay:0.3; color:#999; font-size:0.7em;">â†“ wait</div>
+          <div class="seq-step" style="--delay:0.4; background:#f3f0ff; padding:4px 10px; border-radius:3px; font-size:0.72em; border:1px solid #d8d0ef;">Turn 3: GetFolderDescription()</div>
+          <div class="seq-arrow" style="--delay:0.5; color:#999; font-size:0.7em;">â†“ wait</div>
+          <div class="seq-step" style="--delay:0.6; background:#e8f4fd; padding:4px 10px; border-radius:3px; font-size:0.72em; border:1px solid #b8daef;">Turn 4: Read(main.py)</div>
+          <div class="seq-arrow" style="--delay:0.7; color:#999; font-size:0.7em;">â†“ wait</div>
+          <div class="seq-step" style="--delay:0.8; background:#e8f4fd; padding:4px 10px; border-radius:3px; font-size:0.72em; border:1px solid #b8daef;">Turn 5: Read(config.py)</div>
+          <div class="seq-arrow" style="--delay:0.9; color:#999; font-size:0.7em;">â†“ wait</div>
+          <div class="seq-step" style="--delay:1.0; background:#e8f8e8; padding:4px 10px; border-radius:3px; font-size:0.72em; border:1px solid #b8e8b8;">Turn 6: Edit(main.py)</div>
+          <div class="seq-arrow" style="--delay:1.1; color:#999; font-size:0.7em;">â†“ wait</div>
+          <div class="seq-step" style="--delay:1.2; background:#e8f8e8; padding:4px 10px; border-radius:3px; font-size:0.72em; border:1px solid #b8e8b8;">Turn 7: Write(test.py)</div>
+          <div class="seq-arrow" style="--delay:1.3; color:#999; font-size:0.7em;">â†“ wait</div>
+          <div class="seq-step" style="--delay:1.4; background:#fff8e8; padding:4px 10px; border-radius:3px; font-size:0.72em; border:1px solid #e8dbb8;">Turn 8: RunTests()</div>
+          <div style="margin-top:8px; font-family:monospace; color:#c0392b; font-size:0.72em;">8 turns = 8 Ã— full context resent</div>
+        </div>
+      </div>
+      <div class="flow-box agent">
+        <h4>DAG parallel (3 turns)</h4>
+        <div style="display:flex; flex-direction:column; align-items:center; gap:4px; padding:8px;">
+          <div style="color:#666; font-size:0.68em; margin-bottom:2px;">TURN 1 â€” discover</div>
+          <div class="dag-layer" style="--delay:0; display:flex; gap:6px; flex-wrap:wrap; justify-content:center;">
+            <div style="background:#f3f0ff; padding:4px 8px; border-radius:3px; font-size:0.72em; border:1px solid #d8d0ef;">Glob("**/*.py")</div>
+            <div style="background:#f3f0ff; padding:4px 8px; border-radius:3px; font-size:0.72em; border:1px solid #d8d0ef;">Grep("handler")</div>
+            <div style="background:#f3f0ff; padding:4px 8px; border-radius:3px; font-size:0.72em; border:1px solid #d8d0ef;">GetFolderDescription()</div>
+          </div>
+          <div class="dag-arrows" style="--delay:0.4; color:#999; font-size:0.68em;">â†“ need results to know what to read</div>
+          <div style="color:#666; font-size:0.68em; margin-top:2px;">TURN 2 â€” read</div>
+          <div class="dag-layer" style="--delay:0.8; display:flex; gap:6px;">
+            <div style="background:#e8f4fd; padding:4px 8px; border-radius:3px; font-size:0.72em; border:1px solid #b8daef;">Read(main.py, symbol="handle")</div>
+            <div style="background:#e8f4fd; padding:4px 8px; border-radius:3px; font-size:0.72em; border:1px solid #b8daef;">Read(config.py, symbol="Config")</div>
+          </div>
+          <div class="dag-arrows" style="--delay:1.2; color:#999; font-size:0.68em;">â†“ need content to write correct code</div>
+          <div style="color:#666; font-size:0.68em; margin-top:2px;">TURN 3 â€” act (all at once with depends_on)</div>
+          <div class="dag-layer" style="--delay:1.6; display:flex; gap:6px; flex-wrap:wrap; justify-content:center;">
+            <div style="background:#e8f8e8; padding:4px 8px; border-radius:3px; font-size:0.72em; border:1px solid #b8e8b8;">WritePlan</div>
+            <div style="background:#e8f8e8; padding:4px 8px; border-radius:3px; font-size:0.72em; border:1px solid #b8e8b8;">Edit(main.py)</div>
+            <div style="background:#e8f8e8; padding:4px 8px; border-radius:3px; font-size:0.72em; border:1px solid #b8e8b8;">Write(test.py)</div>
+            <div style="background:#fff8e8; padding:4px 8px; border-radius:3px; font-size:0.72em; border:1px solid #e8dbb8;">RunTests()</div>
+          </div>
+          <div class="dag-deps-label" style="--delay:2; margin-top:8px; font-family:monospace; color:#27ae60; font-size:0.72em;">3 turns = 3 Ã— context â†’ less tokens</div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- SECTION 2 : Less Context -->
+  <div class="slide section-slide" id="section-2">
+    <h2 style="font-size:1.3em; margin-bottom:4px;">2. Less Context = Less Tokens</h2>
+    <p style="margin:0; font-size:0.85em;">The context is append-only. Condense early or pay forever.</p>
+  </div>
+
+  <!-- SLIDE 7 : The naive approach -->
+  <div class="slide" id="slide-7">
+    <h2>The naive approach: keep everything</h2>
+    <p style="margin-bottom: 10px;">Each turn resends the <strong>entire</strong> conversation history. File reads, bash outputs, reasoning â€” nothing is thrown away.</p>
+    <div style="display:flex; flex-direction:column; gap:6px; width:100%; max-width:700px;">
+      <div style="font-size:0.75em; color:#333; font-weight:600;">â†’ API Call 1</div>
+      <div class="context-bar" style="width:18%;">
+        <div class="ctx-system" style="flex:2;">sys</div>
+        <div class="ctx-user" style="flex:1;">u</div>
+      </div>
+      <div style="font-size:0.72em; color:#27ae60; padding-left:16px;">â† Response: "I'll read main.py" + tool_call(Read)</div>
+
+      <div style="font-size:0.75em; color:#333; font-weight:600;">â†’ API Call 2</div>
+      <div class="context-bar" style="width:50%;">
+        <div class="ctx-system" style="flex:1; opacity:0.5;">sys</div>
+        <div class="ctx-user" style="flex:0.4; opacity:0.5;">u</div>
+        <div style="flex:0.4; opacity:0.5; display:flex; align-items:center; justify-content:center; font-size:0.65em; background:#e8f8e8; border:1px solid #b8e8b8;">asst</div>
+        <div class="ctx-tool" style="flex:3;">Read(main.py) 400L</div>
+      </div>
+      <div style="font-size:0.72em; color:#27ae60; padding-left:16px;">â† Response: "Found bug at L42" + tool_call(Edit)</div>
+
+      <div style="font-size:0.75em; color:#333; font-weight:600;">â†’ API Call 3</div>
+      <div class="context-bar" style="width:70%;">
+        <div class="ctx-system" style="flex:0.5; opacity:0.5;">sys</div>
+        <div class="ctx-user" style="flex:0.2; opacity:0.5;">u</div>
+        <div style="flex:0.2; opacity:0.5; display:flex; align-items:center; justify-content:center; font-size:0.65em; background:#e8f8e8; border:1px solid #b8e8b8;">asst</div>
+        <div class="ctx-tool" style="flex:2; opacity:0.5;">main.py 400L</div>
+        <div style="flex:0.2; opacity:0.5; display:flex; align-items:center; justify-content:center; font-size:0.65em; background:#e8f8e8; border:1px solid #b8e8b8;">asst</div>
+        <div class="ctx-tool" style="flex:0.4;">edit OK</div>
+      </div>
+      <div style="font-size:0.72em; color:#27ae60; padding-left:16px;">â† Response: "Running tests" + tool_call(RunTests)</div>
+
+      <div style="font-size:0.75em; color:#333; font-weight:600;">â†’ API Call 4</div>
+      <div class="context-bar" style="width:100%;">
+        <div class="ctx-system" style="flex:0.4; opacity:0.5;">sys</div>
+        <div class="ctx-user" style="flex:0.15; opacity:0.5;">u</div>
+        <div style="flex:0.15; opacity:0.5; display:flex; align-items:center; justify-content:center; font-size:0.6em; background:#e8f8e8; border:1px solid #b8e8b8;">asst</div>
+        <div class="ctx-tool" style="flex:1.5; opacity:0.5;">main.py 400L</div>
+        <div style="flex:0.15; opacity:0.5; display:flex; align-items:center; justify-content:center; font-size:0.6em; background:#e8f8e8; border:1px solid #b8e8b8;">asst</div>
+        <div class="ctx-tool" style="flex:0.3; opacity:0.5;">edit</div>
+        <div style="flex:0.15; opacity:0.5; display:flex; align-items:center; justify-content:center; font-size:0.6em; background:#e8f8e8; border:1px solid #b8e8b8;">asst</div>
+        <div class="ctx-tool" style="flex:1.2;">pytest 200L</div>
+      </div>
+      <div style="font-size:0.72em; color:#666; font-style:italic;">â† Response: "all tests pass! Task done."</div>
+      <div style="display:flex; gap:12px; font-size:0.7em; margin-top:6px;">
+        <span style="opacity:0.5;">â–  cached prefix ($0.30/MTok)</span>
+        <span>â–  fresh content ($3.00/MTok)</span>
+      </div>
+    </div>
+    <p style="font-size:0.82em; margin-top:10px;">Append-only: previous turns stay in place (cached), new content goes at the end (full price). The 400 lines of main.py are sent <strong>3 times</strong> â€” you only needed 1 function.</p>
+  </div>
+
+  <!-- SLIDE 7b : Same flow but with Snippets -->
+  <div class="slide" id="slide-7b">
+    <h2>With Snippets: same work, smaller context</h2>
+    <p style="margin-bottom:8px;">You still pay to Read once. But instead of carrying 400 lines forever, you save a <strong>20-line Snippet</strong> â€” the savings start next turn. Works with any tool result: Read, Grep, Skills, GetFolderDescriptionâ€¦</p>
+    <div style="display:flex; flex-direction:column; gap:6px; width:100%; max-width:700px;">
+      <div style="font-size:0.75em; color:#333; font-weight:600;">â†’ API Call 1 <span style="font-weight:400; color:#666;">(same as naive)</span></div>
+      <div class="context-bar" style="width:20%;">
+        <div class="ctx-system" style="flex:2;">S</div>
+        <div class="ctx-user" style="flex:1;">U</div>
+      </div>
+      <div style="font-size:0.72em; color:#666; font-style:italic;">â† Response: "I'll read main.py" â†’ tool_call(Read)</div>
+
+      <div style="font-size:0.75em; color:#333; font-weight:600;">â†’ API Call 2 <span style="font-weight:400; color:#666;">(same as naive â€” you pay the 400L once)</span></div>
+      <div class="context-bar" style="width:50%;">
+        <div class="ctx-system" style="flex:1; opacity:0.5;">S</div>
+        <div class="ctx-user" style="flex:0.3; opacity:0.5;">U</div>
+        <div style="flex:0.3; opacity:0.5; display:flex; align-items:center; justify-content:center; font-size:0.6em; background:#e8f8e8; border:1px solid #b8e8b8;">A</div>
+        <div class="ctx-tool" style="flex:3;">Read(main.py) 400L FRESH</div>
+      </div>
+      <div style="font-size:0.72em; color:#666; font-style:italic;">â† Response: finds bug, emits Snippet(L40-60) + Edit(main.py)</div>
+
+      <div style="font-size:0.75em; color:#333; font-weight:600;">â†’ API Call 3 <span style="font-weight:400; color:#c0392b;">(HERE the difference â€” 400L â†’ 20L Snippet)</span></div>
+      <div class="context-bar" style="width:40%;">
+        <div class="ctx-system" style="flex:0.8; opacity:0.5;">S</div>
+        <div class="ctx-user" style="flex:0.2; opacity:0.5;">U</div>
+        <div style="flex:0.2; opacity:0.5; display:flex; align-items:center; justify-content:center; font-size:0.6em; background:#e8f8e8; border:1px solid #b8e8b8;">A</div>
+        <div class="ctx-tool" style="flex:0.6; opacity:0.5; background:#e0f0e0; border-color:#90d090;">Snippet 20L</div>
+        <div style="flex:0.2; display:flex; align-items:center; justify-content:center; font-size:0.6em; background:#e8f8e8; border:1px solid #b8e8b8;">A</div>
+        <div class="ctx-tool" style="flex:0.4;">edit OK</div>
+      </div>
+      <div style="font-size:0.72em; color:#666; font-style:italic;">â† Response: "done, running tests" â†’ tool_call(RunTests)</div>
+
+      <div style="font-size:0.75em; color:#333; font-weight:600;">â†’ API Call 4 <span style="font-weight:400; color:#666;">(still small)</span></div>
+      <div class="context-bar" style="width:55%;">
+        <div class="ctx-system" style="flex:0.6; opacity:0.5;">S</div>
+        <div class="ctx-user" style="flex:0.15; opacity:0.5;">U</div>
+        <div style="flex:0.15; opacity:0.5; display:flex; align-items:center; justify-content:center; font-size:0.6em; background:#e8f8e8; border:1px solid #b8e8b8;">A</div>
+        <div class="ctx-tool" style="flex:0.5; opacity:0.5; background:#e0f0e0; border-color:#90d090;">20L</div>
+        <div style="flex:0.15; opacity:0.5; display:flex; align-items:center; justify-content:center; font-size:0.6em; background:#e8f8e8; border:1px solid #b8e8b8;">A</div>
+        <div class="ctx-tool" style="flex:0.3; opacity:0.5;">edit</div>
+        <div style="flex:0.15; display:flex; align-items:center; justify-content:center; font-size:0.6em; background:#e8f8e8; border:1px solid #b8e8b8;">A</div>
+        <div class="ctx-tool" style="flex:0.8;">pytest 200L</div>
+      </div>
+      <div style="font-size:0.72em; color:#666; font-style:italic;">â† Response: "all tests pass! Task done."</div>
+
+      <div style="display:flex; gap:12px; font-size:0.72em; margin-top:8px; align-items:center;">
+        <span style="color:#27ae60; font-weight:600;">Same structure [S][U][A][...] â€” just 20L instead of 400L from Call 3 onward</span>
+      </div>
+    </div>
+  </div>
+
+  <!-- SLIDE 7c : With Methodology -->
+  <div class="slide" id="slide-7c">
+    <h2>With Methodology: append-only working memory</h2>
+    <p style="margin-bottom:8px;">Each turn, the model appends a <strong>Methodology note</strong> (goal, plan, discoveries) to the cached prefix. Old tool_results are destroyed â€” only Methodology + Snippets + the original user message survive.</p>
+    <div style="display:flex; flex-direction:column; gap:6px; width:100%; max-width:700px;">
+      <div style="font-size:0.75em; color:#333; font-weight:600;">â†’ API Call 1</div>
+      <div class="context-bar" style="width:20%;">
+        <div class="ctx-system" style="flex:1.5;">S</div>
+        <div class="ctx-user" style="flex:1;">U</div>
+      </div>
+      <div style="font-size:0.72em; color:#666; font-style:italic;">â† Response: tool_call(Read) + Methodology#1</div>
+
+      <div style="font-size:0.75em; color:#333; font-weight:600;">â†’ API Call 2 <span style="font-weight:400; color:#666;">(400L paid once)</span></div>
+      <div class="context-bar" style="width:55%;">
+        <div class="ctx-system" style="flex:1; opacity:0.5;">S</div>
+        <div class="ctx-user" style="flex:0.4; opacity:0.5;">U</div>
+        <div style="flex:0.4; opacity:0.5; display:flex; align-items:center; justify-content:center; font-size:0.6em; background:#f0f0f0; border:1px solid #ccc;">Meth#1</div>
+        <div class="ctx-tool" style="flex:0.4; opacity:0.5; background:#e0f0e0; border-color:#90d090;">Snippet</div>
+        <div class="ctx-tool" style="flex:3;">Read(main.py) 400L FRESH</div>
+      </div>
+      <div style="font-size:0.72em; color:#666; font-style:italic;">â† Response: Methodology#2 + Edit(main.py)</div>
+
+      <div style="font-size:0.75em; color:#333; font-weight:600;">â†’ API Call 3 <span style="font-weight:400; color:#c0392b;">(400L gone! prefix + last result only)</span></div>
+      <div class="context-bar" style="width:30%;">
+        <div class="ctx-system" style="flex:0.8; opacity:0.5;">S</div>
+        <div class="ctx-user" style="flex:0.3; opacity:0.5;">U</div>
+        <div style="flex:0.3; opacity:0.5; display:flex; align-items:center; justify-content:center; font-size:0.6em; background:#f0f0f0; border:1px solid #ccc;">M#1</div>
+        <div class="ctx-tool" style="flex:0.3; opacity:0.5; background:#e0f0e0; border-color:#90d090;">Snip</div>
+        <div style="flex:0.3; opacity:0.5; display:flex; align-items:center; justify-content:center; font-size:0.6em; background:#f0f0f0; border:1px solid #ccc;">M#2</div>
+        <div class="ctx-tool" style="flex:0.4;">edit OK</div>
+      </div>
+      <div style="font-size:0.72em; color:#666; font-style:italic;">â† Response: Methodology#3 + RunTests()</div>
+
+      <div style="font-size:0.75em; color:#333; font-weight:600;">â†’ API Call 4 <span style="font-weight:400; color:#666;">(prefix grew, fresh = just pytest)</span></div>
+      <div class="context-bar" style="width:35%;">
+        <div class="ctx-system" style="flex:0.6; opacity:0.5;">S</div>
+        <div class="ctx-user" style="flex:0.2; opacity:0.5;">U</div>
+        <div style="flex:0.25; opacity:0.5; display:flex; align-items:center; justify-content:center; font-size:0.6em; background:#f0f0f0; border:1px solid #ccc;">M#1</div>
+        <div class="ctx-tool" style="flex:0.2; opacity:0.5; background:#e0f0e0; border-color:#90d090;">Snip</div>
+        <div style="flex:0.25; opacity:0.5; display:flex; align-items:center; justify-content:center; font-size:0.6em; background:#f0f0f0; border:1px solid #ccc;">M#2</div>
+        <div style="flex:0.25; opacity:0.5; display:flex; align-items:center; justify-content:center; font-size:0.6em; background:#f0f0f0; border:1px solid #ccc;">M#3</div>
+        <div class="ctx-tool" style="flex:0.8;">pytest 200L</div>
+      </div>
+      <div style="font-size:0.72em; color:#666; font-style:italic;">â† Response: "all tests pass! Task done."</div>
+
+      <div style="display:flex; gap:12px; font-size:0.72em; margin-top:8px; align-items:center;">
+        <span style="opacity:0.5;">â–  cached prefix: S + U + Meth#1..#N + Snippet</span>
+        <span>â–  fresh: only last tool_result</span>
+      </div>
+    </div>
+  </div>
+
+  <!-- SLIDE 8 : Demo â€” naive vs optimized -->
+  <div class="slide" id="slide-8">
+    <h2>Demo: naive vs. optimized</h2>
+    <p style="margin-bottom: 12px;">Same task: "fix the bug in main.py". 4 API calls each. Compare what's sent.</p>
+    <div class="conv-controls">
+      <button class="conv-btn ctrl-btn active" onclick="showConvTurn(1)">Call 1</button>
+      <button class="conv-btn ctrl-btn" onclick="showConvTurn(2)">Call 2</button>
+      <button class="conv-btn ctrl-btn" onclick="showConvTurn(3)">Call 3</button>
+      <button class="conv-btn ctrl-btn" onclick="showConvTurn(4)">Call 4</button>
+    </div>
+    <div class="conv-demo">
+      <!-- Brute force -->
+      <div class="conv-col bad conv-brute">
+        <div class="conv-col-header">
+          <span class="title">âŒ Naive (keep everything)</span>
+          <span class="total" id="brute-total">0 chars</span>
+        </div>
+        <div class="conv-body">
+          <!-- Call 1 -->
+          <div class="conv-turn visible" data-turn="1" data-chars="2100">
+            <div class="conv-turn-label">â†’ API Call #1 (2,100 ch)</div>
+            <div class="ctx-block methodology">System prompt <span class="chars">2,000ch</span></div>
+            <div class="ctx-block user-msg">User: "fix the bug in main.py" <span class="chars">100ch</span></div>
+            <div class="conv-turn-label" style="color:#27ae60; margin-top:6px;">â† Response:</div>
+            <div class="ctx-block assistant-msg">Assistant: "I'll read main.py" â†’ tool_call(Read)</div>
+          </div>
+          <!-- Call 2 -->
+          <div class="conv-turn" data-turn="2" data-chars="6300">
+            <div class="conv-turn-label">â†’ API Call #2 (6,300 ch)</div>
+            <div class="ctx-block methodology" style="opacity:0.5;">System prompt <span class="chars">2,000ch</span></div>
+            <div class="ctx-block user-msg" style="opacity:0.5;">User: "fix the bug" <span class="chars">100ch</span></div>
+            <div class="ctx-block assistant-msg" style="opacity:0.5;">Asst#1: "I'll read main.py" <span class="chars">200ch</span></div>
+            <div class="ctx-block tool-result">tool_result: Read(main.py) â†’ 400 lines <span class="chars">4,000ch FRESH</span></div>
+            <div class="conv-turn-label" style="color:#27ae60; margin-top:6px;">â† Response:</div>
+            <div class="ctx-block assistant-msg">Assistant: "Found bug at L42, editing" â†’ tool_call(Edit)</div>
+          </div>
+          <!-- Call 3 -->
+          <div class="conv-turn" data-turn="3" data-chars="6700">
+            <div class="conv-turn-label">â†’ API Call #3 (6,700 ch)</div>
+            <div class="ctx-block methodology" style="opacity:0.5;">System prompt <span class="chars">2,000ch</span></div>
+            <div class="ctx-block user-msg" style="opacity:0.5;">User <span class="chars">100ch</span></div>
+            <div class="ctx-block assistant-msg" style="opacity:0.5;">Asst#1 <span class="chars">200ch</span></div>
+            <div class="ctx-block tool-result" style="opacity:0.5;">Read(main.py) 400 lines <span class="chars">4,000ch STILL HERE</span></div>
+            <div class="ctx-block assistant-msg" style="opacity:0.5;">Asst#2 <span class="chars">200ch</span></div>
+            <div class="ctx-block tool-result">tool_result: Edit OK <span class="chars">200ch FRESH</span></div>
+            <div class="conv-turn-label" style="color:#27ae60; margin-top:6px;">â† Response:</div>
+            <div class="ctx-block assistant-msg">Assistant: "Fixed! Running tests" â†’ tool_call(RunTests)</div>
+          </div>
+          <!-- Call 4 -->
+          <div class="conv-turn" data-turn="4" data-chars="8400">
+            <div class="conv-turn-label">â†’ API Call #4 (8,400 ch)</div>
+            <div class="ctx-block methodology" style="opacity:0.5;">System prompt <span class="chars">2,000ch</span></div>
+            <div class="ctx-block user-msg" style="opacity:0.5;">User <span class="chars">100ch</span></div>
+            <div class="ctx-block assistant-msg" style="opacity:0.5;">Asst#1 <span class="chars">200ch</span></div>
+            <div class="ctx-block tool-result" style="opacity:0.5;">Read(main.py) 400 lines <span class="chars">4,000ch STILL HERE</span></div>
+            <div class="ctx-block assistant-msg" style="opacity:0.5;">Asst#2 <span class="chars">200ch</span></div>
+            <div class="ctx-block tool-result" style="opacity:0.5;">Edit OK <span class="chars">200ch STILL HERE</span></div>
+            <div class="ctx-block assistant-msg" style="opacity:0.5;">Asst#3 <span class="chars">200ch</span></div>
+            <div class="ctx-block tool-result">tool_result: pytest output <span class="chars">1,500ch FRESH</span></div>
+            <div class="conv-turn-label" style="color:#27ae60; margin-top:6px;">â† Response:</div>
+            <div class="ctx-block assistant-msg">Assistant: "All tests pass! Task done."</div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Optimized -->
+      <div class="conv-col good conv-opti">
+        <div class="conv-col-header">
+          <span class="title">âœ… Optimized (Methodology + Snippets)</span>
+          <span class="total" id="opti-total">0 chars</span>
+        </div>
+        <div class="conv-body">
+          <!-- Call 1 -->
+          <div class="conv-turn visible" data-turn="1" data-chars="2100">
+            <div class="conv-turn-label">â†’ API Call #1 (2,100 ch)</div>
+            <div class="ctx-block methodology">System prompt <span class="chars">2,000ch</span></div>
+            <div class="ctx-block user-msg">User: "fix the bug in main.py" <span class="chars">100ch</span></div>
+            <div class="conv-turn-label" style="color:#27ae60; margin-top:6px;">â† Response:</div>
+            <div class="ctx-block assistant-msg">tool_call(Read) + Methodology#1("Goal: fix bug")</div>
+          </div>
+          <!-- Call 2 -->
+          <div class="conv-turn" data-turn="2" data-chars="6200">
+            <div class="conv-turn-label">â†’ API Call #2 (6,200 ch)</div>
+            <div class="ctx-block methodology" style="opacity:0.5;">System prompt <span class="chars">2,000ch</span></div>
+            <div class="ctx-block user-msg" style="opacity:0.5;">User: "fix the bug" <span class="chars">100ch</span></div>
+            <div class="ctx-block methodology" style="opacity:0.5;">Meth#1: "Goal: fix bug. Reading main.py" <span class="chars">100ch (cached)</span></div>
+            <div class="ctx-block tool-result">tool_result: Read(main.py) â†’ 400 lines <span class="chars">4,000ch FRESH</span></div>
+            <div class="conv-turn-label" style="color:#27ae60; margin-top:6px;">â† Response:</div>
+            <div class="ctx-block assistant-msg">Methodology#2 + Snippet(L40-60) + tool_call(Edit)</div>
+          </div>
+          <!-- Call 3 -->
+          <div class="conv-turn" data-turn="3" data-chars="2950">
+            <div class="conv-turn-label">â†’ API Call #3 (2,950 ch) â† 400L GONE!</div>
+            <div class="ctx-block methodology" style="opacity:0.5;">System prompt <span class="chars">2,000ch</span></div>
+            <div class="ctx-block user-msg" style="opacity:0.5;">User <span class="chars">100ch</span></div>
+            <div class="ctx-block methodology" style="opacity:0.5;">Meth#1 <span class="chars">100ch (cached)</span></div>
+            <div class="ctx-block snippet" style="opacity:0.5;">Snippet: main.py L40-60 <span class="chars">300ch (cached)</span></div>
+            <div class="ctx-block methodology" style="opacity:0.5;">Meth#2: "Found off-by-one at L42" <span class="chars">150ch (cached)</span></div>
+            <div class="ctx-block tool-result">tool_result: Edit OK <span class="chars">200ch FRESH</span></div>
+            <div class="conv-turn-label" style="color:#27ae60; margin-top:6px;">â† Response:</div>
+            <div class="ctx-block assistant-msg">Methodology#3 + tool_call(RunTests)</div>
+          </div>
+          <!-- Call 4 -->
+          <div class="conv-turn" data-turn="4" data-chars="4400">
+            <div class="conv-turn-label">â†’ API Call #4 (4,400 ch)</div>
+            <div class="ctx-block methodology" style="opacity:0.5;">System prompt <span class="chars">2,000ch</span></div>
+            <div class="ctx-block user-msg" style="opacity:0.5;">User <span class="chars">100ch</span></div>
+            <div class="ctx-block methodology" style="opacity:0.5;">Meth#1 <span class="chars">100ch (cached)</span></div>
+            <div class="ctx-block snippet" style="opacity:0.5;">Snippet: main.py L40-60 <span class="chars">300ch (cached)</span></div>
+            <div class="ctx-block methodology" style="opacity:0.5;">Meth#2 <span class="chars">150ch (cached)</span></div>
+            <div class="ctx-block methodology" style="opacity:0.5;">Meth#3: "Edit done. Running tests." <span class="chars">150ch (cached)</span></div>
+            <div class="ctx-block tool-result">tool_result: pytest output <span class="chars">1,500ch FRESH</span></div>
+            <div class="conv-turn-label" style="color:#27ae60; margin-top:6px;">â† Response:</div>
+            <div class="ctx-block assistant-msg">"All tests pass! Task done."</div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ========== SECTION: Implementation Deep Dive ========== -->
+
+  <!-- SLIDE 9 : Section â€” Implementation Deep Dive -->
+  <div class="section-slide" id="slide-9">
+    <h1>Implementation Deep Dive</h1>
+    <p>How we enforce discipline, compress outputs, manage snippets, and keep the agent on track â€” mechanism by mechanism.</p>
+  </div>
+
+  <!-- SLIDE 10 : Error Rate Reduction -->
+  <div class="slide" id="slide-10">
+    <h2>Error Rate Reduction</h2>
+    <p style="margin-bottom: 12px;">LLMs forget instructions in long contexts. We enforce compliance via detection â†’ recovery side-calls, turning omission rates into near-zero.</p>
+
+    <div class="stats-grid" style="margin-bottom: 12px;">
+      <div class="stat-card">
+        <div class="number">81.8% â†’ 0%</div>
+        <div class="label">Methodology omission (turn 1)<br><small>Seed placeholder fix</small></div>
+      </div>
+      <div class="stat-card">
+        <div class="number">34%</div>
+        <div class="label">Snippet omission (Opus, spontaneous)<br><small>Before enforcement</small></div>
+      </div>
+      <div class="stat-card">
+        <div class="number">7.5% â†’ 1.3%</div>
+        <div class="label">Empty turns (Ã·6)<br><small>Bigctx-reminder A/B</small></div>
+      </div>
+      <div class="stat-card">
+        <div class="number">307 â†’ 77</div>
+        <div class="label">Turns per task (Ã·4)<br><small>Bigctx-reminder A/B</small></div>
+      </div>
+    </div>
+
+    <div class="memory-cards">
+      <div class="memory-card meth">
+        <h4>ðŸ”’ Enforcement Methodology</h4>
+        <p><code>check_enforcement()</code> detects missing Methodology call â†’ <code>recover_methodology()</code> fires a side-call with <code>tool_choice</code> locked on Methodology. Triggered only when thinking is non-empty.</p>
+      </div>
+      <div class="memory-card snip">
+        <h4>ðŸ“Ž Enforcement Snippet</h4>
+        <p><code>get_unsnippeted_reads()</code> scans for Read results â‰¥50 lines without a matching Snippet. Recovery side-call decides snippet/discard per result. Churn discard post-recovery: 45%.</p>
+      </div>
+      <div class="memory-card meth">
+        <h4>ðŸŒ± Seed Placeholder (Turn 1)</h4>
+        <p>When methodology is empty, injects a transient system block with header + syntax + turn rule. Eliminates the 81.8% first-turn omission entirely.</p>
+      </div>
+      <div class="memory-card snip">
+        <h4>âš¡ Bigctx-Reminder</h4>
+        <p>~70 fresh tokens injected at the end of the last user message EVERY turn: "This turn MUST end with â‰¥1 tool_useâ€¦ Think â‰¤15 lines then ACT." Wire-only (not persisted).</p>
+      </div>
+    </div>
+  </div>
+
+  <!-- SLIDE 11 : Output Compression -->
+  <div class="slide" id="slide-11">
+    <h2>Output Compression</h2>
+    <p style="margin-bottom: 12px;">Tool results are the #1 source of context bloat. We compress them aggressively before they enter the conversation history.</p>
+
+    <div class="memory-cards" style="margin-bottom: 12px;">
+      <div class="memory-card">
+        <h4>âœ‚ï¸ Generic Truncation</h4>
+        <p>Thresholds: <code>max_lines=200</code>, <code>max_chars=8000</code>, <code>head_lines=80</code>. Overflows saved to disk, only first 80 lines returned with a pointer to the full output.</p>
+      </div>
+      <div class="memory-card">
+        <h4>ðŸ§ª Pytest Compaction</h4>
+        <p>Detects pytest output. On failure: keeps FAILURES/ERRORS/warnings/summary. On all-green with â‰¤20 tests: just lists test names + summary line.</p>
+      </div>
+      <div class="memory-card">
+        <h4>ðŸ“ Edit â€” Enriched Diff</h4>
+        <p>Returns a unified diff (max 40 lines) + surrounding context Â±10 lines with the enclosing symbol name (<code>Class.method L42</code>). Middle truncated if region &gt;40 lines.</p>
+      </div>
+      <div class="memory-card">
+        <h4>ðŸ” Edit â€” Fuzzy Error</h4>
+        <p>When <code>old_string</code> not found: <code>SequenceMatcher</code> sliding window finds the closest match, shows Â±7 lines of context around the best candidate.</p>
+      </div>
+    </div>
+
+    <div class="analogy-box">
+      <strong>Key principle:</strong> Edit/Write results are exempt from snippet wrapping (<code>_SNIPPET_EXEMPT_TOOLS</code>) â€” they're transient by nature and already compressed.
+    </div>
+  </div>
+
+  <!-- SLIDE 12 : Snippet Lifecycle -->
+  <div class="slide" id="slide-12">
+    <h2>Snippet Lifecycle</h2>
+    <p style="margin-bottom: 12px;">Snippets are the agent's long-term memory for code. They follow a strict lifecycle: wrap â†’ store â†’ re-resolve â†’ mark stale â†’ compact.</p>
+
+    <div style="display:flex; flex-direction:column; gap:3px; padding:8px; background:#f8f9fa; border:1px solid #e1e4e8; border-radius:4px; margin-bottom:12px;">
+      <div style="display:flex; align-items:center; gap:8px; padding:6px 10px; background:#e8f4fd; border:1px solid #b8daef; border-radius:4px; font-size:0.8em;">
+        <strong style="min-width:24px;">1.</strong> <span><strong>Wrapping</strong> â€” Results â‰¥50 lines get markers: <code>==== A SNIPPETER id: file=â€¦ ====</code>. Lines numbered 1..N.</span>
+      </div>
+      <div style="display:flex; align-items:center; gap:8px; padding:6px 10px; background:#e8f8e8; border:1px solid #b8e8b8; border-radius:4px; font-size:0.8em;">
+        <strong style="min-width:24px;">2.</strong> <span><strong>Storage</strong> â€” Agent calls <code>Snippet(symbol=â€¦)</code> or <code>Snippet(ranges=â€¦)</code>. Discard explicit covers unwanted results.</span>
+      </div>
+      <div style="display:flex; align-items:center; gap:8px; padding:6px 10px; background:#fff8e8; border:1px solid #e8dbb8; border-radius:4px; font-size:0.8em;">
+        <strong style="min-width:24px;">3.</strong> <span><strong>Re-resolution</strong> â€” Symbol snippets are re-resolved dynamically every turn via <code>find_symbol()</code>. Immune to line shifts after Edits.</span>
+      </div>
+      <div style="display:flex; align-items:center; gap:8px; padding:6px 10px; background:#fde8e8; border:1px solid #f0b8b8; border-radius:4px; font-size:0.8em;">
+        <strong style="min-width:24px;">4.</strong> <span><strong>Stale marking</strong> â€” After Edit/Write, range-based snippets on the same file get marked <code>## snippet-stale:</code>. Append-only.</span>
+      </div>
+      <div style="display:flex; align-items:center; gap:8px; padding:6px 10px; background:#f0f1f3; border:1px solid #ddd; border-radius:4px; font-size:0.8em;">
+        <strong style="min-width:24px;">5.</strong> <span><strong>Compaction</strong> â€” Stale snippets, duplicates, and orphans (file deleted) are purged during structural compaction.</span>
+      </div>
+    </div>
+
+    <div class="stats-grid">
+      <div class="stat-card">
+        <div class="number">50 lines</div>
+        <div class="label">SNIPPET_MIN_LINES threshold<br><small>Below = no wrapping, no obligation</small></div>
+      </div>
+      <div class="stat-card">
+        <div class="number">9.6%</div>
+        <div class="label">Dead snippets (Opus)<br><small>â‰ˆ3% of total cost</small></div>
+      </div>
+    </div>
+  </div>
+
+  <!-- SLIDE 13 : Context & Methodology Management -->
+  <div class="slide" id="slide-13">
+    <h2>Context &amp; Methodology Management</h2>
+    <p style="margin-bottom: 12px;">The methodology note is the agent's working memory. It must stay compact, cacheable, and always up-to-date.</p>
+
+    <div class="cache-diagram" style="margin-bottom: 12px;">
+      <div class="cache-block cb-system" style="flex:3;">
+        <h4>Snapshot (cached)</h4>
+        <p>Stable prefix of the note already seen by the model. <code>cache_control: ephemeral</code></p>
+        <span class="cache-hit">âœ“ cache hit</span>
+      </div>
+      <div class="cache-block cb-tools" style="flex:2;">
+        <h4>Delta (cached)</h4>
+        <p>New content appended this turn. Also gets <code>cache_control</code>.</p>
+        <span class="cache-hit">âœ“ cache hit</span>
+      </div>
+      <div class="cache-block cb-volatile" style="flex:1;">
+        <h4>Fresh tokens</h4>
+        <p>Bigctx-reminder + messages</p>
+        <span class="cache-miss">âœ— fresh</span>
+      </div>
+    </div>
+
+    <div class="memory-cards" style="margin-bottom: 12px;">
+      <div class="memory-card meth">
+        <h4>ðŸ“ Compaction Trigger</h4>
+        <p>When note exceeds <code>20,000 tokens</code> (â‰ˆ P90 of all notes), structural compaction fires: purge stale snippets, deduplicate, remove orphans. No LLM needed.</p>
+      </div>
+      <div class="memory-card snip">
+        <h4>ðŸ”„ Cache Invalidation</h4>
+        <p>After compaction, <code>_methodology_cache_snapshot = None</code> â†’ forces full reconstruction of system blocks on the next turn (prefix is no longer valid).</p>
+      </div>
+      <div class="memory-card meth">
+        <h4>ðŸ’­ Thinking Overflow</h4>
+        <p>If thinking exceeds 20,000 chars with no tool_call parsed â†’ streaming is cut. Cost per occurrence: ~$0.10â€“0.15. Summarized via claude-sonnet-4-6 (â‰¤5 bullets, max 300 tokens).</p>
+      </div>
+      <div class="memory-card snip">
+        <h4>ðŸ—ï¸ Wire Architecture</h4>
+        <p>Ordered blocks: <code>[stable_prefix+cc, tool_docs+cc, methodology+cc, seed, delta+cc, volatile]</code>. Only volatile + messages are fresh tokens.</p>
+      </div>
+    </div>
+
+    <div class="analogy-box">
+      <strong>Cache TTL:</strong> 5 minutes by default (ephemeral). Accounts for ~15% of the top-10 session costs as cache_create (1.25Ã— one-shot price).
+    </div>
+  </div>
+
+  <!-- SLIDE 14 : Reliability Guardrails -->
+  <div class="slide" id="slide-14">
+    <h2>Reliability Guardrails</h2>
+    <p style="margin-bottom: 12px;">Even with enforcement, agents can loop, freeze, or produce invalid closures. These guardrails catch the remaining failure modes.</p>
+
+    <div class="memory-cards" style="margin-bottom: 12px;">
+      <div class="memory-card">
+        <h4>ðŸ” Loop Detection</h4>
+        <p>MD5 hash of each tool_call batch â†’ cycle detection (size 1â€“8, repeated â‰¥3Ã—). Injects a LoopWarning + resets. <code>MAX_CYCLE_SIZE=8</code>, <code>MIN_REPEATS=3</code>.</p>
+      </div>
+      <div class="memory-card">
+        <h4>ðŸ§Š Paralysis Abort</h4>
+        <p>Configurable threshold (env <code>BOUZECODE_PARALYSIS_ABORT_AFTER</code>, default 12). If turns without progression reach this limit â†’ session aborted. Web runner sets 0 (disabled for supervised sessions).</p>
+      </div>
+      <div class="memory-card">
+        <h4>âœ… Close Validator</h4>
+        <p>LLM side-call receives TASK + METHODOLOGY + FINAL ANSWER. Verdict: "OK" or "KO: reason". If KO â†’ session continues with feedback. Fail-open on exception.</p>
+      </div>
+      <div class="memory-card">
+        <h4>ðŸ“¢ FinalAnswer Nudges</h4>
+        <p>Meta-only batch (Methodology/Snippet only) + final text â†’ nudge "Call FinalAnswer" (max 2, headless max 4). Cap exhausted â†’ force-close with <code>final_answer_nudge_exhausted</code>.</p>
+      </div>
+    </div>
+
+    <div class="stats-grid">
+      <div class="stat-card">
+        <div class="number">1.07%</div>
+        <div class="label">Actual empty turn rate<br><small>24/2,247 turns measured</small></div>
+      </div>
+      <div class="stat-card">
+        <div class="number">MAX 3</div>
+        <div class="label">No-tool recovery attempts<br><small>Then abort/nudge</small></div>
+      </div>
+    </div>
+
+    <div class="analogy-box" style="margin-top: 12px;">
+      <strong>Read-only streak:</strong> Counter <code>ctx.readonly_streak</code> tracks consecutive turns with only read-only tools (Read, Glob, Grepâ€¦). Reset on any productive tool. Currently observability-only (no automatic nudge/abort).
+    </div>
+  </div>
+
+</div>
+
+<script>
+// ===== SLIDE 2 : Conversation animation =====
+const conversation = [
+  { role: 'user', text: 'Hello, can you help me with Python?' },
+  { role: 'assistant', text: 'Of course! I\'d be happy to help you with Python. What would you like to know?' },
+  { role: 'user', text: 'How do I sort a list?' },
+  { role: 'assistant', text: 'You can use list.sort() for in-place sorting or sorted(list) for a new list. Example: my_list.sort() or new = sorted(my_list).' },
+  { role: 'user', text: 'And to reverse it?' },
+  { role: 'assistant', text: 'Use list.reverse() or sorted(list, reverse=True). You can also use slicing: my_list[::-1].' },
+  { role: 'user', text: 'How to filter with a condition?' },
+  { role: 'assistant', text: 'Use a list comprehension: [x for x in list if condition(x)]. Or the filter() function: list(filter(lambda x: x > 0, my_list)).' },
+  { role: 'user', text: 'What about performances?' },
+  { role: 'assistant', text: 'sort() is O(n log n). Comprehensions and filter are O(n). For large datasets, consider numpy or pandas for vectorized operations.' },
+];
+
+let step = 0;
+let autoInterval = null;
+let userTotal = 0;
+let apiTotal = 0;
+let apiHistory = [];
+
+function nextStep() {
+  if (step >= conversation.length) return;
+  const msg = conversation[step];
+  const userCol = document.getElementById('user-col');
+  const apiCol = document.getElementById('api-col');
+
+  // Add to user column
+  const userDiv = document.createElement('div');
+  userDiv.className = `msg ${msg.role}`;
+  userDiv.innerHTML = `<div class="role">${msg.role}</div>${msg.text}`;
+  userCol.appendChild(userDiv);
+  userTotal += msg.text.length;
+
+  // API side: show separator + full history
+  const separator = document.createElement('div');
+  separator.className = 'api-call';
+  separator.textContent = `â”€â”€ API Call #${Math.floor(step/2) + 1} â”€â”€`;
+  apiCol.appendChild(separator);
+
+  apiHistory.push(msg);
+  let callSize = 0;
+
+  // Fade previous messages
+  apiCol.querySelectorAll('.msg').forEach(m => m.classList.add('faded'));
+
+  apiHistory.forEach(m => {
+    const div = document.createElement('div');
+    div.className = `msg ${m.role}`;
+    div.innerHTML = `<div class="role">${m.role}</div>${m.text}`;
+    apiCol.appendChild(div);
+    callSize += m.text.length;
+  });
+  apiTotal += callSize;
+
+  // Update counters
+  document.getElementById('user-counter').textContent = userTotal + ' chars';
+  document.getElementById('api-counter').textContent = apiTotal.toLocaleString() + ' chars';
+
+  // Scroll
+  userCol.scrollTop = userCol.scrollHeight;
+  apiCol.scrollTop = apiCol.scrollHeight;
+
+  step++;
+
+  // Update slide 3 stats
+  if (step === conversation.length) {
+    document.getElementById('stat-user-total').textContent = userTotal.toLocaleString();
+    document.getElementById('stat-api-total').textContent = apiTotal.toLocaleString();
+    document.getElementById('stat-ratio').textContent = 'Ã—' + (apiTotal / userTotal).toFixed(1);
+  }
+}
+
+function autoPlay() {
+  if (autoInterval) { clearInterval(autoInterval); autoInterval = null; document.getElementById('autoBtn').textContent = 'â© Auto'; return; }
+  document.getElementById('autoBtn').textContent = 'â¸ Stop';
+  autoInterval = setInterval(() => {
+    if (step >= conversation.length) { clearInterval(autoInterval); autoInterval = null; document.getElementById('autoBtn').textContent = 'â© Auto'; return; }
+    nextStep();
+  }, 800);
+}
+
+function resetAnim() {
+  step = 0; userTotal = 0; apiTotal = 0; apiHistory = [];
+  document.getElementById('user-col').innerHTML = '';
+  document.getElementById('api-col').innerHTML = '';
+  document.getElementById('user-counter').textContent = '0 chars';
+  document.getElementById('api-counter').textContent = '0 chars';
+  if (autoInterval) { clearInterval(autoInterval); autoInterval = null; }
+  document.getElementById('autoBtn').textContent = 'â© Auto';
+}
+
+// ===== SLIDE 4 : Interactive simulation =====
+function updateSim() {
+  const n = parseInt(document.getElementById('slider-n').value);
+  const s = parseInt(document.getElementById('slider-s').value);
+  const k = parseInt(document.getElementById('slider-k').value);
+
+  document.getElementById('val-n').textContent = n;
+  document.getElementById('val-s').textContent = s >= 1000 ? (s/1000) + 'k' : s;
+  document.getElementById('val-k').textContent = k;
+
+  const totalCalls = n * k;
+  const totalChars = totalCalls * (totalCalls + 1) / 2 * s;
+  const idealChars = totalCalls * s;
+  const ratio = totalChars / idealChars;
+
+  const summary = document.getElementById('sim-summary');
+  if (k > 1) {
+    summary.innerHTML = `<strong>${n} messages Ã— ${k} loops = ${totalCalls} API calls</strong><br>Total sent: <span style="color:#f0883e">${(totalChars/1e6).toFixed(1)}M chars</span> â€” Ideal: ${(idealChars/1000).toFixed(0)}k chars â€” <span style="color:#f85149">Ã—${ratio.toFixed(0)} overhead</span>`;
+  } else {
+    summary.innerHTML = `<strong>${n} messages = ${n} API calls</strong><br>Total sent: <span style="color:#f0883e">${(totalChars/1000).toFixed(0)}k chars</span> â€” Ideal: ${(idealChars/1000).toFixed(0)}k chars â€” <span style="color:#f85149">Ã—${ratio.toFixed(0)} overhead</span>`;
+  }
+
+  drawChart(n, s, k);
+}
+
+function drawChart(n, s, k) {
+  const canvas = document.getElementById('chart');
+  const ctx = canvas.getContext('2d');
+  const W = canvas.width, H = canvas.height;
+  ctx.clearRect(0, 0, W, H);
+
+  const pad = { top: 60, right: 30, bottom: 50, left: 80 };
+  const totalCalls = n * k;
+
+  // Data: each API call sends (call_index * s) chars
+  const dataAgent = [];
+  const dataChatbot = [];
+  for (let i = 1; i <= totalCalls; i++) {
+    dataAgent.push(i * s);
+  }
+  for (let i = 1; i <= n; i++) {
+    dataChatbot.push(i * s);
+  }
+
+  const maxY = totalCalls * s;
+  const plotW = W - pad.left - pad.right;
+  const plotH = H - pad.top - pad.bottom;
+
+  // Axes
+  ctx.strokeStyle = '#ddd';
+  ctx.lineWidth = 1;
+  ctx.beginPath();
+  ctx.moveTo(pad.left, pad.top);
+  ctx.lineTo(pad.left, H - pad.bottom);
+  ctx.lineTo(W - pad.right, H - pad.bottom);
+  ctx.stroke();
+
+  // Labels
+  ctx.fillStyle = '#666';
+  ctx.font = '12px monospace';
+  ctx.textAlign = 'center';
+  ctx.fillText('API call #', W / 2, H - 10);
+  ctx.save();
+  ctx.translate(15, H / 2);
+  ctx.rotate(-Math.PI / 2);
+  ctx.fillText('Chars sent (this call)', 0, 0);
+  ctx.restore();
+
+  // Y axis ticks
+  ctx.textAlign = 'right';
+  for (let i = 0; i <= 4; i++) {
+    const y = pad.top + plotH - (i / 4) * plotH;
+    const val = Math.round(maxY * i / 4);
+    ctx.fillText(val.toLocaleString(), pad.left - 10, y + 4);
+    ctx.strokeStyle = '#f0f0f0';
+    ctx.beginPath(); ctx.moveTo(pad.left, y); ctx.lineTo(W - pad.right, y); ctx.stroke();
+  }
+
+  // Draw line helper
+  function drawLine(data, maxX, color, dashed) {
+    ctx.strokeStyle = color;
+    ctx.lineWidth = 2.5;
+    ctx.setLineDash(dashed ? [6, 4] : []);
+    ctx.beginPath();
+    for (let i = 0; i < data.length; i++) {
+      const x = pad.left + (i / (maxX - 1)) * plotW;
+      const y = pad.top + plotH - (data[i] / maxY) * plotH;
+      if (i === 0) ctx.moveTo(x, y); else ctx.lineTo(x, y);
+    }
+    ctx.stroke();
+    ctx.setLineDash([]);
+  }
+
+  // Fill area under agent curve
+  ctx.fillStyle = 'rgba(211,84,0,0.06)';
+  ctx.beginPath();
+  ctx.moveTo(pad.left, H - pad.bottom);
+  for (let i = 0; i < dataAgent.length; i++) {
+    const x = pad.left + (i / (totalCalls - 1)) * plotW;
+    const y = pad.top + plotH - (dataAgent[i] / maxY) * plotH;
+    ctx.lineTo(x, y);
+  }
+  ctx.lineTo(pad.left + plotW, H - pad.bottom);
+  ctx.closePath();
+  ctx.fill();
+
+  // Ideal: constant line at s
+  const dataIdeal = Array(totalCalls).fill(s);
+  drawLine(dataIdeal, totalCalls, '#27ae60', true);
+
+  // Chatbot curve (if k>1, show it for comparison)
+  if (k > 1) {
+    drawLine(dataChatbot, n, '#2980b9', false);
+  }
+
+  // Agent curve
+  drawLine(dataAgent, totalCalls, '#d35400', false);
+
+  // Legend
+  ctx.font = '12px -apple-system, Segoe UI, sans-serif';
+  ctx.textAlign = 'left';
+  ctx.fillStyle = '#27ae60';
+  ctx.fillText('â”ˆ Ideal: only send the last message', pad.left + 10, pad.top + 16);
+  if (k > 1) {
+    ctx.fillStyle = '#2980b9';
+    ctx.fillText('â— Classic chatbot (' + n + ' calls)', pad.left + 10, pad.top + 34);
+    ctx.fillStyle = '#d35400';
+    ctx.fillText('â— Agent with tool loops (' + totalCalls + ' calls)', pad.left + 10, pad.top + 52);
+  } else {
+    ctx.fillStyle = '#d35400';
+    ctx.fillText('â— Reality: the ENTIRE history is resent', pad.left + 10, pad.top + 34);
+  }
+}
+
+// ===== SLIDE 4-5 : AGENTIC FLOW ANIMATION =====
+let flowAnimated = false;
+function animateFlows() {
+  const classicSteps = document.querySelectorAll('#flow-classic .flow-step');
+  const agentSteps = document.querySelectorAll('#flow-agent .flow-step');
+
+  // Reset
+  classicSteps.forEach(s => s.classList.remove('visible'));
+  agentSteps.forEach(s => s.classList.remove('visible'));
+
+  // Animate classic (fast)
+  classicSteps.forEach((s, i) => {
+    setTimeout(() => s.classList.add('visible'), i * 400);
+  });
+
+  // Animate agent (slightly staggered)
+  agentSteps.forEach((s, i) => {
+    setTimeout(() => s.classList.add('visible'), i * 350);
+  });
+
+  flowAnimated = true;
+}
+
+function resetFlows() {
+  document.querySelectorAll('#flow-classic .flow-step, #flow-agent .flow-step').forEach(s => {
+    s.classList.remove('visible');
+  });
+  flowAnimated = false;
+}
+
+// ===== SLIDE 7 : DAG ANIMATION =====
+const dagObserver = new IntersectionObserver((entries) => {
+  entries.forEach(e => {
+    if (e.isIntersecting && e.target.id === 'slide-6') {
+      animateDAG();
+    }
+  });
+}, { threshold: 0.3 });
+const slide6El = document.getElementById('slide-6');
+if (slide6El) dagObserver.observe(slide6El);
+
+function animateDAG() {
+  // Sequential flow
+  document.querySelectorAll('.seq-step, .seq-arrow').forEach(el => {
+    const delay = parseFloat(getComputedStyle(el).getPropertyValue('--delay')) || 0;
+    el.style.opacity = '0';
+    el.style.transform = 'translateY(10px)';
+    setTimeout(() => {
+      el.style.transition = 'opacity 0.4s, transform 0.4s';
+      el.style.opacity = '1';
+      el.style.transform = 'translateY(0)';
+    }, delay * 1000);
+  });
+
+  // DAG flow
+  document.querySelectorAll('.dag-layer, .dag-arrows, .dag-deps-label').forEach(el => {
+    const delay = parseFloat(getComputedStyle(el).getPropertyValue('--delay')) || 0;
+    el.style.opacity = '0';
+    el.style.transform = 'translateY(10px)';
+    setTimeout(() => {
+      el.style.transition = 'opacity 0.5s, transform 0.5s';
+      el.style.opacity = '1';
+      el.style.transform = 'translateY(0)';
+    }, delay * 1000);
+  });
+}
+
+// ===== SLIDE 11 : CONVERSATION DEMO =====
+function showConvTurn(turn) {
+  // Highlight active button
+  document.querySelectorAll('.conv-controls .ctrl-btn').forEach((btn, i) => {
+    btn.classList.toggle('active', i === turn - 1);
+  });
+
+  // Show/hide turns
+  document.querySelectorAll('.conv-turn').forEach(el => {
+    const t = parseInt(el.dataset.turn);
+    el.classList.toggle('visible', t <= turn);
+    el.classList.toggle('current', t === turn);
+  });
+
+  // Update counters
+  const bruteBlocks = document.querySelectorAll('.conv-brute .conv-turn');
+  const optiBlocks = document.querySelectorAll('.conv-opti .conv-turn');
+
+  let bruteCum = 0, optiCum = 0;
+  bruteBlocks.forEach(el => {
+    if (parseInt(el.dataset.turn) <= turn) {
+      bruteCum += parseInt(el.dataset.chars);
+    }
+  });
+  optiBlocks.forEach(el => {
+    if (parseInt(el.dataset.turn) <= turn) {
+      optiCum += parseInt(el.dataset.chars);
+    }
+  });
+
+  const bruteCounter = document.getElementById('brute-total');
+  const optiCounter = document.getElementById('opti-total');
+  if (bruteCounter) bruteCounter.textContent = bruteCum.toLocaleString() + ' chars sent';
+  if (optiCounter) optiCounter.textContent = optiCum.toLocaleString() + ' chars sent';
+
+  // Ratio
+  const ratio = document.getElementById('conv-ratio');
+  if (ratio && bruteCum > 0) {
+    const r = (bruteCum / optiCum).toFixed(1);
+    ratio.textContent = 'Ã—' + r + ' more efficient';
+  }
+}
+
+// Init
+updateSim();
+showConvTurn(1);
+</script>
+</body>
+</html>
