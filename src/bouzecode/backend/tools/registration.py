@@ -272,6 +272,9 @@ _install_grep_guard()
 
 from .folder_desc import tools as _folder_desc_tools  # noqa: F401
 
+# Memory tools from the flat memory/ package (registers MemorySave/Delete/Search/List)
+import memory.tools as _memory_tools  # noqa: F401
+
 # ── RunPythonTest tool ───────────────────────────────────────────────────────
 
 from .ops.test_runner import run_python_test as _run_python_test
@@ -302,6 +305,7 @@ _DEFAULT_ENABLED = {
     "Read", "Write", "Edit", "Bash", "Glob", "Grep",
     "Methodology", "Snippet", "GetDiff", "WritePlan", "FinalAnswer",
     "AskUserQuestion", "Skill", "SkillList", "LoadProjectConfig", "TaskList",
+    "MemorySave", "MemoryList",
 }
 
 for _tool_name in list(_registry.keys()):
