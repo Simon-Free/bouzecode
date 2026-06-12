@@ -41,10 +41,12 @@ EXPECTED_COMMANDS = {
     "doctor", "exit", "quit",
     "resume", "where", "tools",
     "history", "context", "cost", "timing",
+    # OSS shims (ported from flat-package features)
+    "voice", "mcp", "plugin", "memory", "video",
 }
 
 REMOVED_COMMANDS = {
-    "brainstorm", "status", "plugin", "memory",
+    "brainstorm", "status",
     "telegram", "worker", "ssj", "image", "img",
 }
 

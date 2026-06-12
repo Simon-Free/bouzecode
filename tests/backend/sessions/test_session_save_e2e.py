@@ -96,8 +96,8 @@ def test_save_includes_context_state_notes_from_conversation():
     assert "key finding here" in result.state.context_state.notes.get(METHODOLOGY_NOTE, "")
 
     data = _build_session_data(result.state, session_id="t3")
-    assert "context_state" in data and "notes" in data["context_state"]
-    assert "key finding here" in data["context_state"]["notes"].get(METHODOLOGY_NOTE, "")
+    assert "gc_state" in data and "notes" in data["gc_state"]
+    assert "key finding here" in data["gc_state"]["notes"].get(METHODOLOGY_NOTE, "")
 
 
 def test_save_no_attribute_error_on_real_state():
@@ -105,8 +105,8 @@ def test_save_no_attribute_error_on_real_state():
     even on a minimal one-turn conversation."""
     result = bouzecode(["hello"], mock_llm=MockLLM([f"done.\n{METH}"]))
     data = _build_session_data(result.state)
-    assert "context_state" in data
-    assert isinstance(data["context_state"]["notes"], dict)
+    assert "gc_state" in data
+    assert isinstance(data["gc_state"]["notes"], dict)
 
 
 # ── tool-only turn (no thinking, no text) → "." fallback ─────────────────────
