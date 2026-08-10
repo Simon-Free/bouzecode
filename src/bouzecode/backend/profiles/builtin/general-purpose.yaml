@@ -1,0 +1,12 @@
+# Built-in system agent: the default general-purpose / coding agent.
+# Empty tools => no restriction (full tool access, like the default agent).
+name: general-purpose
+kind: system
+description: Agent généraliste (code, recherche, tâches multi-étapes). L'agent par défaut.
+skills:
+  - commit
+  - review
+tools: []
+hooks: []
+model: ""
+system_prompt_extra: ""

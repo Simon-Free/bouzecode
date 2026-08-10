@@ -1,0 +1,441 @@
+/* [desc] Thème sombre vscode-like pour BouzéqUI v2. [/desc] */
+/* Perfui fonts — fallback système déjà dans les stacks, ne bloque PAS le rendu si proxy coupe */
+@import url("https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap");
+
+:root {
+  /* Remap vers l'esthétique "performative UI" (thème sombre AI-native) */
+  --bg: #08080b;        /* pui-bg */
+  --panel: #0e0e13;     /* pui-bg-elev : cartes, nav, inputs, sidebar */
+  --panel2: #14141c;    /* pui-bg-soft : hover, badges, tabs actifs */
+  --border: #33334a;    /* pui-border — remonté pour contraste ≥3:1 sur --panel */
+  --border-bright: #4a4a63;
+  --text: #f4f4f6;      /* pui-fg */
+  --muted: #a3a3b2;     /* pui-fg-dim */
+  --mute: #6b6b7a;      /* pui-fg-mute (labels petites-cap) */
+  --accent: #7c3aed;    /* pui violet (remplace cyan vscode) */
+  --on-accent: #fff;    /* texte sur surface accent (bouton envoyer, pill) */
+  /* Fonds de bulles conversation : contraste bulle/fond >=1.3 (prouvé par ui3-bubble.test).
+     Assistant plus sombre que user, tous deux distincts de --panel/--panel2. */
+  --bubble-user: #2a2a3a;
+  --bubble-assistant: #26263a;
+  --green: #22c55e; --orange: #fbbf24; --red: #f87171; --purple: #a78bfa;
+  /* Dégradé signature perfui */
+  --grad-from: #7c3aed; --grad-mid: #ec4899; --grad-to: #06b6d4;
+  --grad: linear-gradient(120deg, var(--grad-from), var(--grad-mid), var(--grad-to));
+  /* Glow / ombres */
+  --glow: 0 0 24px rgba(124,58,237,.45);
+  --shadow-card: 0 10px 40px rgba(0,0,0,.55);
+  --radius-sm: 8px; --radius: 12px; --radius-lg: 18px;
+  --font-sans: "Inter", ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif;
+  --font-mono: "JetBrains Mono", ui-monospace, SFMono-Regular, Consolas, monospace;
+  --ease: cubic-bezier(.22,1,.36,1);
+}
+* { box-sizing: border-box; }
+body { margin: 0; background: var(--bg); color: var(--text);
+  font-family: var(--font-sans); font-size: 14px; line-height: 1.5; }
+nav { display: flex; gap: 18px; align-items: center; padding: 10px 20px;
+  background: var(--panel); border-bottom: 1px solid var(--border);
+  position: sticky; top: 0; z-index: 10; }
+nav .brand { color: var(--mute); margin-right: 12px; text-transform: uppercase;
+  letter-spacing: .08em; font-size: 12px; font-weight: 600; }
+nav .brand b { background: var(--grad); -webkit-background-clip: text; background-clip: text;
+  -webkit-text-fill-color: transparent; color: transparent; font-weight: 700; }
+nav a { color: var(--muted); text-decoration: none; padding: 5px 12px; border-radius: var(--radius-sm);
+  transition: color .18s var(--ease), background .18s var(--ease); }
+nav a:hover { background: var(--overlay, rgba(255,255,255,.07)); color: var(--text); }
+nav a.active { background: var(--grad); color: #fff; box-shadow: var(--glow); }
+main { max-width: 1100px; margin: 0 auto; padding: 18px 20px 80px; }
+h1, h2, h3 { font-weight: 600; }
+h2 { margin-top: 28px; border-bottom: 1px solid var(--border); padding-bottom: 6px; }
+.muted { color: var(--muted); font-size: 12px; }
+.session-title { font-size: 17px; margin: 8px 0 4px; }
+
+button { background: var(--panel2); color: var(--text); border: 1px solid var(--border);
+  border-radius: 4px; padding: 6px 14px; cursor: pointer; }
+button.primary { background: var(--grad); border-color: transparent; color: #fff;
+  box-shadow: var(--glow); }
+button.danger { background: #6b2b2b; border-color: #8b3a3a; color: #fff; }
+button:hover { filter: brightness(1.15); }
+input, textarea, select { background: var(--panel); color: var(--text);
+  border: 1px solid var(--border); border-radius: 4px; padding: 6px 10px; font: inherit; }
+select { cursor: pointer; }
+
+/* Cases d'environnement de lancement (home #mgr-options + conversations .conv-agent-bar).
+   Remplacent l'ancien select isolate couplé : 3 toggles indépendants. */
+.mgr-flags, .conv-agent-flags {
+  display: flex; flex-direction: column; gap: 6px;
+  border: 1px solid var(--border); border-radius: 6px;
+  padding: 8px 10px; margin: 4px 0 0; }
+.mgr-flags > legend { font-size: 11.5px; color: var(--muted); padding: 0 4px; }
+.conv-agent-flags { border-style: dashed; }
+.mgr-flag, .conv-agent-flag {
+  display: flex; align-items: center; gap: 8px;
+  font-size: 12.5px; color: var(--text); cursor: pointer; }
+.mgr-flag input[type="checkbox"], .conv-agent-flag input[type="checkbox"] {
+  width: auto; margin: 0; cursor: pointer; accent-color: var(--accent); }
+
+.badge { display: inline-flex; align-items: center; gap: 6px;
+  padding: 3px 10px; border-radius: 999px; font-size: 11px; line-height: 1.4;
+  font-weight: 500; white-space: nowrap;
+  background: var(--panel2); color: var(--muted); }
+.badge .pui-dot { width: 7px; height: 7px; border-radius: 50%; flex: none;
+  background: currentColor; }
+/* Variante compacte (sidebar, chips) : dot seul + tooltip (title), pas de libellé. */
+.badge--compact { padding: 3px; gap: 0; }
+/* Fond teinté ~12 % de la couleur d'état, texte + dot à 100 %. */
+.st-run { background: color-mix(in srgb, var(--accent) 12%, transparent); color: var(--accent); }
+.st-input { background: color-mix(in srgb, var(--orange) 12%, transparent); color: var(--orange); }
+.st-ok { background: color-mix(in srgb, var(--green) 12%, transparent); color: var(--green); }
+.st-ko { background: color-mix(in srgb, #e5484d 12%, transparent); color: #e5484d; }
+.st-cli, .st-disparu { background: color-mix(in srgb, var(--muted) 12%, transparent); color: var(--muted); }
+.st-warm { background: color-mix(in srgb, var(--orange) 12%, transparent); color: var(--orange); }
+/* Phases de démarrage : deux teintes DISTINCTES de « en cours » (st-run), parce qu'elles
+   veulent dire autre chose — l'agent ne travaille pas encore, il se prépare ou il attend.
+   Bleu-gris = ça se met en route, cyan = la balle est chez le modèle. Volontairement plus
+   pâles que les états d'action : ce sont des attentes normales, pas des alertes.
+   Le bleu-gris a REMPLACÉ un violet clair, indiscernable à l'œil du violet de « en cours »
+   (--accent) : deux phases côte à côte dans la liste doivent se distinguer SANS lire. */
+.st-boot { background: color-mix(in srgb, #8aa0b8 14%, transparent); color: #9db2c8; }
+.st-wait { background: color-mix(in srgb, #3fc9d6 12%, transparent); color: #3fc9d6; }
+/* Verdict validateur affiché DANS le chip sous-agent (à côté du libellé role·heure). */
+.conv-sub-verdict { margin-left: 6px; font-size: 11px; font-weight: 600; white-space: nowrap; }
+.conv-sub-verdict--ok { color: var(--green); }
+.conv-sub-verdict--ko { color: var(--red); }
+
+.launch-bar { display: flex; gap: 8px; margin-bottom: 10px; }
+.launch-bar textarea { flex: 1; }
+.cards { display: flex; flex-direction: column; gap: 8px; }
+.card { display: block; background: var(--panel); border: 1px solid var(--border);
+  border-radius: var(--radius); padding: 12px 16px; color: var(--text); text-decoration: none;
+  box-shadow: var(--shadow-card); transition: border-color .18s var(--ease), box-shadow .18s var(--ease); }
+a.card:hover { border-color: var(--border-bright); box-shadow: var(--shadow-card), var(--glow); }
+.card-title { font-weight: 600; margin: 4px 0; }
+.day-title { color: var(--muted); margin: 18px 0 8px; }
+
+.block { border-left: 3px solid var(--border); padding: 8px 14px; margin: 10px 0;
+  background: var(--panel); border-radius: 0 6px 6px 0; overflow-wrap: anywhere; }
+.block.user { border-left-color: var(--accent); }
+.block.assistant { border-left-color: var(--green); position: relative; }
+
+/* Bouton « ? » : voir le contexte injecté du tour assistant (lien vers /turns/<n>/context) */
+.turn-context-help {
+  position: absolute;
+  top: 6px;
+  right: 6px;
+  width: 22px;
+  height: 22px;
+  padding: 0;
+  border: 1px solid var(--border);
+  border-radius: 50%;
+  background: var(--panel);
+  color: var(--muted);
+  font-size: 13px;
+  font-weight: 700;
+  line-height: 20px;
+  text-align: center;
+  text-decoration: none;
+  cursor: help;
+  opacity: 0.55;
+  transition: opacity 0.15s, color 0.15s, border-color 0.15s;
+}
+.turn-context-help:hover,
+.turn-context-help:focus {
+  opacity: 1;
+  color: var(--accent);
+  border-color: var(--accent);
+  outline: none;
+}
+
+/* Modale contexte du tour */
+.turn-context-modal {
+  position: fixed;
+  inset: 0;
+  z-index: 1000;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: rgba(0, 0, 0, 0.55);
+  padding: 24px;
+}
+.turn-context-dialog {
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  width: min(860px, 100%);
+  max-height: 85vh;
+  display: flex;
+  flex-direction: column;
+  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.4);
+}
+.turn-context-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 12px 16px;
+  border-bottom: 1px solid var(--border);
+}
+.turn-context-header h3 { margin: 0; font-size: 15px; }
+.turn-context-close {
+  border: none;
+  background: none;
+  color: var(--muted);
+  font-size: 22px;
+  line-height: 1;
+  cursor: pointer;
+  padding: 0 4px;
+}
+.turn-context-close:hover { color: var(--accent); }
+.turn-context-body {
+  padding: 16px;
+  overflow-y: auto;
+}
+.turn-context-body section { margin-bottom: 16px; }
+.turn-context-body h4 {
+  margin: 0 0 6px;
+  font-size: 12px;
+  text-transform: uppercase;
+  color: var(--muted);
+}
+.turn-context-body pre {
+  margin: 0;
+  padding: 10px 12px;
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  font-size: 12px;
+}
+.block.notice { border-left-color: var(--muted); }
+.block .role { font-size: 11px; text-transform: uppercase; color: var(--muted); margin-bottom: 4px; }
+.block p { margin: 4px 0; }
+.block .li { margin: 2px 0 2px 12px; }
+
+/* T3 : rôle porté par la FORME (pills vous/assistant retirées côté HTML).
+   Scopé .conv-messages pour ne pas impacter d'autres usages de .block. */
+.conv-messages .block.user {
+  margin-left: auto; margin-right: 0; max-width: 70%;
+  border-left: none; border-radius: 12px 12px 4px 12px;
+  background: var(--bubble-user);
+  padding: 10px 14px;
+}
+.conv-messages .block.assistant {
+  margin-right: auto; margin-left: 0; max-width: 100%;
+  border-left: none;
+  border: 1px solid var(--border);
+  border-radius: 12px 12px 12px 4px;
+  background: var(--bubble-assistant);
+  box-shadow: none;
+  padding: 10px 14px;
+}
+/* final-answer / -refused gardent leur carte colorée (méta ✅/❌ voulue par la spec) :
+   règles .block.final-answer* plus spécifiques, non écrasées ci-dessus. */
+
+pre.code { background: #161616; border: 1px solid var(--border); border-radius: 5px;
+  padding: 10px; overflow-x: auto; font: 12.5px/1.45 Consolas, monospace;
+  white-space: pre-wrap; max-height: 480px; overflow-y: auto; }
+code { background: #161616; padding: 1px 5px; border-radius: 3px;
+  font: 12.5px Consolas, monospace; color: var(--orange); }
+
+details.tc, details.tr { margin: 6px 0; border: 1px solid var(--border);
+  border-radius: 5px; background: var(--panel2); }
+details.tc summary, details.tr summary { cursor: pointer; padding: 5px 10px; font-size: 12.5px; }
+details.tc > *:not(summary), details.tr > *:not(summary) { margin: 8px; }
+details.tc.subagent { border-color: var(--purple); }
+.tc-kind { color: var(--muted); font-size: 11px; text-transform: uppercase; margin-right: 6px; }
+.subagent .tc-kind { color: var(--purple); }
+.tc-name { color: var(--accent); font-weight: 600; }
+.tc-hint { color: var(--muted); }
+details.tr.error { border-color: var(--red); }
+details.tr.error summary { color: var(--red); }
+
+#question-panel { border: 1px solid var(--orange); border-radius: 6px;
+  background: #2b2517; padding: 12px 16px; margin: 14px 0; }
+#question-options { display: flex; gap: 8px; flex-wrap: wrap; margin-top: 10px; }
+button.option { border-color: var(--orange); }
+#composer { position: relative; margin-top: 14px; }
+#composer textarea { width: 100%; padding-right: 46px; resize: vertical; }
+.composer-send { position: absolute; right: 8px; bottom: 8px; width: 30px; height: 30px;
+  padding: 0; display: flex; align-items: center; justify-content: center;
+  background: var(--accent); border: 1px solid var(--accent); color: #fff;
+  border-radius: 50%; font-size: 16px; line-height: 1; cursor: pointer; }
+.composer-send:hover { filter: brightness(1.1); }
+.composer-send:disabled { background: var(--panel2); border-color: var(--border); color: var(--muted); cursor: default; filter: none; }
+
+/* ============================================================================
+   PALETTE D'ACCENTS — 3 RÔLES DOCUMENTÉS (ne pas mélanger) :
+     • violet (--accent / #7c3aed) = INTERACTIF : boutons, onglet actif, liens d'action.
+     • vert  (--green  / #22c55e) = SUCCÈS / TERMINÉ : réponse finale, compteurs +n.
+     • ambre-rouge (--orange/--red) = ATTENTION : refus, erreurs, compteurs -n.
+   Les méta non-actionnables (chips d'id, noms de branche) restent en GRIS NEUTRE.
+   Règle anti-saturation : pas de fond plein saturé > ~40px hors en-têtes ; les
+   grandes surfaces utilisent une teinte ~6% + une bordure/gouttière colorée.
+   ============================================================================ */
+/* Point 3 : FinalAnswer distinct SANS mur de couleur — gouttière verte 3px +
+   fond teinté ~6% + eyebrow « Réponse finale » avec coche. Contenu inchangé. */
+.block.final-answer { border: 1px solid rgba(34, 197, 94, 0.25);
+  border-left: 3px solid var(--green); background: rgba(34, 197, 94, 0.06); }
+.block.final-answer::before { content: "\2713  Réponse finale"; display: block;
+  font-size: 11px; font-weight: 600; text-transform: uppercase; letter-spacing: .05em;
+  color: var(--green); margin-bottom: 6px; }
+.block.final-answer .role { color: var(--green); }
+.block.final-answer-refused { border: 1px solid rgba(248, 113, 113, 0.25);
+  border-left: 3px solid var(--red); background: rgba(248, 113, 113, 0.06); }
+.block.final-answer-refused::before { content: "\2717  Réponse refusée"; display: block;
+  font-size: 11px; font-weight: 600; text-transform: uppercase; letter-spacing: .05em;
+  color: var(--red); margin-bottom: 6px; }
+.block.final-answer-refused .role { color: var(--red); }
+
+/* Point 4 : groupe d'outils repliable (fermé par défaut) */
+details.tools-group { margin: 8px 0; border: 1px solid var(--border); border-radius: 5px;
+  background: var(--panel2); }
+details.tools-group > summary { cursor: pointer; padding: 6px 10px; font-size: 12.5px;
+  color: var(--muted); user-select: none; }
+details.tools-group[open] > summary { color: var(--accent); border-bottom: 1px solid var(--border); }
+details.tools-group > *:not(summary) { margin: 8px; }
+.session-header { display: flex; gap: 12px; align-items: center; }
+.session-header .back { color: var(--muted); text-decoration: none; }
+
+.tabs { display: flex; gap: 4px; margin: 14px 0; border-bottom: 1px solid var(--border); }
+.tab { border: none; background: none; padding: 7px 14px; color: var(--muted); }
+.tab.active { color: var(--accent); border-bottom: 2px solid var(--accent); }
+
+details.diff-file { margin: 8px 0; border: 1px solid var(--border); border-radius: 5px; }
+details.diff-file summary { padding: 6px 10px; cursor: pointer; font: 12.5px Consolas, monospace; }
+.diff-body { font: 12.5px/1.4 Consolas, monospace; overflow-x: auto; padding: 6px; }
+.dl { white-space: pre-wrap; padding: 0 6px; }
+.dl.add { background: #133a23; color: #89d185; }
+.dl.del { background: #3d1c1c; color: var(--red); }
+.dl.hunk { color: var(--accent); margin-top: 6px; }
+.dl.ctx { color: var(--muted); }
+
+.ticket-head { display: flex; gap: 10px; align-items: baseline; }
+.ticket-id { color: var(--purple); font-weight: 700; font-family: Consolas, monospace; }
+.ticket-actions { display: flex; gap: 8px; margin: 8px 0; }
+.run-row { display: flex; gap: 10px; padding: 4px 0; color: var(--text);
+  text-decoration: none; font-size: 12.5px; align-items: center; }
+.run-row:hover { color: var(--accent); }
+
+.files-layout { display: flex; gap: 14px; align-items: flex-start; }
+#file-tree { width: 320px; min-width: 220px; background: var(--panel);
+  border: 1px solid var(--border); border-radius: 6px; padding: 8px;
+  max-height: 80vh; overflow: auto; font-size: 13px; position: sticky; top: 60px; }
+.tree-dir, .tree-file { cursor: pointer; padding: 1px 4px; border-radius: 3px;
+  white-space: nowrap; }
+.tree-dir:hover, .tree-file:hover { background: var(--panel2); }
+.tree-file.selected { background: color-mix(in srgb, var(--accent) 28%, transparent);
+  color: #fff; box-shadow: inset 2px 0 0 var(--accent); }
+.tree-children { margin-left: 14px; }
+#file-viewer { flex: 1; min-width: 0; }
+#file-content { counter-reset: line; max-height: none; }
+.src-line { counter-increment: line; display: block; }
+.src-line::before { content: counter(line); display: inline-block; width: 44px;
+  margin-right: 12px; text-align: right; color: #5a5a5a; user-select: none; }
+
+/* === Perfui overrides (fin de fichier : priment sur .tc/.tr/pre.code legacy par ordre+spécificité) === */
+details.pui-tool-panel { border: 1px solid var(--border); border-radius: var(--radius);
+  background: var(--panel); box-shadow: 0 0 16px rgba(124,58,237,.10); margin: 8px 0; }
+details.pui-tool-panel > summary { display: flex; align-items: center; gap: 8px; }
+pre.code.code-block, .code-block { background: #0a0a12; font-family: var(--font-mono); }
+.pui-bubble__thinking-pill { font-family: var(--font-mono); }
+.pui-detail-thinking { margin: 6px 0; }
+.pui-detail-thinking > summary.pui-bubble__thinking-pill { cursor: pointer; list-style: none; }
+.pui-detail-thinking > summary.pui-bubble__thinking-pill::-webkit-details-marker { display: none; }
+/* Bulles pui : neutralise le border-left legacy 3px (vert/violet) — le bord du composant pui prime */
+.block.pui-bubble { border-left-width: 1px; border-left-color: inherit; }
+.block.pui-bubble--ai { border-left-color: rgba(124,58,237,.35); }
+
+/* --- T4 : marqueur inline de lancement / complétion de sous-agents --------- */
+.subagent-event {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  margin: 0.5rem 0;
+  font-size: 0.8rem;
+  color: var(--muted, #8a8f98);
+  cursor: pointer;
+  user-select: none;
+}
+.subagent-event::before,
+.subagent-event::after {
+  content: "";
+  flex: 1;
+  border-top: 1px dashed var(--border, #3a3f4b);
+}
+.subagent-event .subagent-event-line {
+  white-space: nowrap;
+  padding: 0 0.25rem;
+}
+.subagent-event:hover .subagent-event-line {
+  color: var(--text, #e6e8eb);
+  text-decoration: underline;
+}
+.subagent-event--done .subagent-event-line {
+  color: var(--ok, #4caf7d);
+}
+.subagent-event--group > summary {
+  list-style: none;
+}
+.subagent-event--group > summary::-webkit-details-marker {
+  display: none;
+}
+.subagent-event-children {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.4rem;
+  justify-content: center;
+  margin: 0.25rem 0 0.4rem;
+}
+.subagent-event-child {
+  cursor: pointer;
+  border: 1px solid var(--border, #3a3f4b);
+  border-radius: 999px;
+  padding: 0.1rem 0.6rem;
+  font-size: 0.78rem;
+  background: transparent;
+  color: var(--muted, #8a8f98);
+}
+.subagent-event-child:hover {
+  color: var(--text, #e6e8eb);
+  border-color: var(--accent, #5b9dd9);
+}
+
+/* --- Nouvelle conversation : bloc Options togglable + composer full-width --- */
+.conv-options {
+  margin: 6px 10px 4px;
+  border: 1px solid var(--border, #2a2f38);
+  border-radius: 8px;
+  background: var(--surface, #171a20);
+}
+.conv-options-summary {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 7px 12px;
+  cursor: pointer;
+  user-select: none;
+  font-size: 0.82rem;
+  color: var(--muted, #8a8f98);
+  list-style: none;
+}
+.conv-options-summary::-webkit-details-marker { display: none; }
+.conv-options-summary:hover { color: var(--text, #e6e8eb); }
+.conv-options-caret {
+  display: inline-block;
+  transition: transform 0.15s ease;
+  font-size: 0.7rem;
+}
+.conv-options[open] > .conv-options-summary .conv-options-caret { transform: rotate(90deg); }
+.conv-options[open] > .conv-options-summary { color: var(--text, #e6e8eb); }
+.conv-options > .conv-agent-bar { border-top: 1px solid var(--border, #2a2f38); }
+
+/* Composer nouvelle conversation : pleine largeur (annule le max-width du .pui-promptbox) */
+.conv-new-bar.pui-promptbox {
+  max-width: none;
+  width: 100%;
+}
+/* Hauteur de base réduite (auto-grow conservé via JS jusqu'à 200px) */
+.conv-new-input.pui-promptbox__textarea {
+  padding-top: 7px;
+  padding-bottom: 7px;
+}

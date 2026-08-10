@@ -1,0 +1,519 @@
+<!-- [desc] English presentation: the principle only — bouzecode destroys tool results every turn and keeps an append-only notebook. Centrepiece is a verbatim 4-call wire simulation. [/desc] -->
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>The agent that forgets on purpose</title>
+<style>
+*{margin:0;padding:0;box-sizing:border-box}
+:root{
+  --ink:#161616; --ink2:#3d4451; --muted:#6b7280; --line:#e3e6ea; --surf:#f7f8fa;
+  --blue:#2563eb; --orange:#c2410c; --green:#15803d; --purple:#6d28d9;
+}
+body{font-family:-apple-system,'Segoe UI',system-ui,sans-serif;background:#fff;color:var(--ink);line-height:1.6;overflow-x:hidden}
+.wrap{max-width:1040px;margin:0 auto;padding:32px 20px 80px}
+section{padding:28px 0;border-top:1px solid var(--line)}
+section:first-of-type{border-top:none}
+h1{font-size:1.85em;line-height:1.25;font-weight:700;letter-spacing:-.02em}
+h2{font-size:1.25em;font-weight:650;margin-bottom:.5em;letter-spacing:-.01em}
+h3{font-size:.98em;font-weight:650;color:var(--ink2);margin:18px 0 6px}
+p{font-size:.94em;color:var(--ink2);margin-bottom:.7em}
+.kicker{font-size:.72em;letter-spacing:.14em;text-transform:uppercase;color:var(--muted);font-weight:650;margin-bottom:10px}
+.lede{font-size:1.02em;color:var(--ink2)}
+code{font-family:ui-monospace,Consolas,monospace;font-size:.88em;background:#f0f2f5;padding:1px 5px;border-radius:3px}
+strong{color:var(--ink)}
+ul{margin:0 0 .8em 1.1em}li{font-size:.92em;color:var(--ink2);margin-bottom:.3em}
+.narrow{max-width:840px}
+
+.callout{border-left:3px solid var(--blue);background:#f4f8ff;padding:12px 16px;border-radius:0 5px 5px 0;margin:16px 0}
+.callout.warn{border-color:var(--orange);background:#fff6f1}
+.callout.key{border-color:var(--ink);background:var(--surf)}
+.callout p:last-child{margin-bottom:0}
+
+pre.quote{background:#12161c;color:#e7ecf3;font-family:ui-monospace,Consolas,monospace;font-size:.8em;line-height:1.55;
+  padding:12px 14px;border-radius:5px;margin:12px 0;overflow-x:auto;white-space:pre-wrap;word-break:break-word}
+pre.quote .tag{color:#ff9d6b}
+.src{font-size:.72em;color:var(--muted);font-family:ui-monospace,Consolas,monospace}
+.prov{display:block;font-size:.72em;color:var(--muted);line-height:1.4;margin-top:4px}
+
+.grid{display:grid;gap:10px}
+.g2{grid-template-columns:repeat(auto-fit,minmax(240px,1fr))}
+.card{border:1px solid var(--line);border-radius:6px;padding:12px 14px;background:#fff}
+.card h4{font-size:.86em;margin-bottom:5px;font-weight:650}
+.card p{font-size:.84em;margin:0}
+
+.sd{display:grid;grid-template-columns:repeat(auto-fit,minmax(250px,1fr));gap:10px;margin:14px 0}
+.sd>div{border:1px solid var(--line);border-radius:6px;padding:12px 14px}
+.sd .keep{border-color:#bfe3c8;background:#f4fbf6}
+.sd .drop{border-color:#f2c9b4;background:#fff7f3}
+.sd h4{font-size:.85em;margin-bottom:6px}
+.sd .keep h4{color:var(--green)}
+.sd .drop h4{color:var(--orange)}
+.sd li{font-size:.83em}
+
+.bars{display:flex;flex-direction:column;gap:5px;margin:12px 0}
+.barrow{display:flex;align-items:center;gap:8px;font-size:.75em;color:var(--muted)}
+.barrow .cap{min-width:56px;font-family:ui-monospace,Consolas,monospace}
+.bar{display:flex;height:26px;border-radius:3px;overflow:hidden;flex:1;gap:2px;min-width:0}
+.seg{display:flex;align-items:center;justify-content:center;font-size:.72em;font-weight:600;color:#fff;white-space:nowrap;overflow:hidden;border-radius:2px}
+.s-sys{background:#9aa5b4}.s-old{background:#f0c3ac;color:#7a3b18}
+.s-fresh{background:var(--orange)}.s-small{background:#8fb6f5;color:#12305e}
+
+/* ── the simulation ─────────────────────────────────────────────── */
+.sim{border:1px solid var(--line);border-radius:8px;overflow:hidden;margin-top:14px;background:#fff}
+.sim-bar{display:flex;flex-wrap:wrap;gap:6px;padding:10px 12px;background:var(--surf);border-bottom:1px solid var(--line);align-items:center}
+.sim-bar button{border:1px solid var(--line);background:#fff;color:var(--ink2);padding:4px 13px;border-radius:4px;cursor:pointer;font-size:.82em}
+.sim-bar button.on{background:var(--ink);color:#fff;border-color:var(--ink);font-weight:600}
+.sim-bar .lbl{font-size:.8em;color:var(--muted);margin-right:2px}
+#tally{font-size:.76em;margin-left:auto;font-family:ui-monospace,Consolas,monospace;color:var(--ink2);text-align:right}
+#tally b{font-weight:700}
+.story{padding:10px 14px;font-size:.87em;color:var(--ink2);background:#fbfcfd;border-bottom:1px solid var(--line)}
+.panes{display:grid;grid-template-columns:1.25fr 1fr 1fr;gap:0}
+@media(max-width:900px){.panes{grid-template-columns:1fr}}
+.pane{padding:10px 12px;min-width:0}
+.pane+.pane{border-left:1px solid var(--line)}
+@media(max-width:900px){.pane+.pane{border-left:none;border-top:1px solid var(--line)}}
+.pane-h{font-size:.78em;font-weight:700;color:var(--ink);margin-bottom:2px}
+.pane-s{font-size:.72em;color:var(--muted);margin-bottom:8px;line-height:1.35}
+
+.wb{border:1px solid var(--line);border-radius:4px;margin-bottom:5px;overflow:hidden}
+.wb-h{display:flex;justify-content:space-between;gap:8px;font-family:ui-monospace,Consolas,monospace;font-size:.7em;padding:3px 7px;font-weight:600}
+.wb-b{font-family:ui-monospace,Consolas,monospace;font-size:.68em;line-height:1.45;padding:5px 7px;white-space:pre-wrap;word-break:break-word;border-top:1px solid rgba(0,0,0,.06);max-height:230px;overflow:auto}
+.wb.read{border-color:#cfdbe6}.wb.read .wb-h{background:#eaf1f7;color:#41586e}.wb.read .wb-b{color:#6b7280;background:#fafcfd}
+.wb.write{border-color:#e0d5f7}.wb.write .wb-h{background:#f5f0ff;color:#4c2b96}.wb.write .wb-b{color:#4a4458;background:#fcfaff}
+.wb.fresh{border-color:#f4cdb4}.wb.fresh .wb-h{background:#fff1e8;color:#8c3a10}.wb.fresh .wb-b{color:#5d4535;background:#fffaf7}
+
+.term{background:#12161c;color:#e7ecf3;font-family:ui-monospace,Consolas,monospace;font-size:.68em;line-height:1.5;
+  padding:9px 11px;border-radius:5px;white-space:pre-wrap;word-break:break-word;max-height:520px;overflow:auto}
+.term .k{color:#ff9d6b}.term .th{color:#8b93a1;font-style:italic}.term .v{color:#a5d6a7}
+
+.nb{border:1px solid #e0d5f7;border-radius:5px;background:#fcfaff;max-height:520px;overflow:auto;padding:7px 9px}
+.nb pre{font-family:ui-monospace,Consolas,monospace;font-size:.68em;line-height:1.45;white-space:pre-wrap;word-break:break-word;
+  padding:5px 7px;border-radius:3px;margin-bottom:5px}
+.nb pre.old{color:#8b8397;background:#f6f3fb}
+.nb pre.new{color:#3b2a63;background:#efe6ff;border-left:2px solid var(--purple)}
+.nb .hdr{font-family:ui-monospace,Consolas,monospace;font-size:.66em;color:var(--purple);font-weight:700;margin-bottom:5px}
+.nb .empty{font-size:.75em;color:var(--muted);font-style:italic;padding:6px}
+
+.rb{border:1px solid var(--line);border-radius:4px;margin-bottom:5px;overflow:hidden}
+.rb-h{display:flex;justify-content:space-between;gap:8px;font-family:ui-monospace,Consolas,monospace;font-size:.7em;padding:3px 7px;font-weight:600}
+.rb-b{font-family:ui-monospace,Consolas,monospace;font-size:.68em;line-height:1.45;padding:5px 7px;white-space:pre-wrap;word-break:break-word;border-top:1px solid rgba(0,0,0,.06);max-height:240px;overflow:auto}
+.rb .p{color:#9aa5b4;font-weight:700}
+.rb.think{border-color:#e2e5e8}.rb.think .rb-h{background:#f2f3f5;color:#5b626d}.rb.think .rb-b{background:#fafbfc;color:#6b7280;font-style:italic}
+.rb.notetool{border-color:#e0d5f7}.rb.notetool .rb-h{background:#f5f0ff;color:#4c2b96}.rb.notetool .rb-b{background:#fcfaff;color:#4a4458}
+.rb.work{border-color:#bcd3f7}.rb.work .rb-h{background:#eef4ff;color:#1d4ed8}.rb.work .rb-b{background:#fbfcff;color:#3d4451}
+.rb.back{border-color:#bfe3c8}.rb.back .rb-h{background:#f4fbf6;color:#15803d}.rb.back .rb-b{background:#fbfefc;color:#3d4451}
+.rb-n{font-size:.66em;line-height:1.45;padding:5px 7px;border-top:1px dashed rgba(76,43,150,.22);color:#6d5a95;background:#faf7ff}
+
+.raw{font-family:ui-monospace,Consolas,monospace;font-size:.68em;line-height:1.5;white-space:pre-wrap;word-break:break-word;
+  background:#fbfbfc;border:1px solid var(--line);border-radius:5px;padding:9px 11px;color:#4a5159;max-height:620px;overflow:auto}
+.raw .rule{color:#9aa5b4;font-weight:700}
+.vw{margin-left:0}
+.sim-bar .sep{width:1px;height:20px;background:var(--line);margin:0 6px}
+
+.legend{display:flex;flex-wrap:wrap;gap:12px;font-size:.72em;color:var(--muted);padding:8px 12px;border-top:1px solid var(--line);background:var(--surf)}
+.legend i{display:inline-block;width:9px;height:9px;border-radius:2px;margin-right:4px;vertical-align:-1px}
+
+footer{margin-top:34px;font-size:.78em;color:var(--muted);border-top:1px solid var(--line);padding-top:14px}
+footer .updated{margin-bottom:6px;font-variant-numeric:tabular-nums}
+footer .updated strong{color:var(--ink2)}
+</style>
+</head>
+<body>
+<div class="wrap">
+
+<!-- ══ 1. THE CLAIM ══ -->
+<section class="narrow">
+  <p class="kicker">bouzecode — how the context is built</p>
+  <h1>The agent that forgets on purpose</h1>
+  <p class="lede" style="margin-top:12px">In a normal AI coding agent, everything read and said piles up, and <em>every single API call resends the whole pile</em>. bouzecode does the opposite: <strong>a tool result is destroyed at the end of the turn, unless the agent explicitly copied out what mattered.</strong> What survives is a notebook the agent writes for itself — plus the very last tool result. That is the entire context.</p>
+
+  <div class="callout">
+    <p><strong>The lab notebook.</strong> You borrow a 400-page file from the archive, you copy the 20 lines that matter into your own notebook, you give the file back. Next week you still have the 20 lines — and you never paid to carry 400 pages around.</p>
+    <p style="margin-top:8px">One rule about that notebook: <strong>you only ever write at the end of it.</strong> You never go back and rewrite page 3 — your colleagues already photocopied pages 1&ndash;40 and those photocopies are cheap to reuse. Edit page 3 and everyone has to photocopy everything again.</p>
+  </div>
+
+  <p>That last paragraph is the part people get wrong, so it is stated here up front: the notebook is <strong>append-only</strong>. The model adds a block when it has something worth noting; it never edits or rewrites an earlier block. Section&nbsp;5 explains why that is not a style preference but the whole economic argument.</p>
+</section>
+
+<!-- ══ 2. WHAT NORMALLY HAPPENS ══ -->
+<section class="narrow">
+  <h2>2. What normally happens</h2>
+  <p>Fix one bug: the agent reads <code>main.py</code> (400 lines), edits it, runs the tests. One instruction from you, four calls to the model. Here is what each call carries — the width of a bar is the size of what is transmitted.</p>
+
+  <div class="bars">
+    <div class="barrow"><span class="cap">call 1</span><div class="bar" style="max-width:22%"><span class="seg s-sys" style="flex:3">system</span><span class="seg s-small" style="flex:1">you</span></div></div>
+    <div class="barrow"><span class="cap">call 2</span><div class="bar" style="max-width:58%"><span class="seg s-sys" style="flex:3">system</span><span class="seg s-small" style="flex:1">you</span><span class="seg s-fresh" style="flex:8">main.py &mdash; 400 lines</span></div></div>
+    <div class="barrow"><span class="cap">call 3</span><div class="bar" style="max-width:63%"><span class="seg s-sys" style="flex:3">system</span><span class="seg s-small" style="flex:1">you</span><span class="seg s-old" style="flex:8">main.py again</span><span class="seg s-fresh" style="flex:1">edit</span></div></div>
+    <div class="barrow"><span class="cap">call 4</span><div class="bar" style="max-width:80%"><span class="seg s-sys" style="flex:3">system</span><span class="seg s-small" style="flex:1">you</span><span class="seg s-old" style="flex:8">main.py again</span><span class="seg s-old" style="flex:1">edit</span><span class="seg s-fresh" style="flex:3">pytest output</span></div></div>
+  </div>
+
+  <p>The 400 lines of <code>main.py</code> are transmitted on calls 2, 3 and 4. The agent needed <em>one function</em> out of that file, and it carried the whole thing to the end of the session. Multiply by every file read, every <code>grep</code>, every test run — that is the bill.</p>
+</section>
+
+<!-- ══ 3. WHAT BOUZECODE DOES ══ -->
+<section class="narrow">
+  <h2>3. What bouzecode does instead</h2>
+  <p>Every tool result arrives with this line stapled to the front of it — verbatim, from the source:</p>
+
+  <pre class="quote"><span class="tag">[SYSTEM]</span> This tool_result will be destroyed at the next user turn unless you snippet it or stash a note with Methodology.</pre>
+  <p class="src">minimal_payload.py:23 &mdash; <code>_DESTRUCTION_BANNER</code></p>
+
+  <p>It is not a threat, it is a description. When the next call is assembled, the wire is rebuilt from almost nothing:</p>
+
+  <div class="sd">
+    <div class="keep">
+      <h4>Survives</h4>
+      <ul>
+        <li>Your latest message</li>
+        <li>The tool results of the <em>live</em> batch only (the ones just produced)</li>
+        <li>Write/Edit results from earlier turns, squeezed to a one-line ack</li>
+        <li>The notebook — as a cached system block</li>
+      </ul>
+    </div>
+    <div class="drop">
+      <h4>Destroyed</h4>
+      <ul>
+        <li>Every earlier tool result</li>
+        <li>Every assistant sentence ever written</li>
+        <li>Every record of which tools were called</li>
+      </ul>
+    </div>
+  </div>
+  <p class="src">build_messages_for_api / build_minimal_payload &mdash; minimal_payload.py:335, :187</p>
+
+  <p>Because the assistant's own message is gone, a surviving result would lose all trace of what produced it. So each one is re-labelled with a one-line recall of its own call: <code>[&#8617; Read: {"file_path": "/repo/main.py"}]</code> <span class="src">(<code>_tool_call_recall</code> &mdash; minimal_payload.py:92)</span>.</p>
+
+  <h3>Two ways to save something</h3>
+  <div class="grid g2">
+    <div class="card">
+      <h4 style="color:var(--purple)">Methodology &mdash; the notebook</h4>
+      <p>One tool call, one appended block: what was found, what was decided and why, what is next. Some blocks are appended automatically with no action from the model: your messages (<code>## User</code>), the plan (<code>## Plan</code>), questions and answers (<code>## Q&amp;A</code>).</p>
+    </div>
+    <div class="card">
+      <h4 style="color:var(--green)">Snippet &mdash; the 20 copied lines</h4>
+      <p>Any result of 50 lines or more is wrapped in markers and renumbered 1..N, so the model can name exactly the region to keep. <code>Snippet(file_path=, symbol=)</code> stores the symbol's <em>name</em>, not its line numbers, and re-resolves it every turn — so it survives later edits that shift lines. <code>discard=true</code> says "seen it, keeping nothing".</p>
+    </div>
+  </div>
+  <p class="src">snippet_wire.py:18 (<code>SNIPPET_MIN_LINES = 50</code>) · methodology.py:196, :238 · snippet_resolve.py:46</p>
+  <p>Snippets are appended into the <em>same</em> notebook — there is no second store.</p>
+</section>
+
+<!-- ══ 4. THE SIMULATION ══ -->
+<section>
+  <h2>4. Watch it happen, byte by byte</h2>
+  <p class="narrow">One bug, four API calls. Below is the <strong>entire</strong> payload sent on each call — there is nothing else in the model's world — then what the model sends back, then the state of the notebook once the turn closes. Every marker, banner and header below is the literal string the code emits.</p>
+
+  <div class="sim">
+    <div class="sim-bar">
+      <span class="lbl">API call</span>
+      <button class="on" data-t="1">1</button><button data-t="2">2</button><button data-t="3">3</button><button data-t="4">4</button>
+      <span class="sep"></span>
+      <span class="lbl">panels ①②</span>
+      <button class="vw on" data-v="tool">by tool</button><button class="vw" data-v="raw">raw bytes</button>
+      <span id="tally"></span>
+    </div>
+    <div class="story" id="story"></div>
+    <div class="panes">
+      <div class="pane">
+        <div class="pane-h">① Sent to the model</div>
+        <div class="pane-s" id="wire-sub"></div>
+        <div id="wire"></div>
+      </div>
+      <div class="pane">
+        <div class="pane-h">② The model answers</div>
+        <div class="pane-s" id="reply-sub"></div>
+        <div id="reply"></div>
+      </div>
+      <div class="pane">
+        <div class="pane-h">③ The notebook, after the turn</div>
+        <div class="pane-s">Append-only. Purple = the block just appended, a cache write. Grey = bytes already in the note, re-sent as a cache read and <em>never</em> rewritten.</div>
+        <div class="nb" id="note"></div>
+      </div>
+    </div>
+    <div class="legend">
+      <span><i style="background:#cfdbe6"></i><strong>cache read</strong> &mdash; unchanged bytes, ~0.1&times;</span>
+      <span><i style="background:#e0d5f7"></i><strong>cache write</strong> &mdash; new bytes entering the cache, ~1.25&times;</span>
+      <span><i style="background:#f4cdb4"></i><strong>fresh input</strong> &mdash; never cached, 1&times; every call</span>
+    </div>
+  </div>
+  <p class="prov">Round token counts, chosen to be realistic rather than measured — the point is the <em>shape</em>. Cached tokens are counted at one tenth of fresh ones, the right order of magnitude for prompt caching.</p>
+
+  <div class="callout key narrow">
+    <p><strong>Read the crossover, it is the honest part.</strong> For the first two calls bouzecode puts <em>more</em> on the wire, not less: it pays up front for the notebook and for a reminder that is deliberately never cached. It crosses over on call 3 and keeps pulling away. The 400 lines of <code>main.py</code> crossed the wire <strong>exactly once</strong>; on the keep-everything side they cross it three times, and would cross it again on every remaining call of the session.</p>
+    <p style="margin-top:8px">On <em>price</em>, at four calls with a warm cache, the two are roughly a wash — the second figure in the counter says so. Prompt caching makes keeping everything cheap for as long as the cache holds. The volume advantage turns into a price advantage precisely when it stops holding: a longer session, a second and third file to read, or a five-minute pause. Then everyone re-buys their prefix at full price, and bouzecode's prefix is a fraction of the size.</p>
+  </div>
+</section>
+
+<!-- ══ 5. APPEND-ONLY ══ -->
+<section class="narrow">
+  <h2>5. Why the notebook may only grow</h2>
+  <p>A small context that gets rewritten every turn is <strong>worse than the disease.</strong> Here is why.</p>
+  <p>Model providers cache the beginning of a prompt: if the first N bytes you send are byte-for-byte identical to last time, they are billed at roughly a tenth of the normal price. The cache is a <em>prefix</em> match — it holds only up to the first byte that changed.</p>
+
+  <div class="callout warn">
+    <p>Rewrite one line in the middle of the notebook and everything from that line on is new bytes. You would be sending a <em>small</em> context that is <em>100% freshly billed</em>, every single turn. Cheaper-looking, more expensive.</p>
+  </div>
+
+  <p>So bouzecode never rewrites. Old bytes are <strong>dropped</strong> from the wire, never edited in place — the design comment says so explicitly:</p>
+  <pre class="quote">Dropping prior wire bytes (rather than stripping/rewriting them) is
+load-bearing for the prompt cache: any post-hoc rewrite of an earlier
+byte invalidates the cache from that point on.</pre>
+  <p class="src">minimal_payload.py:15-18</p>
+
+  <p>The same rule governs the notebook itself. It is rendered verbatim and split in two: the part that was already cached last turn, and the delta added since — that is the grey/purple split in panel ③ above. Only the delta is new. When a snippet's source file is edited, the stored copy is <em>not</em> refreshed in place — a <code>## snippet-stale:</code> marker is appended below it instead, so the cached bytes above stay untouched.</p>
+  <p class="src">build_methodology_system_blocks / split_methodology_for_cache &mdash; methodology.py:38, :31</p>
+
+  <p>The cached prefix also does not live forever: five minutes by default, one hour on the official Anthropic API. An expiry means re-paying the entire prefix at full price — so a session that pauses while a human reads a diff pays for its own memory all over again. That is also when the design pays off most: the smaller the thing you have to re-buy, the cheaper the pause.</p>
+  <p class="src">_resolve_cache_control &mdash; dispatch.py:154-161</p>
+
+  <p>And there is exactly one operation that deliberately breaks the cache <em>on purpose</em>: <strong>structural compaction</strong>. Past 20&nbsp;000 tokens the notebook is cleaned — duplicate snippets, snippets whose file no longer exists, snippets flagged stale. No model call is involved, it is pure text surgery. It also resets the cache snapshot, meaning the next turn re-pays the whole prefix. That is precisely why the threshold is set high enough for it to be rare.</p>
+  <p class="src">compact_methodology.py:16 (threshold), :184 (snapshot invalidation)</p>
+
+  <!-- Bump the date on the next line whenever this page is republished. -->
+  <footer>
+    <div class="updated"><strong>Last updated</strong> &mdash; 10 August 2026, 14:44 UTC+02:00</div>
+    Repository: <code>bouzecode</code>, sources under <code>src/bouzecode</code>. Every string shown in the simulation is the literal text emitted by the code at the file and line quoted next to it.
+  </footer>
+</section>
+
+</div>
+
+<script>
+// ── Section 4: the wire simulation ──────────────────────────────────────────
+// Every banner, marker and header below is verbatim from the source.
+const BANNER = "[SYSTEM] This tool_result will be destroyed at the next user turn unless you snippet it or stash a note with Methodology.";
+const METH_HDR = "[METHODOLOGY — your persistent working memory across turns]\nLines marked `## snippet-stale:` mean the range-snippet above is outdated (file was edited since snapshot). Use the Edit diff output or re-snapshot with Snippet(symbol=) for fresh content.";
+const SYS = "You are bouzecode, a coding agent.\n<tool name=\"Read\">…</tool> <tool name=\"Edit\">…</tool> <tool name=\"Bash\">…</tool>\n<tool name=\"Methodology\">…</tool> <tool name=\"Snippet\">…</tool> <tool name=\"FinalAnswer\">…</tool>\n\n(tool schemas + agent instructions — identical on every call of the session,\nso from call 2 onwards these bytes are served from the prompt cache)";
+const REMINDER = "[RAPPEL — à chaque tour]\nTa mémoire de travail est ta note Methodology : SEULE elle (+ Snippets, WritePlan, messages user, ton dernier batch) survit au prochain tour. Le reste (résultats d'outils, prose, thinking) MEURT — sauve-le avant.\nAVANT de penser : RELIS ta Methodology. N'y re-dérive JAMAIS ce qui y est déjà noté.\nStructure de CHAQUE tour, dans l'ordre, en UN seul batch :\n  1. Methodology EN PREMIER, à CHAQUE tour SANS EXCEPTION — todolist [ ]/[x] + le delta du tour.\n  2. Un Snippet par résultat Read/Grep/Skill reçu au tour précédent (ou discard=true).\n  3. Le vrai travail (Edit/Bash/Write…) dans le MÊME batch.\nPARALLÉLISE l'indépendant — <thinking> ≤15 lignes — ce tour DOIT se terminer par ≥1 <tool_use>.\n\n(source text is French — dispatch.py:100, appended as fresh, never-cached\ntokens to the end of the last user message on every single call)";
+const USERMSG = "fix the pagination bug in main.py — page 2 starts with the last item of page 1";
+// Appended by the runtime, not by the model: every user message becomes a
+// ## User block in the note before the call is even assembled.
+// append_user_msg_to_methodology — methodology.py:311, called from loop.py:213.
+const NB0 = "## User @2026-08-10 09:14:22\n" + USERMSG;
+
+const READ_RESULT = BANNER + "\n\n[↩ Read: {\"file_path\": \"/repo/main.py\"}]\n\n==== A SNIPPETER id: file=/repo/main.py ====\n    1  \"\"\"Tiny paginated catalogue API.\"\"\"\n    2  from dataclasses import dataclass\n    3  \n   …  (lines 4-37 elided in this illustration)\n   38  def paginate(items, page, size):\n   39      \"\"\"Return one page of items, 1-indexed.\"\"\"\n   40      start = (page - 1) * size\n   41      # keep one extra so the caller can tell there is a next page\n   42      return items[start : start + size + 1]\n   43  \n   44  def render_page(items, page, size=20):\n   …  (lines 45-400 elided in this illustration)\n  400  \n==== FIN DE L'ELEMENT A SNIPPETER ====";
+
+const EDIT_ACK = BANNER + "\n\n[↩ Edit: {\"file_path\": \"/repo/main.py\"}]\n\nEdit applied to /repo/main.py — 1 replacement\n   42  -    return items[start : start + size + 1]\n   42  +    return items[start : start + size]";
+
+const PYTEST = BANNER + "\n\n[↩ Bash: pytest tests/test_pagination.py -q]\n\n....\n4 passed in 0.31s";
+
+const NB1 = "## Goal\nFix pagination off-by-one in /repo/main.py (page 2 starts with the last item of page 1).\n- [ ] read main.py\n- [ ] locate the slice arithmetic\n- [ ] fix + run tests";
+const NB2 = "## Found\nmain.py:42 — `items[start : start + size + 1]`. The `+ 1` is the bug: start is\nalready (page-1)*size, so the slice must be exactly `size` long. The comment on\nL41 says the extra item is a next-page probe — render_page never uses it.\nDecision: drop the `+ 1`. Rejected: keeping it and slicing at the caller (two\nplaces to get wrong).\n- [x] read main.py\n- [x] locate the slice arithmetic\n- [ ] fix + run tests";
+const NB3 = "## snippet: /repo/main.py :: paginate — \"the buggy slice\"\n   38  def paginate(items, page, size):\n   39      \"\"\"Return one page of items, 1-indexed.\"\"\"\n   40      start = (page - 1) * size\n   41      # keep one extra so the caller can tell there is a next page\n   42      return items[start : start + size + 1]";
+const NB4 = "## Fixed\nEdit applied, L42 now `items[start : start + size]`. Running the pagination\ntests to confirm.\n- [x] fix\n- [ ] run tests";
+const NB5 = "## Done\n4 passed. Off-by-one closed, no other caller of paginate() relied on the\nextra item. Closing.\n- [x] run tests";
+
+const TURNS = [
+  {
+    story: "<strong>Call 1.</strong> Nothing has run yet — and the notebook is already not empty. Your message was appended to it as a <code>## User</code> block <em>before</em> the payload was assembled, so the mission statement is persistent memory from the very first byte. It also rides on the wire as the latest user message, because the API requires the conversation to open with one. It is the only text in the whole design that is deliberately sent twice.",
+    wire: [
+      {k:"write", t:"system — tools + instructions", tok:2000, body:SYS},
+      {k:"write", t:"system — notebook (first cache write)", tok:100, body:METH_HDR + "\n\n" + NB0},
+      {k:"fresh", t:"user — latest message only", tok:40, body:USERMSG},
+      {k:"fresh", t:"↳ appended to the same user message", tok:320, body:REMINDER}
+    ],
+    reply: [
+      {k:"think", body:"The note already holds the mission as a ## User block. Add my plan under it\nfirst — if this turn dies I lose nothing. Then read the file, same batch."},
+      {k:"tool", name:"Methodology", id:"m1", params:{content:NB1}},
+      {k:"tool", name:"Read", id:"r1", params:{file_path:"/repo/main.py"}},
+      {k:"back", body:"methodology append: now 187 chars\nRead: 400 lines"}
+    ],
+    note: [{n:1, txt:NB0},{n:1, txt:NB1}],
+    nvRead: 0, nvWrite: 2040
+  },
+  {
+    story: "<strong>Call 2.</strong> The system prompt is now a cache read, and so is the <code>## User</code> block written last call. Only the model's new <code>## Goal</code> is a write. Note what is <em>never</em> cached: every cache breakpoint sits in the system blocks, so the user message and the tool results — which come after the last one — are fresh input on every single call. That is why the note keeps its own copy of your message rather than relying on the wire.",
+    wire: [
+      {k:"read",  t:"system — tools + instructions", tok:2000, body:SYS},
+      {k:"read",  t:"system — notebook, cached prefix", tok:100, body:METH_HDR + "\n\n" + NB0},
+      {k:"write", t:"system — notebook, delta since last call", tok:90, body:NB1},
+      {k:"fresh", t:"user — latest message only", tok:40, body:USERMSG},
+      {k:"fresh", t:"tool_result r1 — Read(/repo/main.py)", tok:4000, body:READ_RESULT},
+      {k:"fresh", t:"↳ appended to the user message", tok:320, body:REMINDER}
+    ],
+    reply: [
+      {k:"think", body:"L42: `start + size + 1`. The `+ 1` overlaps pages. L41 claims it is a next-page\nprobe; render_page ignores it. Freeze the function, fix it, same batch."},
+      {k:"tool", name:"Methodology", id:"m2", params:{content:NB2}},
+      {k:"tool", name:"Snippet", id:"s1", params:{file_path:"/repo/main.py", symbol:"paginate", label:"the buggy slice"}},
+      {k:"tool", name:"Edit", id:"e1", params:{file_path:"/repo/main.py", old_string:"start + size + 1]", new_string:"start + size]"}},
+      {k:"back", body:"methodology append: now 612 chars\nsnippet saved: /repo/main.py :: paginate (5 lines)\nEdit applied — 1 replacement"}
+    ],
+    note: [{n:0, txt:NB0},{n:0, txt:NB1},{n:1, txt:NB2},{n:1, txt:NB3}],
+    nvRead: 2040, nvWrite: 4060
+  },
+  {
+    story: "<strong>Call 3.</strong> The 400 lines are gone — destroyed, exactly as the banner promised. What is left of that file is the five lines the model chose to keep. The notebook now splits: the cached part from last call, plus the delta.",
+    wire: [
+      {k:"read",  t:"system — tools + instructions", tok:2000, body:SYS},
+      {k:"read",  t:"system — notebook, cached prefix", tok:190, body:METH_HDR + "\n\n" + NB0 + "\n\n" + NB1},
+      {k:"write", t:"system — notebook, delta since last call", tok:330, body:NB2 + "\n\n" + NB3},
+      {k:"fresh", t:"user — latest message only", tok:40, body:USERMSG},
+      {k:"fresh", t:"tool_result e1 — Edit ack", tok:40, body:EDIT_ACK},
+      {k:"fresh", t:"↳ appended to the user message", tok:320, body:REMINDER}
+    ],
+    reply: [
+      {k:"think", body:"Notebook says the fix is applied and the decision is recorded. Nothing to\nre-derive. Run the tests."},
+      {k:"tool", name:"Methodology", id:"m3", params:{content:NB4}},
+      {k:"tool", name:"Bash", id:"b1", params:{command:"pytest tests/test_pagination.py -q"}},
+      {k:"back", body:"methodology append: now 771 chars\n4 passed in 0.31s"}
+    ],
+    note: [{n:0, txt:NB0},{n:0, txt:NB1},{n:0, txt:NB2},{n:0, txt:NB3},{n:1, txt:NB4}],
+    nvRead: 6100, nvWrite: 100
+  },
+  {
+    story: "<strong>Call 4.</strong> Steady state. The payload is the system prompt, a notebook that is almost entirely cached bytes, and one fresh test result. The file, the diff and every sentence the model ever wrote are gone — and nothing was lost, because what mattered was copied out.",
+    wire: [
+      {k:"read",  t:"system — tools + instructions", tok:2000, body:SYS},
+      {k:"read",  t:"system — notebook, cached prefix", tok:520, body:METH_HDR + "\n\n" + NB0 + "\n\n" + NB1 + "\n\n" + NB2 + "\n\n" + NB3},
+      {k:"write", t:"system — notebook, delta since last call", tok:60, body:NB4},
+      {k:"fresh", t:"user — latest message only", tok:40, body:USERMSG},
+      {k:"fresh", t:"tool_result b1 — pytest", tok:350, body:PYTEST},
+      {k:"fresh", t:"↳ appended to the user message", tok:320, body:REMINDER}
+    ],
+    reply: [
+      {k:"think", body:"Green. Todolist has no open items left. Close."},
+      {k:"tool", name:"Methodology", id:"m4", params:{content:NB5}},
+      {k:"tool", name:"FinalAnswer", id:"f1", params:{content:"main.py:42 sliced one item too many: `start + size + 1`. The extra item was a\nnext-page probe that render_page never read. Removed it; 4 pagination tests pass."}},
+      {k:"back", body:"session closed"}
+    ],
+    note: [{n:0, txt:NB0},{n:0, txt:NB1},{n:0, txt:NB2},{n:0, txt:NB3},{n:0, txt:NB4},{n:1, txt:NB5}],
+    nvRead: 6200, nvWrite: 410
+  }
+];
+
+const esc = s => s.replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;");
+const num = n => n.toLocaleString("en-US").replace(/,/g," ");
+
+// Role of a wire block, derived from its label. "↳" means the block is not a
+// message of its own: it is appended INTO the previous one, exactly like
+// _append_to_last_user_message does with the reminder.
+function roleOf(title){
+  if(title.startsWith("↳")) return "append";
+  if(title.startsWith("system")) return "system";
+  if(title.startsWith("tool_result")) return "user  ·  tool_result " + title.split(" ")[1];
+  return "user";
+}
+
+// "raw bytes": the payload as one continuous stream, the way the model receives
+// it. Destroyed blocks are simply absent — that is the whole point.
+function renderRaw(wire){
+  const chunks = [];
+  for(const b of wire){
+    const role = roleOf(b.t);
+    if(role==="append" && chunks.length){ chunks[chunks.length-1].body += "\n\n" + b.body; continue; }
+    chunks.push({role, body:b.body});
+  }
+  return `<div class="raw">` + chunks.map(c=>
+    `<span class="rule">──────── ${esc(c.role)} ────────</span>\n${esc(c.body)}`
+  ).join("\n\n") + `</div>`;
+}
+
+function renderByTool(wire){
+  return wire.map(b=>
+    `<div class="wb ${b.k}"><div class="wb-h"><span>${esc(b.t)}</span>`
+    + `<span>${num(b.tok)} tok</span></div>`
+    + `<div class="wb-b">${esc(b.body)}</div></div>`
+  ).join("");
+}
+
+// The model's output, rendered from one source of truth so the two views
+// cannot drift: the literal XML it emitted, or one box per element.
+const WRITES_NOTEBOOK = {Methodology:1, Snippet:1};
+// Spelled out because it is the single most misread part of the design: the
+// content parameter is the NEW block alone, never the note re-sent in full.
+const TOOL_NOTE = {
+  Methodology: "Append-only. This <code>content</code> is the new block <em>alone</em> — compare it with panel ③: everything already grey there is absent here. Recopying it would rewrite bytes the cache is holding and invalidate the prefix from that point on.",
+  Snippet: "Also an append: the resolved lines are added at the end of the same note. Nothing above them is touched."
+};
+
+function replyRaw(r){
+  return r.map(e=>{
+    if(e.k==="think") return `<span class="th">${esc("<thinking>\n"+e.body+"\n</thinking>")}</span>`;
+    if(e.k==="back")  return `<span class="v">${esc(e.body.split("\n").map(l=>"→ "+l).join("\n"))}</span>`;
+    const keys = Object.keys(e.params);
+    const t = (keys.length===1 && keys[0]==="content")
+      ? `<tool_use name="${e.name}" id="${e.id}"><param name="content">\n${e.params.content}\n</param></tool_use>`
+      : `<tool_use name="${e.name}" id="${e.id}">\n`
+        + keys.map(k=>`  <param name="${k}">${e.params[k]}</param>`).join("\n")
+        + `\n</tool_use>`;
+    return esc(t).replace(/(&lt;\/?(?:tool_use|param)[^&]*?&gt;)/g, '<span class="k">$1</span>');
+  }).join("\n\n");
+}
+
+function replyByTool(r){
+  return r.map(e=>{
+    if(e.k==="think")
+      return `<div class="rb think"><div class="rb-h"><span>&lt;thinking&gt;</span><span>not saved — dies with the turn</span></div><div class="rb-b">${esc(e.body)}</div></div>`;
+    if(e.k==="back")
+      return `<div class="rb back"><div class="rb-h"><span>what came back</span><span>input of the next call</span></div><div class="rb-b">${esc(e.body)}</div></div>`;
+    const note = WRITES_NOTEBOOK[e.name];
+    const body = Object.keys(e.params)
+      .map(k=>`<span class="p">${esc(k)}</span>\n${esc(e.params[k])}`).join("\n\n");
+    return `<div class="rb ${note?"notetool":"work"}"><div class="rb-h">`
+      + `<span>${esc(e.name)} <span style="opacity:.6">id=${esc(e.id)}</span></span>`
+      + `<span>${note?"appends to the notebook":"does the work"}</span></div>`
+      + `<div class="rb-b">${body}</div>`
+      + (TOOL_NOTE[e.name] ? `<div class="rb-n">${TOOL_NOTE[e.name]}</div>` : "")
+      + `</div>`;
+  }).join("");
+}
+
+let VIEW = "tool";
+
+function show(t){
+  const T = TURNS[t-1];
+  CALL = t;
+  document.querySelectorAll(".sim-bar button[data-t]").forEach(b=>b.classList.toggle("on", +b.dataset.t===t));
+  document.getElementById("story").innerHTML = T.story;
+
+  document.getElementById("wire").innerHTML =
+    VIEW==="raw" ? renderRaw(T.wire) : renderByTool(T.wire);
+  document.getElementById("wire-sub").textContent = VIEW==="raw"
+    ? "The literal byte stream, in order. What was destroyed is simply not here — and the per-turn reminder shows up welded onto the end of the last user-role message, which is where the code puts it."
+    : "The complete payload, one box per element, with what each costs. Nothing outside this box exists for the model.";
+
+  document.getElementById("reply").innerHTML =
+    VIEW==="raw" ? `<pre class="term">${replyRaw(T.reply)}</pre>` : replyByTool(T.reply);
+  document.getElementById("reply-sub").textContent = VIEW==="raw"
+    ? "The literal text the model emitted, tool calls and all."
+    : "One box per element of the answer. Methodology first, then the real work, all in one batch.";
+
+  document.getElementById("note").innerHTML =
+    `<div class="hdr">${esc(METH_HDR.split("\n")[0])}</div>` +
+    T.note.map(b=>`<pre class="${b.n?"new":"old"}">${esc(b.txt)}</pre>`).join("");
+
+  // Cumulative cost. Destroyed bytes cost nothing. Everything else is billed at
+  // its cache class: a read is ~0.1×, writing into the cache carries a ~1.25×
+  // premium over fresh, and fresh input is 1×. The keep-everything column is
+  // modelled generously: it caches its whole history at the end of every call.
+  const PRICE = {read:0.1, write:1.25, fresh:1};
+  let bzSent=0, nvSent=0, bzBill=0, nvBill=0;
+  for(let i=0;i<t;i++){
+    for(const b of TURNS[i].wire){
+      bzSent += b.tok;
+      bzBill += b.tok * PRICE[b.k];
+    }
+    nvSent += TURNS[i].nvRead + TURNS[i].nvWrite;
+    nvBill += TURNS[i].nvRead*PRICE.read + TURNS[i].nvWrite*PRICE.write;
+  }
+  const r = nvSent/bzSent;
+  const verdict = r>=1.02 ? `<b style="color:#15803d">×${r.toFixed(2)} less</b>`
+                : r<=0.98 ? `<b style="color:#c2410c">×${(1/r).toFixed(2)} more</b>`
+                : `<b style="color:#6b7280">level</b>`;
+  document.getElementById("tally").innerHTML =
+    `cumulative tokens transmitted — bouzecode <b>${num(bzSent)}</b> · keep-everything <b>${num(nvSent)}</b> — ${verdict}` +
+    `<br><span style="color:#6b7280">billed-equivalent (read 0.1× · write 1.25× · fresh 1×): ${num(Math.round(bzBill))} vs ${num(Math.round(nvBill))}</span>`;
+}
+let CALL = 1;
+document.querySelectorAll(".sim-bar button[data-t]").forEach(b=>b.onclick=()=>show(+b.dataset.t));
+document.querySelectorAll(".sim-bar button[data-v]").forEach(b=>b.onclick=()=>{
+  VIEW = b.dataset.v;
+  document.querySelectorAll(".sim-bar button[data-v]").forEach(o=>o.classList.toggle("on", o===b));
+  show(CALL);
+});
+show(1);
+</script>
+</body>
+</html>

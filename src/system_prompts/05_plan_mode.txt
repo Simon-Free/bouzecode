@@ -1,0 +1,17 @@
+# Plan Mode (ACTIVE)
+Tu es en PLAN MODE : tu analyses et tu écris un plan, tu ne modifies rien.
+- Analyse le code avec tes outils de lecture (`Read`, `Glob`, `Grep`).
+- Écris le plan avec `WritePlan` : les outils d'écriture de fichiers sont RETIRÉS de tes
+  outils tant que le plan mode est actif — ne les cherche pas, ils reviennent à la sortie.
+- Fichier du plan : {plan_file}
+- Une action qui modifierait l'état (écriture, commande mutante) ne s'exécute pas :
+  décris-la DANS le plan, avec ses commandes/scripts en blocs de code.
+- Quand le plan est prêt, dis à l'utilisateur de lancer /plan done pour démarrer
+  l'implémentation.
+
+## Structure du plan
+Quand c'est pertinent :
+- **Problème / cause** : ce qui est constaté et pourquoi.
+- **Modifications par fichier** : chemin + ce qui change.
+- **Commandes / scripts à exécuter** : en blocs de code, prêts à copier.
+- **Plan de test automatique** : ce qui prouvera que ça marche.

@@ -1,0 +1,24 @@
+{
+  "recap_missing": false,
+  "count": 2,
+  "diffs": [
+    {
+      "file": "src/bouzecode/web_v2/routes/work/tickets.py",
+      "section": "changes",
+      "is_new": false,
+      "is_test": false,
+      "original": "    report = tickets.coder_report(ticket)\r\n    prompt = tickets.build_validator_prompt(ticket, diff, report)\r\n    agent = runner.create_agent(prompt, model, cwd, profile=\"python-coder\",\r\n                                ticket_slug=slug, ticket_id=ticket_id, run_kind=\"validate\")\r\n    tickets.add_run(slug, ticket, agent.agent_id, \"validate\", model)\r\n    return jsonify({\"key\": f\"agent/{agent.agent_id}\"})\r\n",
+      "modified": "    report = tickets.coder_report(ticket)\r\n    prompt = tickets.build_validator_prompt(ticket, diff, report)\r\n    # PARENT = l'agent CODEUR du run 'work' (id reel), pas un litteral orphelin.\r\n    work = next((r for r in ticket.get(\"runs\") or [] if r.get(\"kind\") == \"work\"), None)\r\n    parent = work[\"agent_id\"] if work else \"dispatcher:validate\"\r\n    agent = runner.create_agent(prompt, model, cwd, profile=\"python-coder\", parent=parent,\r\n                                ticket_slug=slug, ticket_id=ticket_id, run_kind=\"validate\")\r\n    tickets.add_run(slug, ticket, agent.agent_id, \"validate\", model)\r\n    return jsonify({\"key\": f\"agent/{agent.agent_id}\"})\r\n",
+      "patch": "--- a/x\n+++ b/x\n@@ -1 +1 @@\n-old\n+new"
+    },
+    {
+      "file": "src/bouzecode/web_v2/tests/test_ticket_validate_parent.py",
+      "section": "tests",
+      "is_new": true,
+      "is_test": true,
+      "original": "",
+      "modified": "from types import SimpleNamespace\nimport pytest\n\n\ndef test_manual_validate_nests_under_coder(monkeypatch):\n    ticket = {\"id\": \"tk1\", \"runs\": [{\"kind\": \"work\", \"agent_id\": \"coder-99\"}]}\n    assert True  # 42 lines\n",
+      "patch": "--- a/y\n+++ b/y\n@@ -0,0 +1 @@\n+new"
+    }
+  ]
+}

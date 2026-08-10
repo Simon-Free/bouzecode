@@ -1,0 +1,84 @@
+<!-- [desc] HTML template showcasing styled rendering of an AI coding session with tool-call read/edit panels. [/desc] -->
+<!DOCTYPE html>
+<html lang="en">
+<head><meta charset="utf-8"><title>Bouzecode Session</title>
+<style>
+*,*::before,*::after{box-sizing:border-box}
+body{font-family:system-ui,-apple-system,sans-serif;max-width:960px;margin:0 auto;
+  padding:2rem;background:#f5f7fa;color:#1f2328;line-height:1.6}
+.user-msg{background:#dbeafe;border-left:4px solid #2563eb;padding:.75rem 1rem;
+  border-radius:0 8px 8px 0;margin:1.2rem 0}
+.user-msg .label{font-weight:700;color:#1e40af;font-size:.8rem;text-transform:uppercase;
+  letter-spacing:.5px;margin-bottom:.25rem}
+.assistant{margin:1.2rem 0;margin-left:1.5rem}
+.assistant p{margin:.4em 0}
+.assistant ul,.assistant ol{margin:.4em 0 .4em 1.5em}
+details.tool{margin:.5rem 0;border:1px solid #d1d9e0;border-radius:8px;background:#fff;
+  box-shadow:0 1px 3px rgba(0,0,0,.06)}
+details.tool>summary{padding:.6rem 1rem;cursor:pointer;font-weight:600;
+  font-family:ui-monospace,monospace;font-size:.9rem;border-radius:8px;
+  list-style:none;display:flex;align-items:center;gap:.5rem}
+details.tool>summary::-webkit-details-marker{display:none}
+details.tool>summary .icon{font-size:1.1em}
+details.tool>summary .tool-name{font-weight:700}
+details.tool>summary .tool-hint{color:#656d76;font-weight:400;font-size:.85rem;
+  overflow:hidden;text-overflow:ellipsis;white-space:nowrap;flex:1}
+details.tool>summary .chevron{margin-left:auto;transition:transform .2s;color:#888;font-size:.7em}
+details.tool[open]>summary .chevron{transform:rotate(90deg)}
+details.tool[open]>summary{border-bottom:1px solid #d1d9e0;border-radius:8px 8px 0 0}
+.tool-body{padding:1rem;overflow-x:auto}
+pre{background:#1e1e2e;color:#cdd6f4;padding:1rem;border-radius:6px;overflow-x:auto;
+  font-family:ui-monospace,monospace;font-size:.82rem;margin:.5rem 0;line-height:1.5}
+.diff-add{background:#dafbe1;color:#1a7f37}.diff-del{background:#ffebe9;color:#cf222e}
+.diff-hdr{color:#656d76;font-style:italic}
+.diff-line{font-family:ui-monospace,monospace;white-space:pre;font-size:.82rem;
+  padding:1px 8px;display:block}
+.params{border-collapse:collapse;margin:.25rem 0;font-size:.88rem}
+.params td{vertical-align:top;padding:3px 10px}
+.param-name{color:#0969da;font-weight:600;font-family:ui-monospace,monospace}
+.result-section{margin-top:.75rem;border-top:1px solid #eee;padding-top:.5rem}
+.result-label{font-weight:600;color:#656d76;font-size:.85rem;margin-bottom:.25rem}
+h1,h2,h3{margin:.6em 0 .3em}
+code{background:#eff1f3;padding:2px 6px;border-radius:4px;font-size:.88em;
+  font-family:ui-monospace,monospace}
+.session-meta{color:#656d76;font-size:.85rem;margin-bottom:1.5rem;
+  padding-bottom:.75rem;border-bottom:1px solid #d1d9e0}
+
+</style></head>
+<body>
+
+<div class="assistant"><p>I&#x27;ll read the config file and then make some changes.</p></div>
+<details class="tool">
+<summary style="color:#0969da"><span class="icon">&#128196;</span><span class="tool-name">Read</span><small>(r1)</small> <span class="tool-hint">config.py</span><span class="chevron">&#9654;</span></summary>
+<div class="tool-body"><table class="params"><tr><td class="param-name">file_path</td><td><code>/app/config.py</code></td></tr></table>
+<div class="result-section"><div class="result-label">Result</div><pre>DEBUG = False
+PORT = 8080
+HOST = &quot;localhost&quot;</pre></div></div>
+</details>
+<div class="assistant"><p>The config looks good. Let me update the <strong>port</strong> to <code>9090</code>.</p></div>
+<details class="tool">
+<summary style="color:#0969da"><span class="icon">&#9998;</span><span class="tool-name">Edit</span><small>(e1)</small> <span class="tool-hint">config.py</span><span class="chevron">&#9654;</span></summary>
+<div class="tool-body"><table class="params"><tr><td class="param-name">file_path</td><td><code>/app/config.py</code></td></tr></table>
+<div class="diff"><span class="diff-line diff-hdr">--- before</span><span class="diff-line diff-hdr">+++ after</span><span class="diff-line diff-hdr">@@ -1,2 +1,2 @@</span><span class="diff-line diff-del">-PORT = 8080</span><span class="diff-line diff-del">-HOST = &quot;localhost&quot;</span><span class="diff-line diff-add">+PORT = 9090</span><span class="diff-line diff-add">+HOST = &quot;0.0.0.0&quot;</span></div>
+<div class="result-section"><div class="result-label">Result</div><pre>Applied edit to /app/config.py</pre></div></div>
+</details>
+<div class="assistant"><p>Now let me create a new utility module.</p></div>
+<details class="tool">
+<summary style="color:#0969da"><span class="icon">&#9999;</span><span class="tool-name">Write</span><small>(w1)</small> <span class="tool-hint">utils.py</span><span class="chevron">&#9654;</span></summary>
+<div class="tool-body"><table class="params"><tr><td class="param-name">file_path</td><td><code>/app/utils.py</code></td></tr></table>
+<pre>def greet(name: str) -&gt; str:
+    return f&quot;Hello, {name}!&quot;
+
+
+def add(a: int, b: int) -&gt; int:
+    return a + b</pre>
+<div class="result-section"><div class="result-label">Result</div><pre>Created /app/utils.py (6 lines)</pre></div></div>
+</details>
+<div class="assistant"><h2>Summary</h2>
+<p>All changes applied successfully:
+<ul><li><strong>Port</strong> updated from <code>8080</code> to <code>9090</code></li>
+<li><strong>Host</strong> changed to bind all interfaces</li>
+<li>New <code>utils.py</code> module created with helper functions</li></ul></p></div>
+
+</body>
+</html>

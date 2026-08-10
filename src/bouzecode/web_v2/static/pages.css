@@ -1,0 +1,519 @@
+/* [desc] Styles des pages conversations/session (onglet Tours, diffs). Complète app.css. [/desc] */
+
+
+/* Onglet Tours */
+.turns-table { width: 100%; border-collapse: collapse; font: 12.5px Consolas, monospace; }
+.turns-table th, .turns-table td { padding: 4px 8px; text-align: right;
+  border-bottom: 1px solid var(--border); }
+.turns-table th:last-child, .turns-table td:last-child { text-align: left; }
+.turns-table tbody tr { cursor: pointer; }
+.turns-table tbody tr:hover { background: var(--panel2); }
+.turns-table .warn { color: var(--orange); font-weight: 700; }
+.turns-table .ok { color: var(--green); }
+.turn-summary { margin: 14px 0 8px; color: var(--accent); }
+.payload-item { margin: 4px 0; border: 1px solid var(--border); border-radius: 5px; }
+.payload-item summary { padding: 4px 8px; cursor: pointer; font-size: 12.5px; }
+.payload-item.cs-cached { border-left: 4px solid var(--green); }
+.payload-item.cs-new-cache { border-left: 4px solid var(--accent); }
+.payload-item.cs-fresh { border-left: 4px solid var(--orange); }
+.cs-cached .cs-badge { background: #1f3d36; color: var(--green); }
+.cs-new-cache .cs-badge { background: #1c3a5e; color: var(--accent); }
+.cs-fresh .cs-badge { background: #4d3b15; color: var(--orange); }
+.pi-kind { color: var(--purple); margin: 0 6px; }
+.payload-item pre { margin: 6px; }
+
+
+/* Monaco */
+.monaco-diff-box { border: 1px solid var(--border); border-radius: 5px;
+  overflow: hidden; }
+
+
+/* Page Conversations - style ChatGPT: sidebar + onglets internes */
+.conv-layout { display: flex; gap: 0; height: calc(100vh - 90px); }
+.conv-sidebar { width: 280px; flex-shrink: 0; overflow-y: auto; border-right: 1px solid var(--border);
+  padding: 8px 8px 8px 4px; box-sizing: border-box; }
+.conv-sidebar h2 { font-size: 12px; text-transform: uppercase; color: var(--muted); margin: 8px 6px; }
+.conv-search { padding: 8px 10px; display: flex; flex-direction: column; gap: 6px; }
+.conv-search-input { width: 100%; box-sizing: border-box; padding: 5px 8px;
+  font-size: 12px; border: 1px solid var(--border, #d0d0d0); border-radius: 4px; }
+.conv-search-scope { display: flex; gap: 4px; }
+.conv-search-toggle { flex: 1; padding: 3px 6px; font-size: 11px; cursor: pointer;
+  border: 1px solid var(--border, #d0d0d0); border-radius: 4px; background: transparent; }
+.conv-search-toggle.active { background: var(--accent, #2563eb); color: #fff;
+  border-color: var(--accent, #2563eb); }
+.conv-search-results { display: flex; flex-direction: column; gap: 6px; }
+.conv-search-item { padding: 6px 8px; border: 1px solid var(--border, #e0e0e0);
+  border-radius: 4px; cursor: pointer; }
+.conv-search-item:hover { background: var(--hover, #f2f4f8); }
+.conv-search-title { font-size: 12px; font-weight: 600; margin-bottom: 3px; }
+.conv-search-match { font-size: 11px; color: var(--muted, #666); display: flex; gap: 6px; }
+.conv-search-role { flex: 0 0 auto; font-size: 10px; text-transform: uppercase;
+  letter-spacing: 0.04em; opacity: 0.7; }
+.conv-search-snippet mark { background: #fde68a; padding: 0 1px; }
+.conv-list { display: block; }
+.conv-section { display: block; margin-bottom: 12px; }
+.conv-section-title { font-size: 10.5px; text-transform: uppercase; letter-spacing: 0.06em;
+  color: var(--muted); font-weight: 700; margin: 6px 6px 4px; }
+/* Titres de catégorie + section "nécessite une réponse" (séparation par nature) */
+.conv-cat-title { font-size: 10.5px; text-transform: uppercase; letter-spacing: 0.04em;
+  color: var(--muted); margin: 12px 6px 4px; font-weight: 700; }
+.conv-cat-title:first-child { margin-top: 4px; }
+.conv-section-needinput { border: 1px solid var(--orange); border-radius: 6px;
+  background: color-mix(in srgb, var(--orange) 8%, transparent); padding: 4px 6px 6px; margin-bottom: 10px; }
+.conv-section-needinput .conv-cat-title { color: var(--orange); margin-top: 4px; }
+.conv-archive-btn { flex: 0 0 auto; margin-left: auto; padding: 2px 7px; background: var(--panel2);
+  border: 1px solid var(--border); border-radius: 5px; color: var(--muted); cursor: pointer; font-size: 11px; }
+.conv-archive-btn:hover { color: var(--text); border-color: var(--accent); }
+/* Décompte annulable avant archivage réel : le bouton passe en "Annuler 3/2/1"
+   orange et gras. Le :hover ne le neutralise pas (on garde l'aspect "annuler"). */
+.conv-archive-btn--countdown,
+.conv-archive-btn--countdown:hover {
+  color: var(--orange); border-color: var(--orange); font-weight: 600;
+  background: color-mix(in srgb, var(--orange) 12%, var(--panel2));
+}
+/* Feedback optimiste d'archivage : la carte est grisée + non-cliquable dès le clic,
+   avant même la réponse serveur. Retirée en rollback si l'appel échoue. */
+.conv-group--archiving { opacity: 0.45; pointer-events: none; transition: opacity 0.12s ease; }
+.conv-item { display: block; width: 100%; min-width: 0; min-height: 44px; box-sizing: border-box;
+  text-align: left; padding: 8px 10px; margin-bottom: 4px;
+  background: var(--panel); border: 1px solid var(--border); border-radius: 6px; color: var(--text);
+  cursor: pointer; font-size: 13px; overflow: hidden; }
+.conv-item:hover { background: var(--panel2); }
+.conv-item.open { border-color: color-mix(in srgb, var(--accent) 40%, var(--border)); }
+.conv-item.active { background: color-mix(in srgb, var(--accent) 18%, transparent); border-left: 3px solid var(--accent); border-color: var(--accent); }
+/* §3/§4 — Entrée FANTÔME (parent archivé/purgé/disparu) : grisée + italique, mais
+   reste cliquable et ouvrable (aucune perte d'info). Fabriquée côté front (n._ghost),
+   ses orphelins validate/merge s'imbriquent dessous via childrenOf. */
+.conv-item--ghost { opacity: 0.6; font-style: italic; }
+.conv-item--ghost .conv-item-title { font-weight: 500; color: var(--muted); }
+.conv-item .conv-item-title { display: inline-block; font-weight: 600; min-width: 0; max-width: calc(100% - 120px);
+  vertical-align: middle; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+/* Heure de démarrage alignée à droite, gris (style liste de mails). */
+.conv-item .conv-item-time { float: right; color: var(--muted); font-size: 11px; line-height: 1.4;
+  margin-left: 8px; white-space: nowrap; }
+/* Ligne 2 : le SUJET (1er message / titre ticket), gris moyen, tronqué 1 ligne. */
+.conv-item .conv-item-subject { display: block; clear: both; color: var(--muted); font-size: 12px;
+  margin-top: 2px; min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.conv-item .conv-item-subject:empty { display: none; }
+/* Chip #id + branche : retirées VISUELLEMENT de la carte (spec 2) — conservées dans le DOM
+   (aucune perte) et exposées via le tooltip row.title + l'en-tête du panneau ouvert. */
+.conv-item .conv-item-meta { display: none; }
+.conv-item .conv-item-proj { display: block; font-size: 11px; color: var(--muted); margin-top: 2px;
+  min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+/* (règle .conv-item-meta d'origine neutralisée plus haut — display:none) */
+.conv-item .conv-item-meta--legacy { display: flex; align-items: center; gap: 8px; margin-top: 3px;
+  min-width: 0; font-size: 11px; }
+.conv-item-branch { display: inline-flex; align-items: center; gap: 5px; min-width: 0; overflow: hidden; }
+.conv-item-branch-label { flex: 0 0 auto; text-transform: uppercase; letter-spacing: .04em;
+  font-size: 9px; font-weight: 700; color: var(--muted); padding: 1px 5px; border-radius: 4px;
+  border: 1px solid var(--border); background: var(--panel2); }
+.conv-item-branch-name { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; color: var(--muted); }
+/* Chip d'id agent = META (identifiant, pas une action) → gris neutre, PAS violet.
+   Le violet est réservé aux vraies interactions (boutons, onglet actif, focus clavier). */
+.conv-item-agentid { flex: 0 0 auto; font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-size: 10.5px; font-weight: 600; color: var(--muted); padding: 1px 6px; border-radius: 4px;
+  border: 1px solid var(--border);
+  background: var(--panel2); cursor: pointer; user-select: none; }
+.conv-item-agentid:hover { background: var(--panel); border-color: var(--muted); }
+.conv-item-agentid:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
+.conv-item-agentid.is-copied { color: var(--ok, #3fb950);
+  border-color: color-mix(in srgb, var(--ok, #3fb950) 50%, transparent);
+  background: color-mix(in srgb, var(--ok, #3fb950) 15%, transparent); }
+/* Ce que l'agent FAIT en ce moment (outil en cours, phase de lancement), servi par le
+   backend — cf. services/work/activity.py. Prend la place restante de la ligne meta et
+   s'ellipse : la phrase peut être longue (« essai 2/3 échoué (…) — nouvelle tentative »),
+   elle reste entière dans le tooltip. */
+.conv-item-activity { flex: 1 1 auto; min-width: 0; font-size: 10.5px; color: var(--muted);
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+/* Silence anormal (> 4 min sans battement sur un « en cours ») : ambre, JAMAIS rouge — on
+   signale ce qu'on ne sait pas, on ne déclare pas l'agent mort. */
+.conv-item-activity.is-stale { color: var(--warn, #d29922); font-weight: 600; }
+.conv-item { position: relative; }
+/* Chemin JSON de session : copiable + téléchargeable (point e) */
+.conv-path { flex: 0 0 auto; display: flex; align-items: center; gap: 6px; flex-wrap: wrap; margin-bottom: 10px;
+  padding: 6px 8px; background: var(--panel); border: 1px solid var(--border); border-radius: 6px; }
+.conv-path code { flex: 1; min-width: 0; overflow-x: auto; white-space: nowrap; font-size: 11.5px;
+  color: var(--muted); }
+.conv-path-btn { flex: 0 0 auto; padding: 3px 8px; background: var(--panel2); border: 1px solid var(--border);
+  border-radius: 5px; color: var(--text); cursor: pointer; font-size: 11.5px; text-decoration: none; }
+.conv-path-btn:hover { border-color: var(--accent); }
+.conv-group { display: block; }
+.conv-item .conv-toggle { display: inline-block; padding: 3px 6px; margin-left: -4px; margin-right: 2px;
+  color: var(--muted); font-size: 11px; line-height: 1; cursor: pointer; user-select: none;
+  white-space: nowrap; border-radius: 4px; }
+.conv-item .conv-toggle:hover { color: var(--text); background: var(--border); }
+.conv-children { display: block; padding-left: 14px; border-left: 1px solid var(--border); margin-left: 6px; }
+/* Sans ça, `display: block` écrase l'attribut `hidden` (règle UA [hidden]{display:none} de
+   faible priorité) → le repli des sous-agents ne masquait jamais la box (même correctif que
+   .conv-panel[hidden] plus bas). Le toggle bascule childrenBox.hidden : cette règle le respecte. */
+.conv-children[hidden] { display: none !important; }
+.conv-item.conv-child { font-size: 12px; }
+
+/* T1 — sectionnement par état + toggle ligne header + entrée flat sous-agent */
+.conv-section-running, .conv-section-finished { display: block; margin-bottom: 6px; }
+.conv-section-running > .conv-cat-title { color: var(--accent, #4a9eff); }
+.conv-section-finished > .conv-cat-title { color: var(--muted); }
+.conv-toggle { display: flex; align-items: center; gap: 6px; width: 100%;
+  box-sizing: border-box; padding: 3px 6px 3px 22px; color: var(--muted);
+  font-size: 11px; line-height: 1.3; cursor: pointer; user-select: none;
+  border-radius: 4px; text-align: left; }
+.conv-toggle:hover { color: var(--text); background: var(--panel2, var(--border)); }
+.conv-toggle:focus-visible { outline: 2px solid var(--accent, #4a9eff); outline-offset: -2px; }
+.conv-toggle-agg { color: var(--muted); }
+.conv-flat-parent { display: block; font-size: 10.5px; color: var(--muted);
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.conv-main { flex: 1; display: flex; flex-direction: column; min-width: 0; overflow-x: hidden; }
+.conv-tabs { display: flex; gap: 2px; border-bottom: 1px solid var(--border); overflow-x: auto;
+  padding: 0 10px; scrollbar-width: thin; scrollbar-color: var(--border-bright) transparent;
+  -webkit-mask-image: linear-gradient(to right, transparent 0, #000 14px, #000 calc(100% - 14px), transparent 100%);
+  mask-image: linear-gradient(to right, transparent 0, #000 14px, #000 calc(100% - 14px), transparent 100%); }
+.conv-tabs::-webkit-scrollbar { height: 4px; }
+.conv-tabs::-webkit-scrollbar-thumb { background: var(--border-bright); border-radius: 4px; }
+.conv-tabs::-webkit-scrollbar-track { background: transparent; }
+/* Onglet : le rôle prend l'ellipsis, l'id NE se tronque JAMAIS (suffixe stable) */
+.conv-tab-title { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+/* Chip d'id d'onglet = META copiable, même style que .conv-item-agentid (gris neutre, pas violet) */
+.conv-tab-id { flex: 0 0 auto; font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-size: 10.5px; font-weight: 600; color: var(--muted); padding: 0 5px; border-radius: 4px;
+  border: 1px solid var(--border); background: var(--panel2); cursor: pointer; user-select: none;
+  white-space: nowrap; }
+.conv-tab-id:hover { background: var(--panel); border-color: var(--muted); }
+.conv-tab-id:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
+.conv-tab-id.is-copied { color: var(--ok, #3fb950);
+  border-color: color-mix(in srgb, var(--ok, #3fb950) 50%, transparent);
+  background: color-mix(in srgb, var(--ok, #3fb950) 15%, transparent); }
+.conv-tab { padding: 3px 10px; background: transparent; border: 1px solid transparent;
+  border-bottom: none; border-radius: 5px 5px 0 0; cursor: pointer; font-size: 11.5px; line-height: 1.5;
+  white-space: nowrap; color: var(--muted); display: flex; align-items: center; gap: 6px;
+  max-width: 220px; box-sizing: border-box; flex-shrink: 0;
+  border-top: 2px solid transparent; }
+.conv-tab:hover { background: var(--panel); color: var(--text); }
+.conv-tab.active { background: var(--panel2); color: var(--text);
+  border-color: var(--border); border-bottom: none; border-top: 2px solid var(--accent); }
+.conv-tab .conv-tab-title { display: inline-block; max-width: 200px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; vertical-align: bottom; }
+.conv-tab .conv-tab-close { color: var(--muted); font-weight: 700; font-size: 13px;
+  opacity: 0; transition: opacity .12s var(--pui-ease, ease); }
+.conv-tab:hover .conv-tab-close, .conv-tab.active .conv-tab-close { opacity: 1; }
+.conv-tab .conv-tab-close:hover { color: var(--red); }
+/* T5 [B5/B7] Cartes messages : contraste carte/fond >= 1.3 (fond +1 step palette,
+   bordure 1px subtile, ombre courte). Override scope conversation, neutralise le glow
+   accent de .pui-bubble--ai (performative-ui.css) qui gomme le contraste. */
+.conv-messages .pui-bubble {
+  background: var(--panel2);
+  border: 1px solid var(--border-bright);
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.45);
+}
+.conv-messages .pui-bubble--ai { border-color: var(--border); }
+.conv-panels { flex: 1; display: flex; flex-direction: column; min-height: 0; padding: 0 12px;
+  background: var(--panel); border-radius: 10px; }
+.conv-panel { display: flex; flex-direction: column; flex: 1 1 auto; min-height: 0; padding: 12px 0; }
+.conv-panel[hidden] { display: none !important; }
+/* Switch exclusif Conversation | Récap : le pane masqué disparaît vraiment
+   (l'attribut [hidden] natif est overridé par le display des panes → on le force). */
+.conv-pane-conv, .conv-pane-recap { display: flex; flex-direction: column; flex: 1 1 auto; min-height: 0; }
+.conv-pane-conv[hidden], .conv-pane-recap[hidden] { display: none !important; }
+/* En vue Récap, le pane récap prend TOUTE la hauteur du panneau (plus de mode empilé). */
+.conv-pane-recap { overflow: auto; }
+.conv-panel .conv-panel-status { flex: 0 0 auto; margin-bottom: 8px; display: flex; align-items: center; gap: 8px; }
+.conv-messages { flex: 1 1 auto; min-height: 0; overflow-y: auto; display: flex; flex-direction: column; gap: 8px; padding-top: 4px; padding-bottom: 8px; }
+/* Ligne meta unique compacte : badge état + modèle + id court + branche + icône document. */
+.conv-meta-model, .conv-meta-id, .conv-meta-branch { font-size: 11.5px; }
+/* Chip d'id UNIQUE de la ligne meta : cliquable → copie l'id complet (même pattern que
+   l'ex-chip d'onglet .conv-tab-id : mono, gris neutre, bordure discrète, is-copied vert). */
+.conv-meta-id { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-weight: 600; padding: 1px 5px; border-radius: 4px; border: 1px solid var(--border);
+  background: var(--panel2); cursor: pointer; user-select: none; white-space: nowrap; }
+.conv-meta-id:hover { background: var(--panel); border-color: var(--muted); }
+.conv-meta-id:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
+.conv-meta-id.is-copied { color: var(--ok, #3fb950);
+  border-color: color-mix(in srgb, var(--ok, #3fb950) 50%, transparent);
+  background: color-mix(in srgb, var(--ok, #3fb950) 15%, transparent); }
+/* Segmented control [Conversation | Récap] intégré à la ligne meta (compact, hauteur ~badge).
+   Fond discret ; le bouton actif est nettement contrasté (accent). */
+.conv-view-switch { display: inline-flex; align-items: stretch; gap: 0; border: 1px solid var(--border);
+  border-radius: 6px; overflow: hidden; background: var(--panel2); }
+.conv-view-btn { appearance: none; border: 0; background: transparent; color: var(--muted);
+  font-size: 11px; font-weight: 600; line-height: 1; padding: 4px 9px; cursor: pointer;
+  white-space: nowrap; }
+.conv-view-btn + .conv-view-btn { border-left: 1px solid var(--border); }
+.conv-view-btn:hover:not(:disabled):not(.active) { color: var(--text); background: var(--panel); }
+.conv-view-btn.active { background: var(--accent); color: #fff; }
+.conv-view-btn:disabled { opacity: .45; cursor: default; }
+.conv-view-btn:focus-visible { outline: 2px solid var(--accent); outline-offset: -2px; }
+/* Relance d'un ticket dont l'agent est MORT (crashed/stalled) : seule affordance UI du
+   POST .../launch. Absente d'un ticket vivant (slot[hidden]) — un double lancement ferait
+   deux agents concurrents sur le même worktree. Teinte alerte : c'est une action lourde
+   (re-provisionne le worktree, ~45 s). L'erreur s'affiche SOUS le bouton, jamais avalée. */
+.conv-relaunch { display: inline-flex; flex-direction: column; align-items: flex-start; gap: 2px; }
+.conv-relaunch[hidden] { display: none; }
+.conv-relaunch-btn { appearance: none; font-size: 11px; font-weight: 600; line-height: 1;
+  padding: 4px 9px; border-radius: 6px; cursor: pointer; white-space: nowrap;
+  color: var(--text); background: var(--panel2);
+  border: 1px solid color-mix(in srgb, var(--red, #f85149) 55%, var(--border)); }
+.conv-relaunch-btn:hover:not(:disabled) { border-color: var(--red, #f85149);
+  background: color-mix(in srgb, var(--red, #f85149) 14%, transparent); }
+.conv-relaunch-btn:disabled { opacity: .55; cursor: default; }
+.conv-relaunch-btn:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
+.conv-relaunch-error { color: var(--red, #f85149); font-size: 11px; max-width: 380px; }
+.conv-relaunch-error:empty { display: none; }
+.conv-meta-doc { margin-left: auto; display: inline-flex; align-items: center; justify-content: center;
+  width: 24px; height: 24px; padding: 0; background: var(--panel2); border: 1px solid var(--border);
+  border-radius: 6px; color: var(--text); cursor: pointer; }
+.conv-meta-doc:hover { border-color: var(--accent); }
+.conv-meta-doc:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
+/* Menu document : le chemin (sélectionnable) + Copier + Télécharger, masqué par défaut. */
+.conv-meta-menu { flex: 0 0 auto; margin-bottom: 8px; }
+.conv-meta-menu[hidden] { display: none; }
+.conv-meta-menu .conv-path { margin-bottom: 0; }
+.conv-empty { color: var(--muted); padding: 20px; text-align: center; }
+/* T8 — sous-onglets Conversation | Récap */
+/* Pastille « Récap » dans la LIGNE de l'agent (sidebar) — remplace la barre de sous-onglets
+   qui occupait une ligne sur CHAQUE conversation. Violette, flotte à droite près du badge. */
+/* Recap + Archiver : actions-icônes révélées AU HOVER de la carte seulement (spec 3),
+   alignées à droite, accessibles au clavier (focus-visible). Position absolue dans la
+   carte (position:relative posée sur .conv-item) → ne poussent pas la hauteur des 2 lignes. */
+.conv-item .conv-recap-pill { position: absolute; top: 6px; right: 8px; margin: 0; padding: 2px 9px;
+  border-radius: 10px; background: color-mix(in srgb, var(--purple) 82%, transparent); color: #fff;
+  font-size: 11px; font-weight: 600; cursor: pointer; border: 1px solid var(--purple); line-height: 1.5;
+  opacity: 0; transition: opacity .12s ease; }
+.conv-item .conv-recap-pill:hover { background: var(--purple); }
+.conv-item .conv-archive-btn { position: absolute; top: 6px; right: 64px; margin: 0; opacity: 0;
+  transition: opacity .12s ease; }
+.conv-item:hover .conv-recap-pill,
+.conv-item:focus-within .conv-recap-pill,
+.conv-item .conv-recap-pill:focus-visible,
+.conv-item:hover .conv-archive-btn,
+.conv-item:focus-within .conv-archive-btn,
+.conv-item .conv-archive-btn:focus-visible { opacity: 1; }
+.conv-item .conv-recap-pill:focus-visible,
+.conv-item .conv-archive-btn:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
+/* Cartes enfants (sous-agents) : 1 seule ligne — le sujet L2 est masqué ; hauteur réduite.
+   Le filet vertical continu vient de .conv-children (border-left) déjà en place. */
+.conv-item.conv-child .conv-item-subject { display: none; }
+.conv-item.conv-child { min-height: 30px; padding-top: 5px; padding-bottom: 5px; }
+.conv-recap-back { align-self: flex-start; margin: 2px 0 8px; padding: 4px 12px;
+  border: 1px solid var(--border); border-radius: 6px; background: var(--panel);
+  color: var(--text); cursor: pointer; font-size: 13px; }
+.conv-recap-back:hover { border-color: var(--accent); }
+.conv-recap-body { flex: 1 1 auto; min-height: 0; }
+.conv-pane-conv, .conv-pane-recap { flex: 1 1 auto; min-height: 0; display: flex; flex-direction: column; }
+.conv-pane-recap { overflow-y: auto; padding-bottom: 12px; }
+/* Récap : contenu textuel (classes alignées sur renderRecapText/renderDiffBlock du JS) */
+.recap-banner { background: #4a3a1e; border: 1px solid #a37a2e; color: #f0d79a;
+  padding: 8px 12px; border-radius: 6px; margin: 8px 0; font-size: 13px; }
+.recap-agg-intro { margin: 4px 0 10px; color: var(--muted); font-size: 13px; }
+.recap-child { border: 1px solid var(--border); border-radius: 8px; padding: 8px 12px; margin: 10px 0;
+  border-left: 3px solid #8b5cf6; }
+.recap-child-header { display: flex; align-items: center; gap: 8px; margin: 2px 0 8px; }
+.recap-child-title { margin: 0; font-size: 14px; color: var(--text); }
+.recap-child-link { cursor: pointer; }
+.recap-child-link:hover { color: var(--accent); text-decoration: underline; }
+.recap-child-verdict { font-size: 11px; font-weight: 700; padding: 1px 7px; border-radius: 10px; letter-spacing: .5px; }
+.recap-child-verdict-ok { background: rgba(34,197,94,.18); color: #22c55e; }
+.recap-child-verdict-ko { background: rgba(239,68,68,.18); color: #ef4444; }
+.recap-section { margin: 12px 0; }
+.recap-section-title { margin: 0 0 4px; font-size: 14px; color: var(--accent); }
+.recap-section-body { margin: 0; white-space: pre-wrap; }
+.recap-changes { margin: 4px 0 0 18px; padding: 0; }
+.recap-change { margin: 2px 0; }
+.recap-change-file { color: var(--accent); }
+.recap-change-summary { color: var(--text); }
+.recap-diff-section-title { margin: 16px 0 6px; font-size: 13px; color: var(--muted);
+  text-transform: uppercase; letter-spacing: 0.04em; }
+/* Récap : blocs diff par fichier (details/summary/pre) */
+.recap-diff { border: 1px solid var(--border); border-radius: 6px; margin: 6px 0; overflow: hidden; }
+.recap-diff > .recap-diff-head { cursor: pointer; padding: 6px 10px; background: var(--panel);
+  display: flex; justify-content: flex-start; gap: 8px; align-items: center;
+  font-family: monospace; font-size: 12px; }
+.recap-diff > .recap-diff-head::-webkit-details-marker { display: none; }
+/* Chevron d'affordance de dépliage (le marker natif est masqué ci-dessus).
+   Sans lui, un fichier replié n'expose que « fichier +n −n » sans indiquer
+   qu'un clic révèle le diff ligne à ligne. */
+.recap-diff-caret { flex: 0 0 auto; width: 12px; text-align: center;
+  color: var(--muted, #8a8a9a); font-size: 11px; user-select: none;
+  transition: color 0.12s ease; }
+.recap-diff > .recap-diff-head:hover .recap-diff-caret { color: var(--text); }
+.recap-diff-file { flex: 1 1 auto; color: var(--text); }
+.recap-diff-add { color: #4caf50; }
+.recap-diff-del { color: #e05252; }
+.recap-diff-body { margin: 0; padding: 6px 0; overflow-x: auto; font-family: monospace;
+  font-size: 12px; background: #1e1e28; white-space: pre; }
+/* Conteneur du corps du diff. Le side-by-side maison gère sa propre hauteur
+   (scroll interne borné) — plus de hauteur fixe façon Monaco. */
+.recap-diff-monaco { max-height: 60vh; overflow: auto; }
+/* Corps du diff side-by-side : borne la hauteur ET active le scroll interne.
+   Sans overflow:auto, max-height coupe le contenu sans permettre de le faire
+   défiler (bug: zones SxS non scrollables). */
+.recap-diff-content { max-height: 60vh; overflow: auto; }
+
+/* ── Diff side-by-side maison : deux colonnes ancien | nouveau. Chaque .sxs-row
+   est une grille [gouttière | code | gouttière | code]. Surlignage add/del par
+   fond doux + gouttière colorée (style GitHub dark). Coloration syntaxique via
+   .tok-*. Rendu 100% offline (aucun Monaco/CDN). ───────────────────────────── */
+.recap-sxs { font-family: ui-monospace, "Cascadia Code", Consolas, monospace;
+  font-size: 12px; background: #1e1e28; color: var(--text); }
+.sxs-row { display: grid; grid-template-columns: 3em 1fr 3em 1fr; align-items: stretch; }
+.sxs-num { text-align: right; padding: 0 6px; color: #5a5a6e; user-select: none;
+  background: rgba(255,255,255,0.02); border-right: 1px solid rgba(255,255,255,0.05); }
+.sxs-code { padding: 0 8px; white-space: pre-wrap; word-break: break-word; overflow-wrap: anywhere; }
+.sxs-code.sxs-empty { background: repeating-linear-gradient(45deg,
+  rgba(255,255,255,0.015) 0 6px, transparent 6px 12px); }
+/* Ligne supprimée : colonne gauche rouge. Ligne ajoutée : colonne droite verte. */
+.sxs-row.sxs-del .sxs-num:nth-child(1) { border-left: 3px solid #e05252; color: #e0a0a0; }
+.sxs-row.sxs-del .sxs-code:nth-child(2) { background: rgba(224,82,82,0.13); }
+.sxs-row.sxs-add .sxs-num:nth-child(3) { border-left: 3px solid #4caf50; color: #a0d0a0; }
+.sxs-row.sxs-add .sxs-code:nth-child(4) { background: rgba(76,175,80,0.13); }
+.sxs-row.sxs-eq .sxs-code { color: var(--text); }
+.sxs-truncated { padding: 4px 10px; color: #999; font-style: italic; }
+/* Coloration syntaxique légère (palette vs-dark-like). */
+.recap-sxs .tok-kw { color: #7aa2f7; }
+.recap-sxs .tok-str { color: #b6e6b8; }
+.recap-sxs .tok-com { color: #6a7a6a; font-style: italic; }
+.recap-sxs .tok-num { color: #d19a66; }
+.diff-truncated { display: block; padding: 4px 10px; color: #999; font-style: italic; }
+.recap-diff-body .diff-add, .recap-diff-body .diff-del,
+.recap-diff-body .diff-hunk, .recap-diff-body .diff-ctx { display: block; padding: 0 10px; }
+/* Lignes de diff : fond NEUTRE (hérite de .recap-diff-body #1e1e28), gouttière
+   +/- colorée en border-left, texte teinté doux (style GitHub dark).
+   Le vert/rouge PLEIN est réservé aux compteurs +n/-n (.recap-diff-add/-del). */
+.diff-add { background: transparent; color: #b6e6b8; border-left: 3px solid #4caf50; }
+.diff-del { background: transparent; color: #f0b0b0; border-left: 3px solid #e05252; }
+.diff-hunk, .diff-ctx { border-left: 3px solid transparent; }
+.diff-hunk { color: #7aa2f7; }
+.diff-ctx { color: var(--text); }
+/* Bloc thinking (rendu serveur message_view) : italique discret comme le TUI */
+.conv-messages .thinking, .thinking { font-style: italic; color: var(--muted); margin: 4px 0; }
+/* Streaming token-par-token : texte assistant en cours d'ecriture (client, pollPartial) */
+.conv-messages .streaming-block { white-space: pre-wrap; color: var(--text); margin: 4px 0;
+  line-height: 1.5; word-break: break-word; }
+.conv-messages .streaming-block::after { content: "\258e"; color: var(--accent);
+  margin-left: 1px; animation: streaming-blink 1s steps(1) infinite; }
+@keyframes streaming-blink { 50% { opacity: 0; } }
+
+/* Loaders streaming : réflexion en cours / outil en cours (client, renderStreamingPartial) */
+@keyframes st-spin { to { transform: rotate(360deg); } }
+.st-spinner { display: inline-block; width: 11px; height: 11px; margin-right: 6px;
+  border: 2px solid var(--muted); border-top-color: var(--accent); border-radius: 50%;
+  animation: st-spin 0.7s linear infinite; vertical-align: -1px; }
+.streaming-thinking { margin: 4px 0; border-left: 2px solid var(--muted); padding-left: 8px; }
+.streaming-thinking .st-head { cursor: pointer; font-style: italic; color: var(--muted);
+  display: flex; align-items: center; user-select: none; }
+.streaming-thinking .st-body { font-style: italic; color: var(--muted); white-space: pre-wrap;
+  word-break: break-word; margin-top: 3px; overflow: hidden;
+  max-height: 300px; transition: max-height 0.25s ease; }
+.streaming-thinking.collapsed .st-body { max-height: 0; margin-top: 0; }
+.streaming-thinking.collapsed .st-spinner { display: none; }
+.streaming-tool { display: flex; align-items: center; color: var(--accent);
+  font-size: 0.92em; margin: 4px 0; }
+/* Question (AskUserQuestion) posee par l'agent : options cliquables */
+.conv-question { flex: 0 0 auto; position: sticky; bottom: 0; z-index: 5;
+  border: 1px solid var(--orange); border-radius: 6px; background: #2b2517;
+  padding: 10px 12px; margin: 8px 0; box-shadow: 0 -2px 8px rgba(0,0,0,0.35); }
+.conv-question-text { margin-bottom: 8px; white-space: pre-wrap; }
+.conv-question-plan { margin-bottom: 8px; max-height: 220px; overflow-y: auto;
+  background: #201c12; border: 1px solid var(--border); border-radius: 4px;
+  padding: 8px 10px; font-size: 12.5px; }
+.conv-question-options { display: flex; gap: 8px; flex-wrap: wrap; }
+.conv-question-option { border: 1px solid var(--orange); border-radius: 5px; background: var(--panel2);
+  color: var(--text); padding: 5px 12px; cursor: pointer; font-size: 12.5px; }
+.conv-question-option:hover { filter: brightness(1.15); }
+/* Echo optimiste : trace visuelle du message utilisateur avant reprise du process */
+.optimistic-echo { align-self: flex-end; margin: 6px 0 6px auto; max-width: 78%;
+  padding: 7px 11px; border-radius: 10px 10px 2px 10px; background: var(--accent, #3b82f6);
+  color: #fff; white-space: pre-wrap; opacity: 0.85; font-size: 13px; }
+
+/* Onglet Conversations - zone d'input / interruption */
+.conv-input { flex: 0 0 auto; display: flex; gap: 8px; padding: 8px; border-top: 1px solid var(--border); align-items: flex-end; }
+.conv-input-box { flex: 1; min-height: 38px; max-height: 160px; resize: vertical; background: var(--panel); color: var(--text); border: 1px solid var(--border); border-radius: 4px; padding: 6px 8px; font: 13px Consolas, monospace; }
+.conv-input-send { background: var(--accent); color: #fff; border: none; border-radius: 4px; padding: 8px 14px; cursor: pointer; }
+.conv-input-send:hover { filter: brightness(1.1); }
+.conv-input-error { color: var(--red); font-size: 12px; align-self: center; }
+
+/* ═══ Page Agent builder ═══════════════════════════════════════════════════════
+   Parcours en trois étapes numérotées, une seule colonne : identité → capacités
+   (repliées, résumées par « n tools · n skills ») → prompt. Le catalogue d'agents,
+   les plugins et l'éditeur de skills vivent dans des onglets séparés pour ne plus
+   s'intercaler dans le flux de création. Les onglets réutilisent .tabs/.tab d'app.css. */
+.ab-panel[hidden] { display: none; }
+.ab-flow { max-width: 960px; display: flex; flex-direction: column; gap: 14px; }
+.ab-step { background: var(--panel); border: 1px solid var(--border);
+  border-radius: 6px; padding: 14px 18px; }
+.ab-head { display: flex; align-items: center; gap: 10px; margin: 0;
+  font-size: .95rem; font-weight: 600; }
+details.ab-step > summary.ab-head { cursor: pointer; list-style: none; }
+details.ab-step > summary.ab-head::-webkit-details-marker { display: none; }
+.ab-body { margin-top: 14px; }
+.ab-num { flex: 0 0 auto; width: 22px; height: 22px; border-radius: 50%;
+  display: inline-flex; align-items: center; justify-content: center;
+  background: var(--panel2); border: 1px solid var(--border); color: var(--accent);
+  font-size: .78rem; font-weight: 700; }
+.ab-spacer { margin-left: auto; }
+.ab-recap { margin-left: auto; color: var(--muted); font-size: .82rem; font-weight: 400; }
+.ab-caret { color: var(--muted); font-weight: 400; }
+details[open] > .ab-head > .ab-caret { transform: rotate(90deg); display: inline-block; }
+.ab-fields { display: flex; flex-wrap: wrap; gap: 16px; align-items: flex-end; }
+.ab-fields label { display: flex; flex-direction: column; gap: 4px; flex: 1 1 260px;
+  font-size: .82rem; color: var(--muted); }
+.ab-fields input, .ab-fields select { width: 100%; color: var(--text); }
+.ab-field-btn { flex: 0 0 auto; }
+.ab-hint { color: var(--muted); font-size: .8rem; margin: 8px 0 0; line-height: 1.5; }
+.ab-hooks { margin-top: 16px; }
+/* Dépliage du prompt complet calculé : un lien, pas un bouton de commande. */
+.ab-disclosure { background: none; border: none; padding: 6px 0; margin-top: 8px;
+  color: var(--muted); cursor: pointer; font-size: .84rem; }
+.ab-disclosure:hover { color: var(--text); }
+.ab-submit { justify-content: flex-end; }
+.ab-submit #b-banner { margin-right: auto; }
+
+/* Listes à cocher (tools / skills) et catalogue : construites par les scripts
+   agent_builder_*.js, d'où des noms de classes stables. */
+.builder-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 18px; }
+@media (max-width: 900px) { .builder-grid { grid-template-columns: 1fr; } }
+.builder-col { background: var(--bg); border: 1px solid var(--border);
+  border-radius: 6px; padding: 12px 14px; }
+.builder-col h3 { margin: 0 0 8px; font-size: .9rem; }
+.builder-col .filter { width: 100%; margin-bottom: 8px; }
+.check-list { max-height: 300px; overflow: auto; display: flex;
+  flex-direction: column; gap: 2px; }
+.check-item { display: flex; gap: 8px; align-items: flex-start; padding: 3px 4px;
+  border-radius: 4px; }
+.check-item:hover { background: rgba(255,255,255,.04); }
+.check-item input { margin-top: 3px; }
+.check-item.system-tool { opacity: .75; }
+.ci-name { font-weight: 600; }
+.ci-desc { color: var(--muted); font-size: .8rem; }
+.ci-ro { font-size: .7rem; color: var(--accent); border: 1px solid var(--border);
+  border-radius: 3px; padding: 0 4px; margin-left: 6px; }
+.hook-row { display: flex; align-items: center; gap: 10px; margin: 6px 0; }
+.hook-row select { width: auto; }
+.cat-row { display: flex; gap: 8px; align-items: center;
+  justify-content: space-between; padding: 5px 6px; border-radius: 4px; }
+.cat-row:hover { background: rgba(255,255,255,.04); }
+.cat-tools { font-size: .8rem; }
+.cat-badge { font-size: .7rem; color: var(--accent); border: 1px solid var(--border);
+  border-radius: 3px; padding: 1px 6px; }
+.plugin-row { display: flex; gap: 10px; align-items: center;
+  justify-content: space-between; padding: 4px 6px; border-radius: 4px; }
+.plugin-row:hover { background: rgba(255,255,255,.04); }
+.xdir-add { display: flex; gap: 8px; margin-bottom: 12px; }
+.xdir-add input { flex: 1; }
+
+/* Le propriétaire relit surtout des prompts et des skills générés par des LLM :
+   zone large, haute, à chasse fixe, interligne aéré — lisibilité avant densité. */
+.builder-prompt, #sk-content { width: 100%; resize: vertical; min-height: 340px;
+  font-family: var(--mono, ui-monospace, Consolas, monospace); font-size: .86rem;
+  line-height: 1.55; padding: 12px 14px; }
+.full-prompt { max-height: 520px; overflow: auto; white-space: pre-wrap;
+  background: var(--bg); border: 1px solid var(--border); border-radius: 6px;
+  padding: 12px 14px; margin-top: 8px;
+  font-family: var(--mono, ui-monospace, Consolas, monospace);
+  font-size: .82rem; line-height: 1.55; }
+
+.builder-actions { display: flex; gap: 10px; align-items: center; margin-top: 12px; }
+#b-banner, #sk-banner, #cat-banner, #b-plugins-banner { padding: 6px 10px;
+  border-radius: 4px; font-size: .82rem; font-weight: 400; }
+#b-banner.ok, #sk-banner.ok, #cat-banner.ok, #b-plugins-banner.ok { background: #1f3d2a; }
+#b-banner.ko, #sk-banner.ko, #cat-banner.ko, #b-plugins-banner.ko { background: #4a2230; }
+
+

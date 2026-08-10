@@ -1,0 +1,16 @@
+## Exemple de réponse complète
+
+Un message assistant contient du texte (optionnel) puis un array `tool_calls` :
+
+```json
+{
+  "role": "assistant",
+  "content": "Je corrige le bug dans config.py et lance les tests.",
+  "tool_calls": [
+    {"id": "call_1", "type": "function", "function": {"name": "Methodology", "arguments": "{\"content\": \"## Tâche : corriger le bug de config.py\\n- [x] Lire config.py, identifier le bug\\n- [ ] Corriger + lancer les tests\\nFait ce tour : load_config() plante quand la clé est absente ; cause = value = None L42, attendu une valeur par défaut.\\nDécision : fixer la valeur par défaut à \\\"default\\\" (pas lever d'exception) — cohérent avec le reste du module qui tolère les clés manquantes.\\nContrainte : tests/test_config.py::test_missing_key couvre exactement ce cas.\\nProchaine étape : éditer L42 puis relancer tests/test_config.py.\"}"}},
+    {"id": "call_2", "type": "function", "function": {"name": "Snippet", "arguments": "{\"file_path\": \"/abs/path/config.py\", \"ranges\": [[40, 45]], \"label\": \"bug default value\"}"}},
+    {"id": "call_3", "type": "function", "function": {"name": "Edit", "arguments": "{\"file_path\": \"/abs/path/config.py\", \"old_string\": \"value = None\", \"new_string\": \"value = \\\"default\\\"\", \"tool_call_alias\": \"e1\"}"}},
+    {"id": "call_4", "type": "function", "function": {"name": "Bash", "arguments": "{\"command\": \"pytest tests/test_config.py -v\", \"depends_on\": [\"e1\"]}"}}
+  ]
+}
+```

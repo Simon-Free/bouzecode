@@ -1,0 +1,110 @@
+<!doctype html>
+<html lang="fr">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>BouzéqUI v2</title>
+  <link rel="stylesheet" href="{{ url_for('static', filename='app.css') }}">
+  <link rel="stylesheet" href="{{ url_for('static', filename='pages.css') }}">
+  <link rel="stylesheet" href="{{ url_for('static', filename='performative-ui.css') }}">
+</head>
+<body class="pui-theme">
+<div id="env-sanity-banner" role="alert" hidden
+     style="display:none;background:#b30000;color:#fff;padding:.6em 1em;font-weight:700;text-align:center;">
+  <span id="env-sanity-headline">ENV API KO — les agents ne peuvent pas tourner.</span>
+  <span id="env-sanity-detail" style="font-weight:400;opacity:.85;"></span>
+  <button type="button" id="env-sanity-recheck"
+          style="margin-left:.8em;font-weight:700;cursor:pointer;border:1px solid #fff;
+                 background:transparent;color:#fff;border-radius:3px;padding:.15em .7em;">
+    Revérifier
+  </button>
+</div>
+<div id="version-drift-banner" role="status" hidden
+     style="display:none;background:#ffca28;color:#2b2b00;padding:.5em 1em;font-weight:600;
+            text-align:center;border-bottom:1px solid #c79100;">
+  Serveur en dérive : le code du boot n'est plus celui du disque — redémarrez via bouzeui.ps1
+  pour voir les changements (les agents en cours ne sont pas bloqués).
+  <span id="version-drift-detail" style="font-weight:400;opacity:.8;"></span>
+</div>
+<nav>
+  <span class="brand">bouzecode <b>v2</b></span>
+  <a href="/conversations" class="{{ 'active' if page == 'conversations' else '' }}">Conversations</a>
+  <a href="/agent-builder" class="{{ 'active' if page == 'agents' else '' }}">Agents</a>
+  <a href="/api/schema" target="_blank">API</a>
+</nav>
+<main>
+{% block content %}{% endblock %}
+</main>
+{% block scripts %}{% endblock %}
+<script>
+(function () {
+  const banner = document.getElementById("version-drift-banner");
+  const detail = document.getElementById("version-drift-detail");
+  async function checkVersion() {
+    try {
+      const resp = await fetch("/api/version", {cache: "no-store"});
+      if (!resp.ok) return;
+      const data = await resp.json();
+      if (data.drift) {
+        const boot = (data.boot_sha || "").slice(0, 8);
+        const head = (data.current_head_sha || "").slice(0, 8);
+        const causes = [];
+        if (data.sha_drift) causes.push("boot " + boot + " → HEAD " + head);
+        if (data.source_drift) causes.push("fichiers source modifiés depuis le boot");
+        detail.textContent = causes.length ? " (" + causes.join(" ; ") + ")" : "";
+        banner.hidden = false;
+        banner.style.display = "block";
+      } else {
+        banner.hidden = true;
+        banner.style.display = "none";
+      }
+    } catch (e) { /* réseau indispo : on retentera au prochain poll */ }
+  }
+  checkVersion();
+  setInterval(checkVersion, 40000);
+
+  const envBanner = document.getElementById("env-sanity-banner");
+  const envDetail = document.getElementById("env-sanity-detail");
+  const envHeadline = document.getElementById("env-sanity-headline");
+  const envRecheck = document.getElementById("env-sanity-recheck");
+
+  function renderEnvSanity(data) {
+    if (data.ok === false) {
+      // Deux KO très différents : env absente = relancer, injoignable = re-sonder.
+      envHeadline.textContent = data.env_missing
+        ? "ENV API KO — les agents ne peuvent pas tourner. Redémarrez via bouzeui.ps1."
+        : "API injoignable — réseau/proxy. L'env est bonne : revérifiez, ne redémarrez pas.";
+      envDetail.textContent = data.detail ? " (" + data.detail + ")" : "";
+      envBanner.hidden = false;
+      envBanner.style.display = "block";
+    } else {
+      envBanner.hidden = true;
+      envBanner.style.display = "none";
+    }
+  }
+
+  async function checkEnvSanity() {
+    try {
+      const resp = await fetch("/api/env-sanity", {cache: "no-store"});
+      if (!resp.ok) return;
+      renderEnvSanity(await resp.json());
+    } catch (e) { /* réseau indispo : on retentera au prochain poll */ }
+  }
+
+  envRecheck.addEventListener("click", async () => {
+    envRecheck.disabled = true;
+    envRecheck.textContent = "Re-sonde…";
+    try {
+      const resp = await fetch("/api/env-sanity/recheck", {method: "POST"});
+      if (resp.ok) renderEnvSanity(await resp.json());
+    } catch (e) { /* on laisse le bandeau tel quel */ }
+    envRecheck.disabled = false;
+    envRecheck.textContent = "Revérifier";
+  });
+
+  checkEnvSanity();
+  setInterval(checkEnvSanity, 40000);
+})();
+</script>
+</body>
+</html>

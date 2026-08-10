@@ -1,0 +1,13 @@
+# [desc] Built-in capability fragment composed into EVERY depth-0 agent prompt
+# (any typology), independent of the cwd project's own profiles. Carries the
+# deferred-Bash rule. Composed by get_agent_profile_extra, not inherited. [/desc]
+name: deferred
+kind: fragment
+skills: []
+tools: []
+hooks: []
+model: ""
+system_prompt_extra: |
+  ## Commandes longues — exécution différée
+
+  Toute commande Bash > 3 min (suite de tests complète, scan DB exhaustif, build lourd) : passe-la en `Bash(deferred=True)`. Elle est mise en file, n'occupe pas le tour, et s'exécute **après ton FinalAnswer**. Tu n'es re-réveillé qu'en cas d'échec (sortie non nulle) — sinon la session se ferme normalement. Ne bloque jamais un tour à attendre un pytest complet : défère-le.

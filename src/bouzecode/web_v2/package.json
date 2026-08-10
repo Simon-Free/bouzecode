@@ -1,0 +1,17 @@
+{
+  "name": "bouzecode-web-v2-jstests",
+  "private": true,
+  "version": "0.0.0",
+  "type": "module",
+  "description": "Harnais de tests JS intermediaire (Vitest + happy-dom) pour web_v2 : execute le vrai JavaScript dans un DOM simule, sans navigateur. Se situe entre les tests Flask test_client (Python) et Playwright (navigateur reel).",
+  "scripts": {
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "test:docker": "docker run --rm -v \"${PWD}:/app\" -w /app node:22 sh -c \"npm ci && npm test\""
+  },
+  "devDependencies": {
+    "@testing-library/dom": "^10.4.0",
+    "happy-dom": "^15.11.7",
+    "vitest": "^2.1.9"
+  }
+}

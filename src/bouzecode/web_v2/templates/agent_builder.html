@@ -1,0 +1,165 @@
+{% extends "base.html" %}
+{% block content %}
+<header class="session-header">
+  <h1 class="session-title">Agent builder</h1>
+  <div class="muted">Trois étapes, dans l'ordre où l'on y pense : qui est cet agent, ce
+    qu'il sait faire, ce qu'on lui dit. Le résultat est un profil <b>global</b>
+    (~/.bouzecode/profiles) — activable en session avec <code>/agent &lt;nom&gt;</code>.</div>
+</header>
+
+<div class="tabs" id="ab-tabs">
+  <button class="tab active" data-panel="ab-panel-build">Nouvel agent</button>
+  <button class="tab" data-panel="ab-panel-catalog">Catalogue</button>
+  <button class="tab" data-panel="ab-panel-plugins">Plugins</button>
+  <button class="tab" data-panel="ab-panel-skills">Skills</button>
+</div>
+
+<section class="ab-panel" id="ab-panel-build">
+  <div class="ab-flow">
+
+    <section class="ab-step">
+      <h3 class="ab-head"><span class="ab-num">1</span> Identité</h3>
+      <div class="ab-body ab-fields">
+        <label>Nom
+          <input id="b-name" placeholder="ex: code-reviewer">
+        </label>
+        <label>Base — agent / profil existant
+          <select id="b-existing"><option value="">— nouveau —</option></select>
+        </label>
+      </div>
+      <p class="ab-hint">Charger un profil existant remplit les trois étapes : c'est ainsi
+        qu'on édite un agent.</p>
+    </section>
+
+    <details class="ab-step" id="b-caps">
+      <summary class="ab-head"><span class="ab-num">2</span> Capacités
+        <span class="ab-recap" id="b-caps-recap">—</span>
+        <span class="ab-caret">▸</span>
+      </summary>
+      <div class="ab-body">
+        <div class="builder-grid">
+          <div class="builder-col">
+            <h3>Tools <span class="muted" id="b-tools-count"></span></h3>
+            <input class="filter" id="b-tools-filter" placeholder="filtrer…">
+            <div class="check-list" id="b-tools"><p class="muted">Chargement…</p></div>
+          </div>
+          <div class="builder-col">
+            <h3>Skills <span class="muted" id="b-skills-count"></span></h3>
+            <input class="filter" id="b-skills-filter" placeholder="filtrer…">
+            <div class="check-list" id="b-skills"></div>
+          </div>
+        </div>
+        <div class="builder-col ab-hooks">
+          <h3>Hooks</h3>
+          <div id="b-hooks"></div>
+        </div>
+      </div>
+    </details>
+
+    <section class="ab-step">
+      <h3 class="ab-head"><span class="ab-num">3</span> Prompt</h3>
+      <div class="ab-body">
+        <textarea id="b-prompt" class="builder-prompt"
+          placeholder="Instructions spécifiques à cet agent (ajoutées au prompt de base)…"></textarea>
+        <button id="b-preview" class="ab-disclosure">▸ Prompt complet calculé</button>
+        <div id="b-preview-out" hidden>
+          <div class="muted" id="b-preview-runtime"></div>
+          <pre id="b-preview-prompt" class="full-prompt"></pre>
+        </div>
+      </div>
+    </section>
+
+    <div class="builder-actions ab-submit">
+      <span id="b-banner" hidden></span>
+      <button id="b-delete">Supprimer</button>
+      <button id="b-save" class="primary">Enregistrer</button>
+    </div>
+
+  </div>
+</section>
+
+<section class="ab-panel" id="ab-panel-catalog" hidden>
+  <div class="ab-flow">
+    <section class="ab-step" id="cat-section">
+      <h3 class="ab-head">Catalogue d'agents
+        <span class="ab-spacer"></span>
+        <span id="cat-banner" hidden></span>
+        <button id="cat-refresh">Rafraîchir le catalogue</button>
+      </h3>
+      <p class="ab-hint">Agents <b>installés</b> (prêts à l'emploi) vs <b>disponibles</b> dans
+        le catalogue distant — « Installer » écrit le profil dans ~/.bouzecode/profiles et
+        matérialise ses plugins.</p>
+      <div class="ab-body builder-grid">
+        <div class="builder-col">
+          <h3>Installés <span class="muted" id="cat-installed-count"></span></h3>
+          <div class="check-list" id="cat-installed"><p class="muted">Chargement…</p></div>
+        </div>
+        <div class="builder-col">
+          <h3>Disponibles (catalogue) <span class="muted" id="cat-available-count"></span></h3>
+          <div class="check-list" id="cat-available"><p class="muted">Chargement…</p></div>
+        </div>
+      </div>
+    </section>
+  </div>
+</section>
+
+<section class="ab-panel" id="ab-panel-plugins" hidden>
+  <div class="ab-flow">
+    <section class="ab-step">
+      <h3 class="ab-head">Plugins</h3>
+      <p class="ab-hint">Installer depuis GitLab (tools + skills embarqués) — ou depuis le
+        chemin d'un dossier git local.</p>
+      <div class="ab-body">
+        <div class="xdir-add">
+          <input id="xdir-input"
+            placeholder="URL d'un repo plugin GitLab — ou chemin d'un dossier git local">
+          <button id="xdir-add-btn">Installer</button>
+        </div>
+        <div id="b-plugins" class="check-list"><p class="muted">Chargement…</p></div>
+        <div class="builder-actions">
+          <button id="b-upgrade-agent">Mettre à jour les plugins de l'agent sélectionné</button>
+          <span id="b-plugins-banner" hidden></span>
+        </div>
+      </div>
+    </section>
+  </div>
+</section>
+
+<section class="ab-panel" id="ab-panel-skills" hidden>
+  <div class="ab-flow">
+    <section class="ab-step">
+      <h3 class="ab-head">Skills (.md)</h3>
+      <p class="ab-hint">Créer / modifier des skills — enregistrées dans ~/.bouzecode/skills,
+        globales.</p>
+      <div class="ab-body">
+        <div class="ab-fields">
+          <label>Skill existante
+            <select id="sk-list"><option value="">— choisir —</option></select>
+          </label>
+          <label>Nouvelle skill
+            <input id="sk-new-name" placeholder="ex: ma-skill">
+          </label>
+          <button id="sk-new" class="ab-field-btn">Nouvelle</button>
+        </div>
+        <div id="sk-meta" class="muted"></div>
+        <textarea id="sk-content"
+          placeholder="Contenu .md (front-matter YAML + corps)…"></textarea>
+        <div class="builder-actions">
+          <span id="sk-banner" hidden></span>
+          <button id="sk-delete">Supprimer</button>
+          <button id="sk-save" class="primary">Enregistrer la skill</button>
+        </div>
+      </div>
+    </section>
+  </div>
+</section>
+{% endblock %}
+
+{% block scripts %}
+<script src="{{ url_for('static', filename='js/agent_builder.js') }}"></script>
+<script src="{{ url_for('static', filename='js/agent_builder_form.js') }}"></script>
+<script src="{{ url_for('static', filename='js/agent_builder_preview.js') }}"></script>
+<script src="{{ url_for('static', filename='js/agent_builder_catalog.js') }}"></script>
+<script src="{{ url_for('static', filename='js/agent_builder_skills.js') }}"></script>
+<script src="{{ url_for('static', filename='js/agent_builder_plugins.js') }}"></script>
+{% endblock %}
