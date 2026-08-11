@@ -83,10 +83,16 @@ pythonpath = ["src", "."]
 # by tests/backend/regression/structure/test_test_packages_are_complete.py) gives
 # every test module a fully-qualified name that can collide with nothing.
 addopts = "--import-mode=importlib"
-testpaths = ["tests"]
+# `readme_sync/` is a dev tool that lives outside src/ and ships its own suite.
+# It is listed here on purpose: while `testpaths` was `tests` alone, those 44 tests
+# were never collected and two of them rotted unnoticed for the whole life of the
+# navigation-protocol rewrite. Its __init__.py chain is unbroken up to the repo
+# root, so its module names stay fully qualified and collide with nothing.
+testpaths = ["tests", "readme_sync/tests"]
 markers = [
     "backend: agent-engine tests",
     "ui: terminal-UI tests",
     "web: Flask web-UI tests (tests/web_v2/, src/bouzecode/web_v2/tests/)",
     "slow: fixture-target marker",
+    "llm: needs a live LLM gateway; self-skips without credentials",
 ]

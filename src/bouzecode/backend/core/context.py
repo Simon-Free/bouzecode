@@ -166,9 +166,10 @@ def get_memory_context() -> str:
 def get_readme_navigation_section() -> str:
     """The code-navigation protocol, in the stable half of the prompt.
 
-    It replaces the old `readme_sync/prompts/reader.md` block (293 permanent
+    It replaced the old `readme_sync/prompts/reader.md` block (293 permanent
     tokens), which walked a per-folder `## Subfolders` table that no longer
-    exists — a protocol pointing at sections the repo does not have. This one is
+    exists — a protocol pointing at sections the repo does not have. That file
+    has since been deleted, along with the conditional injection around it. This one is
     unconditional: the maps are generated on demand, so there is nothing to
     probe for, and it applies to every repository rather than to bouzecode only.
     """

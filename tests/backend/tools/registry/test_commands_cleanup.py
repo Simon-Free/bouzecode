@@ -41,15 +41,23 @@ EXPECTED_COMMANDS = {
     "doctor", "exit", "quit",
     "resume", "where", "tools",
     "history", "context", "cost", "timing",
+    # `telegram` was listed as REMOVED, but nothing had been removed: the module,
+    # its wiring in the agent loop (tools/interaction.py) and tests/test_telegram_e2e.py
+    # were all still there — only the COMMANDS entry was missing, which made the
+    # command unreachable rather than absent.
+    "telegram",
 }
 
 # Commands this (public) repo adds back on top of the engine: the OSS shims in
 # `commands/oss_shims/` route them to the flat top-level packages.
 OSS_SHIM_COMMANDS = {"voice", "mcp", "plugin", "memory", "video", "video-wizard"}
 
+# NB: `worker`, `ssj`, `image` are in the same situation `telegram` was in — their
+# modules exist and dispatcher.py imports them, they are simply not in COMMANDS.
+# "not dispatchable" is all this set can honestly claim about them.
 REMOVED_COMMANDS = {
     "brainstorm", "status",
-    "telegram", "worker", "ssj", "image", "img",
+    "worker", "ssj", "image", "img",
 }
 
 

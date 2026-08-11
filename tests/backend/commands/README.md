@@ -12,6 +12,7 @@ resolver) — no mocking library, no LLM, no network.
 - `test_lazy_imports.py` — walks the AST of every module under `src/bouzecode/backend/commands/`, collects the imports written inside function bodies, and imports each one, parametrized per statement.
 - `test_profile_skills_wiring.py` — `--profile <name>` in `bouzecode.ui.cli` preloads the profile's declared skills, and sets nothing for a profile without skills or an unknown one.
 - `test_session_resume.py` — `commands.session.session_pick` / `session_resume` over a temporary daily dir: newest first, paging to older sessions, restoring the pick, out-of-range input.
+- `test_telegram_command_is_reachable.py` — `/telegram` driven through `dispatcher.handle_slash` (status, argument forwarding, stop) and listed by `/help`; plus the invariant that `COMMANDS` and `_CMD_META` hold the same keys, so no command can be dispatchable and invisible.
 
 ## Subfolders
 | Folder | Description |

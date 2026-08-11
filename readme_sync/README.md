@@ -8,7 +8,7 @@ Keeps every folder README in sync with the code it documents, detected by file h
 
 | Folder | Purpose |
 |--------|---------|
-| [prompts/](prompts/README.md) | System prompts: the regen contract, plus the reader (navigation) and writer (maintenance) protocols. |
+| [prompts/](prompts/README.md) | System prompts: the regen contract, plus the writer (maintenance) protocol. |
 | [tests/](tests/README.md) | Feature + CLI tests driving the real CLI/hook over temporary trees. |
 
 ---
@@ -64,11 +64,14 @@ from the environment (any Anthropic-compatible gateway). Model override via `REA
 
 ---
 
-## Reader / writer protocol
+## Writer protocol
 
-- **Reading code** (navigation): follow [prompts/reader.md](prompts/reader.md) —
-  start at the root README, follow `## Subfolders` links down to the right folder,
-  read its `## Module Reference`, then read a SINGLE symbol. Grep is a last resort.
+Reading code no longer goes through a prompt shipped here. The navigation block an
+agent receives is `bouzecode.backend.core.context.get_readme_navigation_section()`,
+which points at the `AgentsMap()` / `SymbolMap()` tools — they build the maps on
+demand, so there is no `## Subfolders` table to walk and nothing to inject
+conditionally.
+
 - **Writing code** (maintenance): follow [prompts/writer.md](prompts/writer.md) —
   after editing code, the folder's `.readme.lock` flips `stale:true`; never trust a
   README whose lock says stale; run `--regen <folder>` to refresh.

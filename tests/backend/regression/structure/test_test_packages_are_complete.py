@@ -1,5 +1,5 @@
 # [desc] Verrou : chaque répertoire de tests est un package, sinon un module de test peut en masquer un autre. [/desc]
-"""The `tests/` tree must be an unbroken package chain.
+"""Every collected test tree must be an unbroken package chain.
 
 Why it matters here and not in an ordinary project: this repository keeps flat
 packages at its root (`tools/`, `commands/`, `plugin/`, `ui/`, `memory/`, `mcp/`,
@@ -22,23 +22,31 @@ its module was never the one imported. Hence this check.
 from pathlib import Path
 
 TESTS_ROOT = Path(__file__).resolve().parents[3]
+REPO_ROOT = TESTS_ROOT.parent
+
+# Every root listed in `testpaths` (pyproject). `readme_sync/tests` joined the
+# collection late and must obey the same rule: it sits one level deeper than
+# `tests/`, so a missing `__init__.py` there would collapse a module name just
+# the same.
+COLLECTED_ROOTS = (TESTS_ROOT, REPO_ROOT / "readme_sync" / "tests")
 
 IGNORED_DIRS = {"__pycache__", ".pytest_cache"}
 
 
 def _dirs_holding_python_tests() -> list[Path]:
     found = []
-    for path in sorted(TESTS_ROOT.rglob("*.py")):
-        if any(part in IGNORED_DIRS for part in path.parts):
-            continue
-        if path.name.startswith("test_") or path.name == "conftest.py":
-            found.append(path.parent)
+    for root in COLLECTED_ROOTS:
+        for path in sorted(root.rglob("*.py")):
+            if any(part in IGNORED_DIRS for part in path.parts):
+                continue
+            if path.name.startswith("test_") or path.name == "conftest.py":
+                found.append(path.parent)
     return sorted(set(found))
 
 
 def test_every_test_directory_is_a_package():
     """A directory holding test modules must carry an `__init__.py`."""
-    missing = [str(d.relative_to(TESTS_ROOT.parent))
+    missing = [str(d.relative_to(REPO_ROOT))
                for d in _dirs_holding_python_tests()
                if not (d / "__init__.py").exists()]
     assert missing == [], (
@@ -52,9 +60,9 @@ def test_the_chain_reaches_the_tests_package_without_a_hole():
     holes = []
     for directory in _dirs_holding_python_tests():
         parent = directory
-        while parent != TESTS_ROOT:
+        while parent != REPO_ROOT:
             if not (parent / "__init__.py").exists():
-                holes.append(str(parent.relative_to(TESTS_ROOT.parent)))
+                holes.append(str(parent.relative_to(REPO_ROOT)))
             parent = parent.parent
     assert sorted(set(holes)) == [], (
         "The package chain up to tests/ is broken at:\n  " + "\n  ".join(sorted(set(holes)))

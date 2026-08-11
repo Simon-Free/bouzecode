@@ -175,7 +175,7 @@ python -m pytest -q tests/web_v2
 python -m pytest -q src/bouzecode/web_v2/tests
 ```
 
-`testpaths` is `tests/`. Tests are auto-marked from the folder they live in: `tests/backend/` → `backend`, `tests/ui/` → `ui`, `tests/web_v2/` and `src/bouzecode/web_v2/tests/` → `web`. A `slow` marker tags the fixture files the test-runner tests target.
+`testpaths` is `tests/` plus `readme_sync/tests/`. Tests are auto-marked from the folder they live in: `tests/backend/` → `backend`, `tests/ui/` → `ui`, `tests/web_v2/` and `src/bouzecode/web_v2/tests/` → `web`. A `slow` marker tags the fixture files the test-runner tests target.
 
 A hermetic guard in `tests/conftest.py` blocks any real LLM call unless a test opts in with `require_api_key()` (`tests/cache_conversation_helpers.py`), so a stray credential can never turn a run into a bill. A second autouse guard fails any test that writes into the git-tracked working tree — use the `agent_cwd` fixture to run the agent from a temporary directory.
 

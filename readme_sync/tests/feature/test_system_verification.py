@@ -105,7 +105,15 @@ def test_bootstrap_guards(tmp_path, monkeypatch):
 
 
 # ---------------------------------------------------------------- point 5
-def test_navigation_injection(tmp_path, monkeypatch):
+def test_navigation_injection_no_longer_depends_on_a_root_map(tmp_path, monkeypatch):
+    """The injected protocol points at tools, so no map file needs to exist.
+
+    The old block walked a `## Subfolders` table and was therefore injected only
+    when a root map was on disk. Its replacement names `AgentsMap()` /
+    `SymbolMap()`, which generate the maps on demand — nothing to probe for, so
+    the section is unconditional. Only the global env switch can silence it
+    (covered by tests/backend/agents_map/test_map_contract.py).
+    """
     from bouzecode.backend.core.context import get_readme_navigation_section
 
     with_map = tmp_path / "withmap"
@@ -116,12 +124,18 @@ def test_navigation_injection(tmp_path, monkeypatch):
         encoding="utf-8",
     )
     monkeypatch.chdir(with_map)
-    assert "# Codebase navigation" in get_readme_navigation_section()
+    with_map_section = get_readme_navigation_section()
 
     without = tmp_path / "nomap"
     without.mkdir()
     monkeypatch.chdir(without)
-    assert get_readme_navigation_section() == ""
+    without_map_section = get_readme_navigation_section()
+
+    assert "# Codebase navigation" in with_map_section
+    assert without_map_section == with_map_section
+    assert "AgentsMap()" in without_map_section
+    assert "SymbolMap(" in without_map_section
+    assert "## Subfolders" not in without_map_section
 
 
 # ---------------------------------------------------------------- points 3 & 6

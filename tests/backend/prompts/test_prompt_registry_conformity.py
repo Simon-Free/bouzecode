@@ -46,7 +46,9 @@ def prompt_surfaces(profile_name: str, available: set) -> dict:
     surfaces = {
         "noyau + exemples de tour": SYSTEM_PROMPT_TEMPLATE.replace(
             "{tool_examples}", TOOL_EXAMPLES_XML),
-        "carte AGENTS.md": context.get_readme_navigation_section(),
+        # Ni « AGENTS.md » ni « README.md » : la section ne cite aucun fichier de
+        # cartographie, elle oriente vers les outils AgentsMap() / SymbolMap().
+        "navigation du code (AgentsMap/SymbolMap)": context.get_readme_navigation_section(),
         "prose de profil": get_agent_profile_extra(profile_name),
         "bloc plan mode": PLAN_MODE_TEMPLATE,
     }

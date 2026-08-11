@@ -601,7 +601,7 @@ uv pip install -e ".[test]"
 .venv/bin/python -m pytest -q tests/web_v2
 ```
 
-`testpaths` vaut `tests/`. Chaque test est marqué automatiquement d'après le dossier où il vit : `tests/backend/` → `backend`, `tests/ui/` → `ui`, `tests/web_v2/` → `web`. Un quatrième marqueur, `slow`, étiquette les fichiers-cibles que visent les tests du lanceur de tests. Le paquet `web_v2` porte aussi ses propres tests sous `src/bouzecode/web_v2/tests/` — ils prennent le marqueur `web` eux aussi et se lancent en pointant pytest sur ce chemin, puisque `testpaths` n'entre pas dans `src/`.
+`testpaths` vaut `tests/` plus `readme_sync/tests/` (l'outil de dev embarque sa propre suite et vit hors de `src/`). Chaque test est marqué automatiquement d'après le dossier où il vit : `tests/backend/` → `backend`, `tests/ui/` → `ui`, `tests/web_v2/` → `web`. Un quatrième marqueur, `slow`, étiquette les fichiers-cibles que visent les tests du lanceur de tests. Le paquet `web_v2` porte aussi ses propres tests sous `src/bouzecode/web_v2/tests/` — ils prennent le marqueur `web` eux aussi et se lancent en pointant pytest sur ce chemin, puisque `testpaths` n'entre pas dans `src/`.
 
 Le JavaScript de l'interface a sa propre suite, sous `src/bouzecode/web_v2/tests/js/` : les vrais modules de `static/js/` chargés dans un DOM simulé (happy-dom) et pilotés par clics et événements, sans navigateur.
 

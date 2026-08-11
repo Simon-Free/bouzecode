@@ -17,4 +17,6 @@ Feature + CLI tests that drive the REAL CLI and hook (via subprocess) over tempo
 | `feature/test_javascript_folders.py` | — | 4 tests: a `.js` folder classifies like a `.py` one, vendored code stays out of the walk. |
 | `feature/test_map.py` | — | 4 mechanical map tests (purpose propagates, no dead links, root reachability, top-level listing). |
 | `feature/test_end_to_end.py` | — | Full business flow (LLM): fresh → rename → hook → check KO → regen → check OK. |
+| `feature/test_system_verification.py` | — | The mission's verification points as executed checks: scan exclusions, LLM generation, bootstrap guards, navigation injection, root→subfolder→symbol chain. |
+| `test_init_stub.py` | — | `bootstrap_readme_map` against a stub LLM client: first launch, env opt-out, worktree/too-many-folders guards, recheck regens only what changed. |
 | `cli/test_check_exit_codes.py` | — | Exit codes + --list-stale prints only paths. |
