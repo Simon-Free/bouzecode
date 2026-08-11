@@ -11,8 +11,14 @@ Every test runs under the autouse isolation in `conftest.py`, which redirects th
 store, the agent park, the worktree root and the project registry into `tmp_path`, so no
 test can read or write the user's real state.
 
-This tree sits outside `testpaths`, so it must be passed explicitly:
-`pytest src/bouzecode/web_v2/tests -n auto`.
+This tree is in `testpaths`, so a plain `pytest` runs it. It used to sit outside, for no
+stronger reason than "`testpaths` does not reach inside `src/`" — and being second-class is
+what let two of its files stop importing altogether (`from delivery_repo import …`, a bare
+sibling name that resolves nowhere) and one test measure the ambient environment rather
+than the product. Run it alone with `pytest src/bouzecode/web_v2/tests -n auto`.
+
+The Playwright subtree self-skips when the browser bindings are absent, so it costs nothing
+in a normal run and still runs for whoever installs them.
 
 ## Usage
 

@@ -5,7 +5,9 @@ Accès aux sessions (JSON de session = source de vérité) et analyse par appel 
 
 ## Usage
 - `store.py` — clés `agent/<id>` / `daily/<date>/<fichier>`, `resolve()`, `list_sessions()`,
-  `agent_status()` (process + IPC), `load_session_json()`
+  `agent_status()` (process + IPC), `load_session_json()`, `invalidate_status()` et
+  `reset_status_cache()` (le statut des agents TERMINÉS est mémorisé par identifiant pour
+  la vie du process : à purger quand un agent est respawné, à vider entre deux tests)
 - `meta_index.py` — index de méta par mtime : `memoized_meta()` (memo process devant le
   fichier `index_cache.json`), `merge_into_file()`, `sweep_orphan_tmp()` (les `.tmp` laissés
   par un serveur tué entre l'écriture et le `replace` — 70 relevés sur le poste ; balayés au

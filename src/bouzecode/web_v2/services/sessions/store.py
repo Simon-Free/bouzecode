@@ -46,6 +46,18 @@ def invalidate_status(agent_id: str) -> None:
         _status_cache.pop(agent_id, None)
 
 
+def reset_status_cache() -> None:
+    """Forget every memorised status. For test isolation only.
+
+    The cache is keyed by agent id and lives as long as the process. Two tests that
+    happen to use the same short agent id in the same pytest worker therefore see each
+    other's verdict: a `finished` agent named `recent` in one test made the `recent`
+    agent of another test disappear from the orphan-question list, in whichever worker
+    the two landed together."""
+    with _status_cache_lock:
+        _status_cache.clear()
+
+
 @dataclass
 class SessionRef:
     key: str

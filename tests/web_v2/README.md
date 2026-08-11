@@ -2,10 +2,9 @@
 
 ## Purpose
 
-Second tree of tests for the Flask web UI, collected by default (unlike
-`src/bouzecode/web_v2/tests/`, which sits outside `testpaths`). It concentrates on the
-orchestration services behind the routes: status derivation, the wake reconciler,
-dispatch, isolation, worktrees, session reads.
+Second tree of tests for the Flask web UI, beside `src/bouzecode/web_v2/tests/` (both are
+in `testpaths`). It concentrates on the orchestration services behind the routes: status
+derivation, the wake reconciler, dispatch, isolation, worktrees, session reads.
 
 Approach: the real services and the real Flask test client over `tmp_path`, real git
 repositories for the worktree tests, injected fakes rather than `mock.patch`. No LLM.
@@ -38,6 +37,9 @@ Test families, by filename prefix:
   and builtin agent definitions, default always first.
 - `test_auto_resume`, `test_recovery`, `test_interrupted_report` — boot-time resume of
   crashed sub-agents and the manual recovery path.
+- `test_migrate_orphan_validators` — the one-shot migration that re-parents inherited
+  orphan sub-agents onto their coder, over real agent files and a real ticket store. It
+  lived inside `src/bouzecode/web_v2/services/work/`: never collected, shipped in the wheel.
 - `test_fleet_warm`, `test_warmpool_sous_agents` — git pre-warming in the fleet tree and
   warm-pool eligibility.
 - `test_search`, `test_session_*`, `test_costs`, `test_items_full_text`,

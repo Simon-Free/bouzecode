@@ -12,6 +12,14 @@ usage because the persisted payload != what the model actually saw.
 
 Fix (STRAT-C): SystemPayload carries the mutated wire `messages`; stream_llm_turn
 captures it (ctx.wire_messages) and dumps THAT in the enriched dump.
+
+Second life of this test: it read the RAW last record of the turn and asked it for
+`messages`, which stopped existing when the journal went delta-encoded. Only the first
+record of a session is absolute; the next ones are `{"keep": n, "append": [...]}`, so the
+test raised `KeyError: 'messages'` — and, sitting in a directory outside `testpaths`,
+nobody saw it. It now reads through `core/payload_view`, the same folding reader the
+/context viewer uses, and compares the whole reconstituted payload rather than merely
+looking for the marker: what is on the wire is what the journal gives back, exactly.
 """
 import json
 from pathlib import Path
@@ -19,6 +27,22 @@ from pathlib import Path
 import pytest
 
 MARKER = "___WIRE_ONLY_REMINDER_MARKER___"
+SESSION_ID = "wire-exactness-test"
+
+
+@pytest.fixture(autouse=True)
+def _forget_previous_payload():
+    """`payload_dump` remembers the last payload PER SESSION for the life of the process.
+
+    That memory is the base of the next delta. Clearing it around the test makes the
+    encoding of the records deterministic whatever ran before in the same worker."""
+    from bouzecode.backend.agent import payload_dump
+
+    for remembered in (payload_dump._last_payload, payload_dump._blocs_connus):
+        remembered.pop(SESSION_ID, None)
+    yield
+    for remembered in (payload_dump._last_payload, payload_dump._blocs_connus):
+        remembered.pop(SESSION_ID, None)
 
 
 def _mk_state(session_id):
@@ -48,7 +72,7 @@ def test_turns_jsonl_contains_wire_only_reminder(tmp_path, monkeypatch):
     # turns.jsonl -> CONFIG_DIR/debug_payloads/<sid>/turns.jsonl (import tardif dans _payload_dir)
     monkeypatch.setattr(core_config, "CONFIG_DIR", tmp_path, raising=False)
 
-    session_id = "wire-exactness-test"
+    session_id = SESSION_ID
 
     # build_messages_for_api produces the UNMUTATED upstream payload.
     upstream_messages = [
@@ -95,13 +119,29 @@ def test_turns_jsonl_contains_wire_only_reminder(tmp_path, monkeypatch):
     for _ in gen:
         pass
 
+    from bouzecode.backend.core.payload_view import load_turn_map, read_records
+
     dump_path = tmp_path / "debug_payloads" / session_id / "turns.jsonl"
     assert dump_path.exists(), "turns.jsonl was not written"
-    records = [json.loads(l) for l in dump_path.read_text(encoding="utf-8").splitlines() if l.strip()]
-    # _load_turn_dumps keeps the LAST record for a given turn.
-    last_record = [r for r in records if r["turn"] == state.turn_count][-1]
-    blob = json.dumps(last_record["messages"], ensure_ascii=False)
-    assert MARKER in blob, (
-        "the persisted turns.jsonl payload does NOT contain the wire-only "
-        "reminder the model actually received"
+
+    # Two records per turn: the pre-stream one (absolute, it opens the session) and the
+    # enriched one written after it (a delta on the first). Asking the raw enriched
+    # record for `messages` is what used to raise KeyError.
+    raw = read_records(session_id)
+    assert [json.loads(line) for line in
+            dump_path.read_text(encoding="utf-8").splitlines() if line.strip()] == raw
+    assert "messages" not in raw[-1] and {"keep", "append"} <= set(raw[-1]), (
+        "the enriched record is expected to be delta-encoded; if that changed, this "
+        "test must still read through payload_view rather than the raw record"
+    )
+
+    # payload_view folds the deltas back — it is the reader behind the /context viewer,
+    # and it applies the last-record-wins rule for a turn.
+    persisted = load_turn_map(session_id)[state.turn_count]["messages"]
+
+    expected_wire = [dict(message) for message in upstream_messages]
+    expected_wire[-1]["content"] = expected_wire[-1]["content"] + "\n" + MARKER
+    assert persisted == expected_wire, (
+        "the payload persisted for the turn is not, byte for byte, the wire the model "
+        "received: the wire-only reminder appended by dispatch is missing or altered"
     )

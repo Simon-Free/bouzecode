@@ -32,7 +32,6 @@ def test_a_folder_the_agent_just_edited_is_not_regenerated_on_its_own_churn(pkg,
 
     assert llm.calls == []
     assert "you edited this folder yourself" in out
-    serve._SELF_AUTHORED.clear()
 
 
 def test_a_held_lock_serves_the_stale_map_instead_of_paying_twice(pkg, tmp_path, fake_llm, fresh_map):
@@ -59,7 +58,7 @@ def test_an_invented_call_edge_is_caught_and_the_model_is_told_which_one(
 
     out = serve.symbol_map(pkg, tmp_path, client=llm, model="test-model")
 
-    assert len(llm.calls) == 2, "une seule reprise, jamais une boucle"
+    assert len(llm.calls) == 2, f"une seule reprise, jamais une boucle — servi : {out!r}"
     assert "beta() is shown calling alpha()" in llm.calls[1], (
         "la reprise doit citer l'arête exacte que l'AST dément"
     )

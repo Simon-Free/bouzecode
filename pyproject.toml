@@ -57,7 +57,18 @@ py-modules = [
 where = ["src", "."]
 # "src*" / "build*": scanning "." re-discovers the src/ layout (and any stale
 # build/ tree) under a second, bogus name, shipping every module twice.
-exclude = ["tests*", "docs*", "src*", "build*"]
+#
+# "*.tests" / "*.tests.*": test trees living UNDER a shipped package. `tests*`
+# alone only matches the TOP-LEVEL `tests`, so the wheel carried 152 test files
+# (all of bouzecode.web_v2.tests, bouzecode.web_v2.runtime.tests, readme_sync.tests,
+# …) — and `namespaces = true`, the default here, means a test directory did not
+# even need an __init__.py to be picked up. Nothing imports them at runtime. The
+# single module named `test_*` that legitimately ships is
+# bouzecode/backend/tools/ops/test_runner.py: it IS the RunPythonTest tool.
+# Guarded by tests/backend/regression/structure/test_packaging_declarations.py,
+# which also refuses a stray test module left inside a production package —
+# excluding packages cannot drop a single file.
+exclude = ["tests*", "docs*", "src*", "build*", "*.tests", "*.tests.*"]
 
 # Non-Python payload shipped inside the wheel.
 #
@@ -88,7 +99,22 @@ addopts = "--import-mode=importlib"
 # were never collected and two of them rotted unnoticed for the whole life of the
 # navigation-protocol rewrite. Its __init__.py chain is unbroken up to the repo
 # root, so its module names stay fully qualified and collide with nothing.
-testpaths = ["tests", "readme_sync/tests"]
+#
+# The four trees under src/ are here for the same reason, and the same rot was
+# waiting in them: test_wire_dump_exactness.py had been raising KeyError since the
+# payload journal went delta-encoded, and nothing said so. Every one of them carries
+# an unbroken __init__.py chain up to `src/`, which is a sys.path root (see
+# `pythonpath` above), so their module names are fully qualified — enforced by
+# tests/backend/regression/structure/test_test_packages_are_complete.py, which reads
+# THIS list. Collecting them does not ship them: see `packages.find.exclude` above.
+testpaths = [
+    "tests",
+    "readme_sync/tests",
+    "src/bouzecode/backend/tests",
+    "src/bouzecode/backend/agent/providers/backends/tests",
+    "src/bouzecode/web_v2/runtime/tests",
+    "src/bouzecode/web_v2/tests",
+]
 markers = [
     "backend: agent-engine tests",
     "ui: terminal-UI tests",

@@ -46,19 +46,20 @@ EXPECTED_COMMANDS = {
     # were all still there — only the COMMANDS entry was missing, which made the
     # command unreachable rather than absent.
     "telegram",
+    # Same story, same fix: `worker`, `ssj` and `image` were imported by dispatcher.py,
+    # their sentinels were already listed in `_REPL_SENTINELS` and handled by
+    # ui/repl_sentinels.py — only the COMMANDS entry was missing. Exercised end to end
+    # in tests/backend/commands/sentinels/.
+    "worker", "ssj", "image",
 }
 
 # Commands this (public) repo adds back on top of the engine: the OSS shims in
 # `commands/oss_shims/` route them to the flat top-level packages.
 OSS_SHIM_COMMANDS = {"voice", "mcp", "plugin", "memory", "video", "video-wizard"}
 
-# NB: `worker`, `ssj`, `image` are in the same situation `telegram` was in — their
-# modules exist and dispatcher.py imports them, they are simply not in COMMANDS.
-# "not dispatchable" is all this set can honestly claim about them.
-REMOVED_COMMANDS = {
-    "brainstorm", "status",
-    "worker", "ssj", "image", "img",
-}
+# `img` was an alias of `/image` in the old flat dispatcher and was not brought back:
+# one name per command. `brainstorm` and `status` have no module here at all.
+REMOVED_COMMANDS = {"brainstorm", "status", "img"}
 
 
 def test_commands_import():
@@ -112,13 +113,10 @@ def test_handle_slash_unknown():
 def test_no_removed_files_importable():
     """Removed modules should not be importable."""
     import importlib
-    removed_modules = [
-        "bouzecode.backend.commands._personas",
-        "bouzecode.backend.commands.brainstorm",
-    ]
-    for mod_name in removed_modules:
-        try:
+
+    import pytest
+
+    for mod_name in ("bouzecode.backend.commands._personas",
+                     "bouzecode.backend.commands.brainstorm"):
+        with pytest.raises(ModuleNotFoundError):
             importlib.import_module(mod_name)
-            assert False, f"{mod_name} should not be importable"
-        except (ImportError, ModuleNotFoundError):
-            pass

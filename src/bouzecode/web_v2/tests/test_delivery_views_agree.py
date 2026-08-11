@@ -16,7 +16,7 @@ from __future__ import annotations
 
 from bouzecode.web_v2.services.work import fleet, liveness, workflow
 
-from delivery_repo import (  # noqa: F401 — fixtures pytest
+from bouzecode.web_v2.tests.delivery_repo import (  # noqa: F401 — fixtures pytest
     CODEUR, SLUG, agents_dir, block_git_index, client, delivered_ticket, develop_repo,
     finished_agent, project,
 )
@@ -43,7 +43,7 @@ def test_the_board_and_the_agent_tree_no_longer_contradict_each_other(
 def test_listing_the_board_is_what_commits_a_forgotten_delivery(client, project, agents_dir):
     """Bout en bout : la route liste rejoue la chaîne, donc consulter le board suffit à
     mettre en sûreté le travail d'un agent qui a livré sans que rien ne soit commité."""
-    from delivery_repo import git_out
+    from bouzecode.web_v2.tests.delivery_repo import git_out
     ticket = delivered_ticket(project, "vidéos de démo", produced="vtt.py")
     finished_agent(agents_dir, ticket["worktree"]["worktree"])
     branch = ticket["worktree"]["branch"]

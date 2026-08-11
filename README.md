@@ -602,7 +602,7 @@ uv pip install -e ".[test]"
 .venv/bin/python -m pytest -q tests/web_v2
 ```
 
-`testpaths` is `tests/` plus `readme_sync/tests/` (the dev tool ships its own suite and lives outside `src/`). Every test is auto-marked from the folder it lives in: `tests/backend/` → `backend`, `tests/ui/` → `ui`, `tests/web_v2/` → `web`. A fourth marker, `slow`, tags the fixture files the test-runner tests target. The `web_v2` package also carries its own tests under `src/bouzecode/web_v2/tests/` — they take the `web` marker too, and run by pointing pytest at that path, since `testpaths` does not reach inside `src/`.
+`testpaths` is `tests/`, `readme_sync/tests/` and four trees under `src/` that live beside the code they cover (`backend/tests/`, `backend/agent/providers/backends/tests/`, `web_v2/runtime/tests/`, `web_v2/tests/`). Every test is auto-marked from the folder it lives in: `tests/backend/` → `backend`, `tests/ui/` → `ui`, `tests/web_v2/` and `src/bouzecode/web_v2/tests/` → `web`. A fourth marker, `slow`, tags the fixture files the test-runner tests target. Nothing under `src/` is collected implicitly: each tree is named, and each is excluded from the wheel by `packages.find.exclude`, so tests are run from the checkout and never installed.
 
 The front-end JavaScript has a suite of its own, under `src/bouzecode/web_v2/tests/js/`: the real `static/js/` modules loaded into a simulated DOM (happy-dom) and driven through clicks and events, no browser involved.
 

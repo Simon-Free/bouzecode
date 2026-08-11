@@ -19,3 +19,6 @@ assert on the tool results the agent got back.
   a uniform re-indentation is repaired automatically.
 - `test_read_param_synonyms_e2e.py` — Read accepts Snippet's line vocabulary when the
   conversion is exact, and refuses it when it is not.
+- `test_shell_search_deferred.py` — `bash_handler(deferred=True)` queues the command on the
+  context state instead of running it, and a plain call still runs it. It sat inside
+  `src/bouzecode/backend/tools/ops/` — never collected, and shipped in the wheel.

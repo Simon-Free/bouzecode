@@ -18,3 +18,4 @@ resolver) — no mocking library, no LLM, no network.
 | Folder | Description |
 |--------|-------------|
 | `info/` | The read-only informational commands (`/history`, `/doctor`). |
+| `sentinels/` | `/worker`, `/ssj`, `/image`: reachable through `handle_slash` and returning the sentinel the REPL loop expects. |

@@ -23,11 +23,13 @@ no conversation.
   `None`, and no source file wraps one of them in `print()` (which would emit a bare `None`).
 - `test_packaging_declarations.py` — the generated lockfile and the generated map locks are
   git-ignored, the test extra declares the timeout plugin, `tqdm` is a declared runtime
-  dependency, and the timeout marker actually works.
+  dependency, the timeout marker actually works, no `tests` directory escapes
+  `packages.find.exclude`, and no `test_*.py` hides inside a shipped package.
 - `test_powershell_launchers.py` — the shipped `.ps1` launchers are pure ASCII and load the
   dotenv file before installing any dependency.
 - `test_skill_references.py` — no skill in the repo cites a file path absent from disk, plus a
   self-check that the guard really flags a planted dead reference.
-- `test_test_packages_are_complete.py` — every directory holding tests is a package and the
-  `__init__.py` chain reaches `tests/` without a hole, so no test module shadows another.
+- `test_test_packages_are_complete.py` — the roots come from `testpaths`, every directory
+  holding tests is a package, and its `__init__.py` chain reaches a `pythonpath` root
+  (`src` or the repo) without a hole, so no test module shadows another.
   Test names and docstrings are in French.

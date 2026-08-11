@@ -145,7 +145,7 @@ def test_relaunch_unknown_returns_404(client, monkeypatch):
 
 
 # (iv) fin propre auto-réconciliée sans callback + exclue des interrompus
-def test_clean_finish_auto_reconciled_no_callback(client, agents, tmp_path):
+def test_clean_finish_auto_reconciled_no_callback(client, agents, tmp_path, monkeypatch):
     from bouzecode.web_v2.services.sessions import recovery, store
     from bouzecode.web_v2.services.work import tickets
 
@@ -170,15 +170,16 @@ def test_clean_finish_auto_reconciled_no_callback(client, agents, tmp_path):
     }
     ticket_list = [ticket]
 
-    def _load_clean(aid):
-        return agents["clean"] if aid == "cleanbbbb0002" else None
-    orig_load = tickets.runner.load_agent
-    tickets.runner.load_agent = _load_clean
-    saved = {}
-    tickets._save = lambda s, t: saved.update({s: t})  # noqa: capture persistance
-    try:
-        tickets.refresh_verdicts(slug, ticket_list)
-    finally:
-        tickets.runner.load_agent = orig_load
+    # Les deux substitutions passent par `monkeypatch` : une affectation directe sur le
+    # module ne revient JAMAIS. `tickets._save` remplacé à la main restait un no-op pour
+    # tout le reste du worker pytest, si bien que le store SQLite n'enregistrait plus rien
+    # — invisible tant que ce fichier tournait seul, révélé dès que d'autres tests de
+    # tickets ont partagé le même worker.
+    saved: dict = {}
+    monkeypatch.setattr(tickets.runner, "load_agent",
+                        lambda aid: agents["clean"] if aid == "cleanbbbb0002" else None)
+    monkeypatch.setattr(tickets, "_save", lambda s, t: saved.update({s: t}))
+
+    tickets.refresh_verdicts(slug, ticket_list)
 
     assert ticket["runs"][0]["verdict"] == "OK"

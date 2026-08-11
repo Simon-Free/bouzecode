@@ -164,7 +164,7 @@ uv pip install -e ".[test]"
 .venv\Scripts\python.exe -m pytest -q -n auto                  # in parallel
 .venv\Scripts\python.exe -m pytest -q -m backend               # the engine only
 .venv\Scripts\python.exe -m pytest -q tests\web_v2             # the web service layer
-.venv\Scripts\python.exe -m pytest -q src\bouzecode\web_v2\tests  # the tests shipped with the package
+.venv\Scripts\python.exe -m pytest -q src\bouzecode\web_v2\tests  # the web tests that live beside the package
 ```
 ```bash
 uv pip install -e ".[test]"
@@ -175,7 +175,9 @@ python -m pytest -q tests/web_v2
 python -m pytest -q src/bouzecode/web_v2/tests
 ```
 
-`testpaths` is `tests/` plus `readme_sync/tests/`. Tests are auto-marked from the folder they live in: `tests/backend/` → `backend`, `tests/ui/` → `ui`, `tests/web_v2/` and `src/bouzecode/web_v2/tests/` → `web`. A `slow` marker tags the fixture files the test-runner tests target.
+`testpaths` is `tests/`, `readme_sync/tests/` and the four test trees that live under `src/` beside the code they cover (`backend/tests/`, `backend/agent/providers/backends/tests/`, `web_v2/runtime/tests/`, `web_v2/tests/`) — a plain `pytest` runs all of them. Tests are auto-marked from the folder they live in: `tests/backend/` → `backend`, `tests/ui/` → `ui`, `tests/web_v2/` and `src/bouzecode/web_v2/tests/` → `web`. A `slow` marker tags the fixture files the test-runner tests target.
+
+Adding a test tree under `src/` means three things, all checked by `tests/backend/regression/structure/`: name it in `testpaths`, give it an unbroken `__init__.py` chain up to `src/` (otherwise its modules import under a bare name and shadow each other), and make sure `packages.find.exclude` keeps it out of the wheel. Never leave a `test_*.py` inside a production package: it is invisible to the collector and visible to the user who installs the wheel.
 
 A hermetic guard in `tests/conftest.py` blocks any real LLM call unless a test opts in with `require_api_key()` (`tests/cache_conversation_helpers.py`), so a stray credential can never turn a run into a bill. A second autouse guard fails any test that writes into the git-tracked working tree — use the `agent_cwd` fixture to run the agent from a temporary directory.
 

@@ -16,7 +16,7 @@ import pytest
 # `BOUZECODE_DISABLE_WAKE_POLLER` de `tests/conftest.py` ne correspond à AUCUN lecteur.
 os.environ.setdefault("BOUZECODE_WAKE_POLLER", "0")
 
-from bouzecode.web_v2.services.sessions import listing_cache, meta_index  # noqa: E402
+from bouzecode.web_v2.services.sessions import listing_cache, meta_index, store  # noqa: E402
 from bouzecode.web_v2.services.work import (  # noqa: E402
     _persistence, projects, tickets, worktrees,
 )
@@ -28,12 +28,17 @@ from bouzecode.web_v2.tests.production_isolation import (  # noqa: E402
 @pytest.fixture(autouse=True)
 def _forget_session_caches():
     """Vide les caches process du listing de sessions (memo de méta + cache TTL) autour de
-    CHAQUE test : sinon un test verrait la méta ou le listing mémorisés par le précédent."""
-    meta_index.reset_memo()
-    listing_cache.reset()
+    CHAQUE test : sinon un test verrait la méta ou le listing mémorisés par le précédent.
+
+    `store._status_cache` en fait partie : il retient le statut des agents TERMINÉS pour la
+    vie du process, par identifiant. Deux tests utilisant le même identifiant court dans le
+    même worker se répondaient l'un pour l'autre — un agent `recent` « finished » effaçait
+    le `recent` en attente d'un autre test, une fois sur deux selon la répartition xdist."""
+    for forget in (meta_index.reset_memo, listing_cache.reset, store.reset_status_cache):
+        forget()
     yield
-    meta_index.reset_memo()
-    listing_cache.reset()
+    for forget in (meta_index.reset_memo, listing_cache.reset, store.reset_status_cache):
+        forget()
 
 
 @pytest.fixture(autouse=True)

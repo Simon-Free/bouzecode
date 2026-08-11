@@ -60,6 +60,19 @@ def _dir_bytes(root: Path) -> int:
     return sum(f.stat().st_size for f in root.rglob("*") if f.is_file()) if root.is_dir() else 0
 
 
+def _age_days(path: Path) -> float:
+    """Depuis combien de jours `path` n'a plus bougé — JAMAIS négatif.
+
+    Le plancher à zéro n'est pas cosmétique. `st_mtime` est un flottant : converti depuis
+    `st_mtime_ns`, il s'arrondit par pas d'environ 0,24 µs aux dates actuelles, et l'arrondi
+    peut aller VERS LE HAUT. Un dossier écrit à l'instant se lit donc, une fois sur huit
+    (mesuré : 80 tirages sur 2 000 sous Windows), avec un horodatage postérieur au
+    `time.time()` relevé juste après — donc un âge négatif. `empty_trash(0)`, qui veut dire
+    « vide tout ce qui est dans la corbeille », ne supprimait alors RIEN et le disait sans
+    le dire, en rendant une liste vide."""
+    return max(0.0, time.time() - path.stat().st_mtime) / 86400
+
+
 def inventory(keep_days: float = DEFAULT_KEEP_DAYS) -> dict:
     """Ce que pèse le parc et ce qui serait rangeable, SANS RIEN TOUCHER.
 
@@ -130,9 +143,8 @@ def empty_trash(trash_keep_days: float = DEFAULT_TRASH_KEEP_DAYS,
     SEUL geste irréversible du module, et le seul qui rende de l'espace. Il ne touche QUE
     `_trash/` : un agent qui n'y a pas été rangé d'abord ne peut pas être atteint ici.
     `confirm=False` (défaut) : simulation."""
-    cutoff = time.time() - trash_keep_days * 86400
     dossiers = [d for d in purge.TRASH_DIR.iterdir()
-                if d.is_dir() and d.stat().st_mtime <= cutoff] if purge.TRASH_DIR.is_dir() else []
+                if d.is_dir() and _age_days(d) >= trash_keep_days] if purge.TRASH_DIR.is_dir() else []
     liberables = sum(_dir_bytes(d) for d in dossiers)
     if not confirm:
         return {"simulation": True, "dossiers": [d.name for d in dossiers],

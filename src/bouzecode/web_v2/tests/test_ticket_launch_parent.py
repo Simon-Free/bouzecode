@@ -3,7 +3,13 @@
 l'agent de reprise naissait orphelin (parent="") → invisible dans l'arbre du manager parent →
 son digest restait figé. On vérifie, via le client Flask RÉEL, que create_agent reçoit
 parent = ticket['parent']. Seuls les lookups (_project_or_404/_ticket_or_404) et create_agent
-sont faked ; la route reste réelle. No unittest.mock."""
+sont faked ; la route reste réelle. No unittest.mock.
+
+Le garde-fou api_sanity est neutralisé comme dans tests/web_v2/test_typology_default.py :
+/launch refuse le spawn en 503 quand ANTHROPIC_BASE_URL / ANTHROPIC_API_KEY manquent dans
+l'environnement. Ce test passait donc uniquement sur une machine dont le serveur avait été
+lancé avec les identifiants, et rendait 503 partout ailleurs — il mesurait l'environnement,
+pas le rattachement au parent."""
 from __future__ import annotations
 
 from types import SimpleNamespace
@@ -13,8 +19,11 @@ import pytest
 
 @pytest.fixture()
 def client(monkeypatch):
+    from bouzecode.web_v2 import api_sanity
     from bouzecode.web_v2.app import create_app
     from bouzecode.web_v2.routes.work import tickets as troute
+
+    monkeypatch.setattr(api_sanity, "require_api_sanity", lambda: None)
 
     captured: dict = {}
     ticket = {"id": "tk1", "prompt": "fix it", "parent": "mgr-42", "runs": []}

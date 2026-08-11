@@ -21,7 +21,7 @@ from pathlib import Path
 from bouzecode.web_v2.services.work import delivery, liveness, reaper, workflow
 from bouzecode.web_v2.services.work import tickets as tickets_svc
 
-from delivery_repo import (  # noqa: F401 — fixtures pytest
+from bouzecode.web_v2.tests.delivery_repo import (  # noqa: F401 — fixtures pytest
     SLUG, agents_dir, block_git_index, delivered_ticket, develop_repo, finished_agent,
     git_out,
 )

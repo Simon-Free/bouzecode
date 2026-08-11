@@ -2,7 +2,8 @@
 
 ## Purpose
 
-Root of the pytest suite (`testpaths = ["tests"]`). It holds the shared harness — fake
+Main root of the pytest suite (`testpaths` also names `readme_sync/tests` and four test
+trees under `src/`). It holds the shared harness — fake
 LLMs, a mock streaming API server, the conversation driver — a few engine-level tests,
 and four subtrees carrying the bulk of the suite.
 
@@ -21,7 +22,9 @@ Harness and fixtures:
 
 - `__init__.py` explains the `__init__.py`-chain requirement and the test that enforces it.
 - `conftest.py` — loads `.env`; autouse `_llm_network_guard` (gates `stream_anthropic`
-  behind `require_api_key()`), `_repo_working_tree_untouched`, `_isolate_global_state`,
+  behind `require_api_key()`), `_repo_working_tree_untouched`, `_isolate_global_state`
+  (restores the cwd plus the process-global registries `tool_registry._registry` /
+  `_disabled`, `paths._extra_dirs` and `agents_map.serve._SELF_AUTHORED`),
   `_disable_web_ipc`; the `agent_cwd` fixture; per-folder marker tagging.
 - `repo_tree_guard.py` — `tracked_root_files`, `watched_paths`, `snapshot`, `revert`:
   detects and undoes any write a test makes to this checkout.

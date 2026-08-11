@@ -60,9 +60,9 @@ def pytest_configure(config):
 
 
 # `tests/frontend/` does not exist in this repository — the web-UI tests live in
-# `tests/web_v2/` (collected by default) and `src/bouzecode/web_v2/tests/` (only
-# collected when passed explicitly, since `testpaths = ["tests"]`). Both are
-# matched so `pytest -m web` selects something in either invocation.
+# `tests/web_v2/` and in `src/bouzecode/web_v2/tests/`. Both are now in `testpaths`,
+# and both fragments are matched so `pytest -m web` selects the same set whether the
+# whole suite runs or only one of the two trees is passed on the command line.
 _MARKER_BY_PATH_FRAGMENT = (
     ("/tests/backend/", "backend"),
     ("/tests/ui/", "ui"),
@@ -178,6 +178,13 @@ def _isolate_global_state():
     _snap_collection("bouzecode.backend.core.tool_registry", "_registry")
     _snap_collection("bouzecode.backend.core.tool_registry", "_disabled")
     _snap_collection("bouzecode.backend.core.paths", "_extra_dirs")
+    # Le jeu des dossiers « écrits par cet agent » vit AUSSI longtemps que le process, et le
+    # hook d'édition (context_manager.readme_stale) l'alimente à chaque Write d'un fichier de
+    # code : tout test e2e qui écrit du code y dépose son dossier pour le reste du worker. Un
+    # test ultérieur portant sur le même dossier se verrait alors servir « you edited this
+    # folder yourself » au lieu d'une régénération. Les `_SELF_AUTHORED.clear()` semés à la
+    # main dans tests/backend/agents_map/ étaient le pansement ; ceci est la plaie.
+    _snap_collection("bouzecode.backend.tools.agents_map.serve", "_SELF_AUTHORED")
     yield
     os.chdir(_orig_cwd)
     for restore in snapshots:

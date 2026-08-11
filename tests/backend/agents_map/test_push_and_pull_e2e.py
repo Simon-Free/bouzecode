@@ -12,7 +12,6 @@ METH = '<tool_use name="Methodology" id="m1"><param name="content">ok</param></t
 def test_writing_code_records_the_folder_as_self_authored(tmp_path, monkeypatch):
     """Le hook d'édition (push) n'annonce plus « périmé » — il dit « c'est moi »."""
     monkeypatch.chdir(tmp_path)
-    serve._SELF_AUTHORED.clear()
     target = tmp_path / "temp_module.py"
 
     write = (
@@ -24,13 +23,11 @@ def test_writing_code_records_the_folder_as_self_authored(tmp_path, monkeypatch)
     assert serve._is_self_authored(tmp_path), (
         "le dossier écrit doit être attribué à l'agent courant"
     )
-    serve._SELF_AUTHORED.clear()
 
 
 def test_a_non_code_file_never_claims_a_folder(tmp_path, monkeypatch):
     """Écrire un .txt ne concerne aucune carte de symboles."""
     monkeypatch.chdir(tmp_path)
-    serve._SELF_AUTHORED.clear()
     target = tmp_path / "temp_notes.txt"
 
     write = (

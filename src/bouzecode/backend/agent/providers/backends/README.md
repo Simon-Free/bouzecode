@@ -15,9 +15,8 @@ plus the dispatcher that builds the system blocks and picks the right streamer.
 - `openrouter_native.py` — `tool_schemas_to_openai()`, `messages_to_openai_native()`, `accumulate_tool_call_deltas()`, `finalize_tool_calls()`, `_SCHEDULING_PROPS` — OpenAI function-calling conversion, including synthesizing the assistant `tool_calls` that a minimized payload dropped so every result pairs with a call.
 - `openrouter_transport.py` — `build_session()`, `build_plain_session()`, `iter_sse()` — a requests session with or without the outbound proxy, and SSE line parsing with an optional raw dump.
 - `openrouter_retry.py` — `post_with_retry()`, `BACKOFFS_S` — backoff on 429/5xx, one retry on 400 to land on another upstream provider.
-- `test_anthropic_helpers_gateway_retry.py` — checks that a 400 carrying a transient-gateway marker is retried and a genuine client 400 propagates at once.
 
 ## Subfolders
 | Folder | Description |
 |--------|-------------|
-| `tests/` | Wire-mutation contract of `dispatch.stream()` |
+| `tests/` | Wire-mutation contract of `dispatch.stream()`, and the retry policy of the Anthropic helpers |

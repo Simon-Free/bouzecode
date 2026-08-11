@@ -3,15 +3,19 @@
 User-centric : on écrit de VRAIS fichiers agent JSON + un VRAI store de tickets sur
 disque (dans des dossiers temporaires), on appelle migrate_orphan_validators() puis on
 relit l'agent depuis le disque pour vérifier que son parent a été réécrit vers le codeur.
-Aucun mock : on redirige les DIR de runner/tickets vers des tmp_path via monkeypatch."""
+Aucun mock : on redirige les DIR de runner/tickets vers des tmp_path via monkeypatch.
+
+Ce fichier vivait dans `src/bouzecode/web_v2/services/work/`, à côté du code testé : hors
+`testpaths`, jamais collecté, et embarqué dans la wheel. Les imports relatifs qu'il tenait
+de cet emplacement sont devenus absolus."""
 
 from __future__ import annotations
 
 import json
 from pathlib import Path
 
-from ...runtime import runner
-from . import _persistence, migrations, tickets
+from bouzecode.web_v2.runtime import runner
+from bouzecode.web_v2.services.work import _persistence, migrations, tickets
 
 
 def _write_agent(agents_dir: Path, agent_id: str, parent: str, cwd: str = "") -> None:

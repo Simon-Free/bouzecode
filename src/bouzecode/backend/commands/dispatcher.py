@@ -58,6 +58,13 @@ COMMANDS = {
     "diff":        cmd_diff,
     "doctor":      cmd_doctor,
     "telegram":    cmd_telegram,
+    # Sentinel commands: they hand a tuple back to the REPL loop instead of
+    # doing the work themselves (see `_REPL_SENTINELS` below and
+    # `bouzecode.ui.repl_sentinels`). Imported but unlisted, they printed
+    # "Unknown command" — the same defect `/telegram` had.
+    "worker":      cmd_worker,
+    "ssj":         cmd_ssj,
+    "image":       cmd_image,
     "exit":        cmd_exit,
     "quit":        cmd_exit,
     "resume":      cmd_resume,
@@ -104,6 +111,10 @@ _CMD_META: dict[str, tuple[str, list[str]]] = {
     "timing":      ("Show timing breakdown by phase",       []),
     "telegram":    ("Telegram bridge: /telegram <bot_token> <chat_id> to start",
                                                             ["stop", "status"]),
+    "worker":      ("Auto-implement the pending tasks of a todo file",
+                                                            ["--path", "--tasks", "--workers"]),
+    "ssj":         ("Developer power menu (brainstorm, worker, debate, review\u2026)", []),
+    "image":       ("Send the clipboard image to the model", []),
     "exit":        ("Exit bouz\u00e9code",                      []),
     "quit":        ("Exit (alias for /exit)",             []),
     "resume":      ("Resume a recent session (interactive picker)", []),

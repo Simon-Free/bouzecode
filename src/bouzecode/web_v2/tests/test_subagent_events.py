@@ -88,7 +88,9 @@ def env(tmp_path, monkeypatch):
     tickets._save(TICKET_SLUG, [ticket])
     # Les deux tests suivants n'assertent que des ABSENCES de marqueur : sans ce garde-fou, un
     # store vide les rendrait verts sans rien prouver (c'est exactement ce qui arrivait quand la
-    # graine était un `{slug}.json` legacy — cf. le docstring du module).
+    # graine était un `{slug}.json` legacy — cf. le docstring du module). Ce garde-fou a resservi :
+    # il a attrapé `tests/web_v2/test_recovery.py` qui remplaçait `tickets._save` par un no-op
+    # sans jamais le restaurer, ce qui vidait le store de tout le worker pytest.
     assert tickets.get_ticket(TICKET_SLUG, TICKET_ID) is not None, "graine non semée dans le store"
     runner._list_agents_cache.clear()
     return agents_dir
