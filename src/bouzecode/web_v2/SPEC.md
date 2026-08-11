@@ -97,6 +97,7 @@ archivé reste dans son store, une conversation archivée part dans une corbeill
 | Besoin | Choix | Pourquoi |
 |---|---|---|
 | Éditeur / diffs riches | **Monaco vendorisé** dans `static/vendor/monaco/` (copie figée de monaco-editor 0.52.0), **aucun CDN** | marche hors ligne et derrière un proxy restrictif ; servi avec un cache navigateur long car immuable ; fallback pygments/diff unifié si le vendor est absent |
+| Polices | **piles système** (`ui-sans-serif`/`Segoe UI`/`-apple-system`, `ui-monospace`/`Consolas`/`SF Mono`) — **aucune webfont, aucun `@import` externe** | même règle que Monaco : derrière un proxy la requête part dans le vide et retarde le premier rendu (garde : `tests/js/styles.no-external.test.js`) |
 | Coloration (fallback) | **pygments** (déjà dans le venv via rich) | rendu serveur, marche offline |
 | Diffs (fallback) | **difflib** (stdlib) | toujours affichable |
 | Analyse cache/payload | **`web_v2.runtime.context_viewer`** | fait exactement P5, déjà débuggé |

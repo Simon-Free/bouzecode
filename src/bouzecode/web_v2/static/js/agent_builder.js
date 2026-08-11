@@ -31,7 +31,7 @@ function checkItem(item, group) {
     cb.checked = true;
     cb.disabled = true;
     wrap.classList.add("system-tool");
-    wrap.title = "Outil système — toujours actif";
+    wrap.title = window.i18n.t("builder.system_tool");
   }
   const body = document.createElement("div");
   const name = document.createElement("span");
@@ -68,8 +68,8 @@ function renderHooks(hooks) {
     row.className = "hook-row";
     const sel = document.createElement("select");
     sel.dataset.hook = h.name;
-    [["", "défaut"], ["on", "activé"], ["off", "désactivé"]].forEach(([v, t]) =>
-      sel.appendChild(new Option(t, v)));
+    [["", "builder.hook_default"], ["on", "builder.hook_on"], ["off", "builder.hook_off"]]
+      .forEach(([value, key]) => sel.appendChild(new Option(window.i18n.t(key), value)));
     const label = document.createElement("div");
     label.innerHTML = `<span class="ci-name">${h.name}</span>` +
       `<div class="ci-desc">${h.description || ""}</div>`;
@@ -121,10 +121,25 @@ async function loadCatalog() {
   updateCapabilitiesRecap();
 }
 
+// Bascule de langue — L'UNIQUE point de redessin de la page. `applyDom` a déjà retraduit le
+// gabarit ; ne restent que les listes composées en JavaScript. Elles sont reconstruites depuis
+// zéro, ce qui EFFACERAIT la saisie en cours : on relève donc le brouillon avant, et on le
+// réapplique après. Les panneaux repliés dans des IIFE publient leur redessin sur `window`.
+function redrawBuilder() {
+  const draft = collect();
+  loadCatalog().then(() => applyProfile(draft));
+  loadAgents();
+  loadAgentCatalog();
+  if (window.redrawPlugins) window.redrawPlugins();
+  if (window.redrawSkillsPanel) window.redrawSkillsPanel();
+  if (window.redrawPreview) window.redrawPreview();
+}
+
 $("ab-tabs").addEventListener("click", (e) => {
   const tab = e.target.closest(".tab");
   if (tab) showPanel(tab.dataset.panel);
 });
+window.i18n.onChange(redrawBuilder);
 $("b-caps").addEventListener("change", updateCapabilitiesRecap);
 wireFilter("b-tools-filter", "b-tools");
 wireFilter("b-skills-filter", "b-skills");

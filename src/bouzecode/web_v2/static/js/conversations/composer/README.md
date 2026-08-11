@@ -10,7 +10,7 @@ avec rendu optimiste, et le talonnage du démarrage jusqu'à ce que l'agent soit
 | `launch.js` | `POST /api/dispatch`, node optimiste « starting », câblage de la barre |
 | `retarget.js` | rebranchement `optimistic:` / `launching/` → `agent/<id>`, `chaseLaunch` |
 | `typology.js` | bannière « type d'agent » (`/api/typologies`) |
-| `project.js` | bannière « projet » (`/api/projects`) et suggestions `needs_project` |
+| `project.js` | bannière « projet » (`/api/projects`), formulaire d'ouverture d'un projet, suggestions `needs_project` |
 | `isolation.js` | bannière « environnement » : shared / worktree / worktree+venv |
 
 Les trois bannières exportent leur sélection en lien vivant (`selectedTypology`,

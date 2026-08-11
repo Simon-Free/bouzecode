@@ -1,6 +1,9 @@
 # ============================================================
-# bouzegui.ps1 — one-shot launcher for BouzéGUI (bouzecode.web_v2 Flask UI)
-# Ensures uv is available, keeps .venv in sync, then launches the app.
+# bouzegui.ps1 - one-shot launcher for the web UI (bouzecode.web_v2 Flask app)
+# Loads .env, ensures uv is available, keeps .venv-ui in sync, then launches the app.
+#
+# ASCII ONLY. Windows PowerShell 5.1 re-reads a BOM-less .ps1 as ANSI, which is
+# how the banner used to print as "BouzeGUI" with a mangled accent.
 # ============================================================
 
 $ErrorActionPreference = "Stop"
@@ -12,7 +15,13 @@ $BouzequiExe = Join-Path $VenvDir "Scripts\bouzegui.exe"
 $PyProject = Join-Path $RepoDir "pyproject.toml"
 $Stamp     = Join-Path $VenvDir ".bouzegui_installed"
 
-# --- 1. Locate uv ------------------------------------------------------------
+# --- 1. Load .env (proxy, index, credentials) --------------------------------
+# BEFORE the install step: the package index may only be reachable through the
+# proxy declared in .env.
+. (Join-Path $PSScriptRoot "load_dotenv.ps1")
+Import-DotEnv -Path (Join-Path $RepoDir ".env") -Label "bouzegui"
+
+# --- 2. Locate uv ------------------------------------------------------------
 function Find-Uv {
     $parent = Split-Path $RepoDir -Parent
     $candidates = @(
@@ -34,7 +43,7 @@ if (-not $UvExe) {
 }
 Write-Host "[bouzegui] uv: $UvExe" -ForegroundColor Cyan
 
-# --- 2. Ensure venv ----------------------------------------------------------
+# --- 3. Ensure venv ----------------------------------------------------------
 if (-not (Test-Path $PythonExe)) {
     Write-Host "[bouzegui] creating venv..." -ForegroundColor Cyan
     Push-Location $RepoDir
@@ -42,7 +51,7 @@ if (-not (Test-Path $PythonExe)) {
     Pop-Location
 }
 
-# --- 3. Install / update deps if pyproject changed --------------------------
+# --- 4. Install / update deps if pyproject changed --------------------------
 $needInstall = $true
 if ((Test-Path $Stamp) -and (Test-Path $BouzequiExe)) {
     $stampTime = (Get-Item $Stamp).LastWriteTimeUtc
@@ -58,28 +67,13 @@ if ($needInstall) {
     New-Item -ItemType File -Path $Stamp -Force | Out-Null
 }
 
-# --- 4. Load .env (proxy, index, credentials) --------------------------------
-$EnvFile = Join-Path $RepoDir ".env"
-if (Test-Path $EnvFile) {
-    Get-Content $EnvFile | ForEach-Object {
-        $line = $_.Trim()
-        if ($line -and -not $line.StartsWith("#") -and $line.Contains("=")) {
-            $eqIdx = $line.IndexOf("=")
-            $key   = $line.Substring(0, $eqIdx)
-            $val   = $line.Substring($eqIdx + 1).Trim('"')
-            [System.Environment]::SetEnvironmentVariable($key, $val, "Process")
-        }
-    }
-    Write-Host "[bouzegui] loaded .env ($EnvFile)" -ForegroundColor DarkGray
-}
-
 # --- 5. Runtime env ---------------------------------------------------------
 $env:PYTHONIOENCODING  = "utf-8"
 
 # --- 6. Launch ---------------------------------------------------------------
 $port = if ($args.Count -gt 0 -and $args[0] -match "^\d+$") { $args[0] } else { "5055" }
 Write-Host ""
-Write-Host "=== BouzéGUI ===" -ForegroundColor Green
+Write-Host "=== bouzegui ===" -ForegroundColor Green
 Write-Host "Repo: $RepoDir"
 Write-Host "URL : http://127.0.0.1:$port"
 Write-Host ""

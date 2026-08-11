@@ -13,6 +13,10 @@ class FolderState(str, Enum):
     STALE = "STALE"      # hash mismatch / new file / deleted file / lock flagged stale
     MISSING = "MISSING"  # code folder with no README
     ORPHAN = "ORPHAN"    # README present but no code files
+    # Map present, no lock sidecar: the lock is a generated, git-ignored cache,
+    # so a clean clone has none. Nothing PROVES the map drifted — reporting it
+    # as STALE made `--check` fail on every documented folder of a fresh clone.
+    UNLOCKED = "UNLOCKED"
 
 
 @dataclass

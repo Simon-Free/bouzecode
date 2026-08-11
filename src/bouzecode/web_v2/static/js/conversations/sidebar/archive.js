@@ -4,6 +4,7 @@
 import { node, agentId } from "../dom.js";
 import { NODES } from "../state.js";
 import { CONTRACT } from "../contract.js";
+import { t } from "../../i18n/index.js";
 import { groupRegistry } from "./group.js";
 import { refreshList } from "./list.js";
 
@@ -69,9 +70,17 @@ function collectSubtree(rootKey) {
   return result;
 }
 
-// État de countdown PAR ITEM (jamais un timer global) : Map clé -> { timer, origText }.
+// État de countdown PAR ITEM (jamais un timer global) : Map clé -> { timer }.
 // Chaque item a son propre setInterval → countdowns indépendants et non bloquants.
 const archiveCountdowns = new Map();
+
+// Le libellé de repos du bouton est TOUJOURS « Archiver » : on le relit dans le
+// dictionnaire au lieu de mémoriser le texte affiché, sinon une bascule de langue
+// pendant le décompte restaurerait le mot de l'ancienne langue.
+function restIdle(btn) {
+  btn.textContent = t("sidebar.archive");
+  btn.classList.remove("conv-archive-btn--countdown");
+}
 
 // Handler du bouton "Archiver" : au lieu d'archiver immédiatement, démarre un décompte
 // annulable de 3s ("Annuler 3/2/1"). Re-cliquer pendant le décompte ANNULE (aucun fetch).
@@ -83,26 +92,23 @@ export function handleArchiveClick(key, btn) {
     // normal du bouton, AUCUN appel backend n'est émis.
     clearInterval(existing.timer);
     archiveCountdowns.delete(key);
-    btn.textContent = existing.origText;
-    btn.classList.remove("conv-archive-btn--countdown");
+    restIdle(btn);
     return;
   }
-  const origText = btn.textContent;
   let remaining = 3;
   btn.classList.add("conv-archive-btn--countdown");
-  btn.textContent = `Annuler ${remaining}`;
+  btn.textContent = t("sidebar.cancel_countdown", { seconds: remaining });
   const timer = setInterval(() => {
     remaining -= 1;
     if (remaining > 0) {
-      btn.textContent = `Annuler ${remaining}`;
+      btn.textContent = t("sidebar.cancel_countdown", { seconds: remaining });
       return;
     }
     // Fin du décompte : on nettoie le timer/état AVANT l'archive réelle.
     clearInterval(timer);
     archiveCountdowns.delete(key);
-    btn.classList.remove("conv-archive-btn--countdown");
-    btn.textContent = origText;
+    restIdle(btn);
     archiveNode(collectSubtree(key));
   }, 1000);
-  archiveCountdowns.set(key, { timer, origText });
+  archiveCountdowns.set(key, { timer });
 }

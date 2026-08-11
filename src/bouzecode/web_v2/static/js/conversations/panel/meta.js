@@ -4,6 +4,7 @@
 import { node, agentId } from "../dom.js";
 import { NODES } from "../state.js";
 import { badge } from "../badges.js";
+import { t } from "../../i18n/index.js";
 
 // --- Chemin de stockage du JSON de session (copier / télécharger) ----------
 
@@ -14,17 +15,17 @@ export function buildSessionMenu(menu, key) {
   const meta = NODES.find((n) => n.key === key);
   const path = (meta && meta.session_path) || "";
   const row = node(menu, "div", "conv-path");
-  node(row, "code", "conv-path-code", path || "(chemin indisponible)");
-  const copyBtn = node(row, "button", "conv-path-btn", "Copier");
+  node(row, "code", "conv-path-code", path || t("panel.path_unavailable"));
+  const copyBtn = node(row, "button", "conv-path-btn", t("panel.copy"));
   copyBtn.type = "button";
   copyBtn.addEventListener("click", async () => {
     try {
       await navigator.clipboard.writeText(path);
-      copyBtn.textContent = "Copié ✓";
-      setTimeout(() => { copyBtn.textContent = "Copier"; }, 1500);
-    } catch (_) { copyBtn.textContent = "Échec copie"; }
+      copyBtn.textContent = t("panel.copied");
+      setTimeout(() => { copyBtn.textContent = t("panel.copy"); }, 1500);
+    } catch (_) { copyBtn.textContent = t("panel.copy_failed"); }
   });
-  const dl = node(row, "a", "conv-path-btn", "Télécharger");
+  const dl = node(row, "a", "conv-path-btn", t("panel.download"));
   dl.href = `/api/sessions/${key}/download`;
   dl.setAttribute("download", "");
 }
@@ -58,11 +59,11 @@ export function renderMeta(entry, data) {
     const idChip = node(entry.status, "span", "conv-meta-id muted", `#${id8}`);
     idChip.setAttribute("role", "button");
     idChip.tabIndex = 0;
-    idChip.title = "Copier l'id complet";
+    idChip.title = t("panel.copy_id_tip");
     const copyId = (e) => {
       if (e) e.stopPropagation();
       try { navigator.clipboard && navigator.clipboard.writeText(idFull); } catch (_e) { /* noop */ }
-      idChip.textContent = "copié ✓";
+      idChip.textContent = t("panel.copied_short");
       idChip.classList.add("is-copied");
       setTimeout(() => {
         idChip.textContent = `#${id8}`;
@@ -89,8 +90,8 @@ export function renderMeta(entry, data) {
   }
   const doc = node(entry.status, "button", "conv-meta-doc");
   doc.type = "button";
-  doc.title = "Chemin de session — Copier / Télécharger";
-  doc.setAttribute("aria-label", "Détails de la session");
+  doc.title = t("panel.session_doc_tip");
+  doc.setAttribute("aria-label", t("panel.session_doc_aria"));
   doc.setAttribute("aria-expanded", entry.metaMenu && !entry.metaMenu.hidden ? "true" : "false");
   // Icône document (SVG inline, aucune dépendance).
   doc.innerHTML = '<svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><path d="M14 2v6h6"/></svg>';

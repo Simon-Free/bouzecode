@@ -1,6 +1,6 @@
 # Architecture
 
-How bouzecode is put together, and why. Read the root [`README.md`](../README.md) first for what the tool does; this document is about the shape of the code.
+How Bouzécode is put together, and why. Read the root [`README.md`](../README.md) first for what the tool does; this document is about the shape of the code.
 
 ---
 
@@ -16,7 +16,7 @@ How bouzecode is put together, and why. Read the root [`README.md`](../README.md
 
 `src/bouzecode/backend/` is the whole engine: the turn loop, the tool registry, the providers, the context discipline. It knows nothing about a terminal or a browser.
 
-`src/bouzecode/ui/` is the terminal front end — argument parsing, the REPL, ANSI rendering, replay.
+`src/bouzecode/ui/` is the terminal front end — argument parsing, the REPL, ANSI rendering, replay. Its user-facing wording lives in one place, `ui/messages/`: a `key -> (english, french)` table read through `msg()`, in English unless `BOUZECODE_LANG` starts with `fr`. A CLI process reads its environment once at startup, so it needs a lookup and not the hot-switching machinery the browser needs. An unknown key raises rather than rendering as itself.
 
 `src/bouzecode/web_v2/` is the web front end. It does not wrap the terminal: it **spawns agent processes** and reads their structured output. The rule that shapes the whole package is that **stdout is never parsed**. Every view is rendered server-side from the session JSON, the agent IPC files and the payload dumps.
 
@@ -74,7 +74,7 @@ Registration all happens in `backend/tools/registration.py`, and the *order* is 
 5. **A whitelist pass disables everything outside the default set.** What survives is `FRAMEWORK_ALWAYS_ON` — the twelve discipline tools a profile can never strip — plus a small work set (`Read`, `Write`, `Edit`, `Bash`, `BashOutput`, `Glob`, `Grep`, `RunPythonTest`, `WebFetch`, `WebSearch`, `AddProject`, `MemorySave`, `MemoryList`).
 6. chrome-devtools and MCP register *after* that pass, on purpose, so their `enable_tool()` calls are not undone.
 
-The reason for a whitelist at all: every enabled tool ships its JSON schema on every single turn. Forty schemas is a permanent tax on the input bill. Enabling a tool by default is a budget decision.
+The reason for a whitelist at all: every enabled tool ships its JSON schema on every single turn. Forty-six tools are registered; sending all forty-six schemas would be a permanent tax on the input bill. Enabling a tool by default is a budget decision.
 
 An agent profile then narrows or widens the set for its own session, through a thread-local overlay so parallel conversations do not fight over the global registry.
 
@@ -108,7 +108,7 @@ Three provider slots:
 | `openrouter` | OpenAI-compatible | `https://openrouter.ai/api/v1` |
 | `gateway` | OpenAI-compatible | entirely from the environment — `BOUZECODE_GATEWAY_BASE_URL` / `_API_KEY` / `_MODELS` |
 
-**No base URL is ever hardcoded.** The `gateway` slot exists so you can point bouzecode at your own LiteLLM, vLLM or in-house proxy; with its variables unset it simply stays inert and resolves nothing.
+**No base URL is ever hardcoded.** The `gateway` slot exists so you can point Bouzécode at your own LiteLLM, vLLM or in-house proxy; with its variables unset it simply stays inert and resolves nothing.
 
 The same file carries the per-model input/output rates and the cache-read overrides for providers that do not follow the 0.1×-input convention. Those numbers feed the cost columns in the web UI, which is the only reason cost reporting is trustworthy.
 
@@ -137,16 +137,18 @@ web_v2/
 ├── services/     # the logic, Flask-free and independently testable
 ├── runtime/      # agent lifecycle: runner, IPC, warm pool, venv env, context viewer
 ├── templates/    # conversations, session, agent-builder, base
-└── static/       # dark-theme CSS, ES modules, vendored Monaco (no CDN)
+└── static/       # dark-theme CSS, ES modules, i18n dictionaries, vendored Monaco (no CDN)
 ```
 
-Three invariants:
+Four invariants:
 
 **Routes are thin.** `routes/` does HTTP; `services/` does the thinking. Because the services never import Flask, most of the suite tests them directly, and the Flask test client only has to cover the HTTP contract.
 
 **The API schema is derived, never written.** `GET /api/schema` is built from `app.url_map`, so it cannot describe a route that no longer exists nor miss one that was added.
 
-**No CDN.** Monaco is vendored under `static/vendor/monaco`, with a `difflib` fallback when the vendor copy is absent. A developer tool that needs the public internet to render a diff is a developer tool that stops working at the wrong moment.
+**No CDN.** Monaco is vendored under `static/vendor/monaco`, with a `difflib` fallback when the vendor copy is absent. No font, stylesheet or script comes from a third-party host either: the whole UI renders with the machine offline. A developer tool that needs the public internet to render a diff is a developer tool that stops working at the wrong moment.
+
+**The server stays monolingual.** Translation is a client concern: the server emits stable keys (`status.phase`, `node.activity`) and markup annotated with `data-i18n`, and `static/js/i18n/` holds one dictionary per language — English, the default and the fallback for any key missing elsewhere, and French. Switching language rewrites the annotated DOM in place; the choice lives in `localStorage`. Data that belongs to the user or to an open catalogue — project names, typology descriptions, isolation codes, server refusals — is never translated, because it is not interface vocabulary.
 
 State lives on disk under `~/.bouzecode/web_v2/` (projects, tickets) and `~/.bouzecode/sessions/` (session logs). Nothing is deleted: archiving removes an item from the board and keeps it in its store.
 
@@ -187,7 +189,7 @@ Nothing under `~/.bouzecode/` is required to exist: every path is created on dem
 
 Every code folder carries a `README.md` stating its purpose, its subfolders and its symbols. They are the navigation surface the agent itself uses — finding a function is a lookup, not a grep sweep.
 
-`readme_sync/` keeps them honest: `python -m readme_sync --check` reports any map that has drifted from the code it describes, `--list-stale` names them, `--regen` rebuilds one. The contract those files must satisfy is declared in `readme_sync/contract.py`.
+`readme_sync/` keeps them honest: `python -m readme_sync --check` reports any map that has drifted from the code it describes and exits 0 when they all match, `--list-stale` names them, `--regen` rebuilds one. Freshness is decided by a sha256 manifest in a `.readme.lock` sidecar, so a missed hook changes nothing — `--check` recomputes. The contract those files must satisfy is declared in `readme_sync/contract.py`, and the filename itself is a setting (`--doc-name`, `README_SYNC_DOC_NAME`, `[tool.readme_sync] doc_name`) resolved in `readme_sync/naming.py`.
 
 ---
 
@@ -199,4 +201,5 @@ Every code folder carries a `README.md` stating its purpose, its subfolders and 
 - **Discipline is enforced, not requested.** A prompt that asks the model to snippet its reads, without a mechanism that checks, is a prompt that will be ignored on turn nine.
 - **Never hardcode an endpoint.** Base URLs, hosts and credentials come from the environment.
 - **Never parse stdout.** Structured output or nothing.
+- **Every `.ps1` is pure ASCII.** Windows PowerShell 5.1 re-reads a BOM-less script as ANSI; a single accented character mangles the file. A test enforces it, and enforces that a launcher loads `.env` before it installs anything.
 - **Derive, don't duplicate.** The API schema comes from the URL map, the folder maps come from the code, the write-capability of an agent comes from its tool list.

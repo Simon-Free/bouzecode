@@ -1,0 +1,50 @@
+// Vocabulaire d'ÉTAT : pastilles, phases de lancement, activité d'un agent vivant.
+// Reprend mot pour mot les libellés d'origine de l'interface.
+window.i18n.register("fr", {
+  "state.running": "en cours",
+  "state.starting": "démarrage…",
+  "state.provisioning": "préparation…",
+  "state.awaiting_input": "à répondre",
+  "state.awaiting_plan_validation": "plan à valider",
+  "state.idle": "chaud",
+  "state.finished": "terminé",
+  "state.crashed": "planté",
+  "state.waiting_children": "⏳ orchestre",
+  "state.cli": "cli",
+  "state.ko": "KO",
+  "state.archived": "archivé",
+  "state.needs_reply": "nécessite une réponse",
+  "state.dead_maybe": "mort ?",
+  "state.tip_crashed": "Agent mort sans clôture prouvée (ni FinalAnswer, ni verdict) : à relancer.",
+  "state.tip_dead_maybe": "Agent suspecté mort : terminé sans aucun tour et code de sortie non nul.",
+
+  "phase.demarrage": "démarrage de l'agent…",
+  "phase.demarrage_detail": "Un processus neuf se lance : chargement du harnais et lecture du projet.",
+  "phase.attente_modele": "le modèle lit votre demande…",
+  "phase.attente_modele_detail": "La première réponse est plus longue : le modèle met votre contexte "
+    + "en mémoire. Les suivantes seront nettement plus rapides.",
+  "phase.provisioning_worktree": "création du worktree",
+  "phase.syncing_venv": "installation de l'environnement uv",
+  "phase.spawning": "démarrage de l'agent",
+  "phase.reisolating": "ré-isolation du worktree",
+  "phase.venv_ready": "environnement uv prêt",
+  "phase.venv_failed": "environnement uv en échec",
+  "phase.launching_fallback": "préparation en cours",
+
+  "activity.starting": "démarrage du process",
+  "activity.idle": "chaud et oisif, joignable",
+  "activity.awaiting_input": "attend une réponse de l'utilisateur",
+  "activity.awaiting_plan_validation": "attend la validation du plan",
+  "activity.tool_live": "{tool} en cours",
+  "activity.tool_live_since": "{tool} en cours depuis {age}",
+  "activity.tool_last": "dernier outil vu : {tool}",
+  "activity.tool_last_since": "dernier outil vu : {tool}, il y a {age}",
+  "activity.llm": "appel au modèle",
+  "activity.llm_since": "appel au modèle depuis {age}",
+  "activity.stale_tip": "Aucun battement depuis plus de 4 minutes : l'agent tient peut-être un outil "
+    + "long, ou il est bloqué. À regarder — ce n'est pas un constat de mort.",
+
+  "age.seconds": "{n} s",
+  "age.minutes": "{n} min",
+  "age.hours": "{h} h {m}",
+});

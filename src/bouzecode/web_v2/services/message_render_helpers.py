@@ -35,7 +35,8 @@ def _render_thinking(content: str) -> str:
         escaped = html.escape(block.strip()).replace("\n", "<br>")
         rendered.append(
             f'<details class="thinking pui-detail-thinking">'
-            f'<summary class="pui-bubble__thinking-pill">💭 réflexion</summary>'
+            f'<summary class="pui-bubble__thinking-pill" data-i18n="block.thinking">'
+            f'💭 thinking</summary>'
             f'<em>{escaped}</em></details>'
         )
     return "".join(rendered)
@@ -76,6 +77,9 @@ def _render_prose(text: str) -> str:
 
 
 def _truncate(text: str, limit: int) -> str:
+    """Coupe le texte et le DIT. Ce marqueur reste en français : il est concaténé au contenu
+    lui-même, à l'intérieur d'un `<pre>`, et non rendu dans un élément propre — le client n'a
+    donc aucune prise pour le traduire sans découper le corps du message en fragments."""
     if len(text) <= limit:
         return text
     return text[:limit] + f"\n… (+{len(text) - limit} caractères tronqués)"

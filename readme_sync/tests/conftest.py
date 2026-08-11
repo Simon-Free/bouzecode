@@ -10,6 +10,22 @@ import pytest
 REPO_ROOT = Path(__file__).resolve().parents[2]
 
 
+@pytest.fixture(autouse=True)
+def agents_md_naming(monkeypatch):
+    """These tests exercise the "map is a file of its own" configuration.
+
+    They were written when `AGENTS.md` was a hard-coded constant. The name is
+    now a setting (readme_sync/naming.py) whose default is `README.md`, so they
+    pin it explicitly. The env var covers the `run_cli` subprocesses; `use()`
+    covers the in-process calls. `test_naming.py` covers the default and the
+    precedence order."""
+    from readme_sync import naming
+    monkeypatch.setenv(naming.ENV_DOC_NAME, "AGENTS.md")
+    previous = naming.use(naming.DocNaming("AGENTS.md"))
+    yield
+    naming.use(previous)
+
+
 @pytest.fixture
 def mini_tree(tmp_path: Path) -> Path:
     """A small real tree: pkg/ with code, pkg/sub/ with code, .venv/ to be ignored."""

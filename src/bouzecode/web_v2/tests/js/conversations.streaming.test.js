@@ -183,7 +183,7 @@ describe("conversations.js streaming — .streaming-block in /conversations view
     openTabs.delete(key);
   });
 
-  it("phase=thinking → bloc repliable .streaming-thinking + label 'Réflexion en cours…'", async () => {
+  it("phase=thinking → bloc repliable .streaming-thinking + label 'Thinking…'", async () => {
     await loadModule();
     const { pollPartial, openTabs } = window.__convTest;
     const key = "agent/deadbeef";
@@ -206,7 +206,7 @@ describe("conversations.js streaming — .streaming-block in /conversations view
     const stk = entry.conv.querySelector(".streaming-thinking");
     expect(stk).toBeTruthy();
     expect(stk.classList.contains("collapsed")).toBe(false);
-    expect(stk.querySelector(".st-label").textContent).toBe("Réflexion en cours…");
+    expect(stk.querySelector(".st-label").textContent).toBe("Thinking…");
     expect(stk.querySelector(".st-body").textContent).toBe("Je réfléchis à la solution");
     // pas de bloc texte pendant le thinking pur
     expect(entry.conv.querySelector(".streaming-block")).toBeFalsy();
@@ -215,7 +215,7 @@ describe("conversations.js streaming — .streaming-block in /conversations view
     openTabs.delete(key);
   });
 
-  it("bascule phase thinking→text → .streaming-thinking se referme (collapsed) + label 'Réflexion'", async () => {
+  it("bascule phase thinking→text → .streaming-thinking se referme (collapsed) + label 'Thinking'", async () => {
     await loadModule();
     const { pollPartial, openTabs } = window.__convTest;
     const key = "agent/deadbeef";
@@ -241,7 +241,7 @@ describe("conversations.js streaming — .streaming-block in /conversations view
     const stk = entry.conv.querySelector(".streaming-thinking");
     expect(stk).toBeTruthy();
     expect(stk.classList.contains("collapsed")).toBe(true);
-    expect(stk.querySelector(".st-label").textContent).toBe("Réflexion");
+    expect(stk.querySelector(".st-label").textContent).toBe("Thinking");
     // le texte assistant s'affiche maintenant
     expect(entry.conv.querySelector(".streaming-block").textContent).toBe("La réponse est 42");
 
@@ -249,7 +249,7 @@ describe("conversations.js streaming — .streaming-block in /conversations view
     openTabs.delete(key);
   });
 
-  it("texte contenant <tool_use name=X> → header .streaming-tool 'Outil en cours : X'", async () => {
+  it("texte contenant <tool_use name=X> → header .streaming-tool 'Tool running: X'", async () => {
     await loadModule();
     const { pollPartial, openTabs } = window.__convTest;
     const key = "agent/deadbeef";
@@ -271,7 +271,7 @@ describe("conversations.js streaming — .streaming-block in /conversations view
 
     const stool = entry.conv.querySelector(".streaming-tool");
     expect(stool).toBeTruthy();
-    expect(stool.querySelector(".st-tool-label").textContent).toBe("Outil en cours : Edit");
+    expect(stool.querySelector(".st-tool-label").textContent).toBe("Tool running: Edit");
 
     clearTimeout(entry.partialPoller);
     openTabs.delete(key);

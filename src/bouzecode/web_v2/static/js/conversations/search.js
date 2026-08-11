@@ -2,6 +2,7 @@
 // de la sidebar. Portée « Ouverts » ou « Tous » ; un résultat ouvre l'onglet ciblé.
 
 import { node } from "./dom.js";
+import { t } from "../i18n/index.js";
 import { openTab } from "./panel/tabs.js";
 
 // Bandeau des agents interrompus par le dernier arrêt serveur (snapshot figé au boot,
@@ -27,11 +28,16 @@ export function wireSearch() {
   input.type = "search";
   input.id = "conv-search-input";
   input.className = "conv-search-input";
-  input.placeholder = "Rechercher un mot-clé…";
+  // Le bandeau est monté UNE fois et ne repasse jamais par un render : on laisse les
+  // clés dans le DOM pour qu'`applyDom` retraduise ses libellés à la bascule de langue.
+  input.placeholder = t("sidebar.search_placeholder");
+  input.setAttribute("data-i18n-placeholder", "sidebar.search_placeholder");
   box.appendChild(input);
   const toggles = node(box, "div", "conv-search-scope");
-  for (const [scope, label] of [["open", "Ouverts"], ["all", "Tous"]]) {
-    const btn = node(toggles, "button", "conv-search-toggle", label);
+  const SCOPES = [["open", "sidebar.search_scope_open"], ["all", "sidebar.search_scope_all"]];
+  for (const [scope, key] of SCOPES) {
+    const btn = node(toggles, "button", "conv-search-toggle", t(key));
+    btn.setAttribute("data-i18n", key);
     btn.type = "button";
     btn.dataset.scope = scope;
     if (scope === searchScope) btn.classList.add("active");
@@ -65,12 +71,12 @@ async function runSearch(input) {
     if (!resp.ok) throw new Error("http");
     data = await resp.json();
   } catch (_) {
-    node(results, "p", "muted", "Erreur lors de la recherche.");
+    node(results, "p", "muted", t("sidebar.search_error"));
     return;
   }
   const rows = (data && data.results) || [];
   if (!rows.length) {
-    node(results, "p", "muted", "Aucun résultat.");
+    node(results, "p", "muted", t("sidebar.search_empty"));
     return;
   }
   for (const r of rows) {
@@ -79,7 +85,7 @@ async function runSearch(input) {
     for (const m of r.matches || []) {
       const line = node(item, "div", "conv-search-match");
       node(line, "span", "conv-search-role",
-        m.role === "user" ? "vous" : "réponse");
+        t(m.role === "user" ? "sidebar.search_role_user" : "sidebar.search_role_agent"));
       renderSnippet(node(line, "span", "conv-search-snippet"), m.snippet, words);
     }
     item.addEventListener("click", () => {

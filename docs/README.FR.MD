@@ -8,6 +8,8 @@ L'angle est strict : **réduire le nombre de jetons consommés sans dégrader la
 
 Bouzécode est un assistant de codage IA en Python, rapide et hackable. Deux visages sur le même moteur : un agent en terminal (REPL), et une interface web qui pilote une flotte d'agents en parallèle.
 
+**Note de langue.** Le moteur, les outils et la documentation de référence sont en anglais, et les deux interfaces le sont par défaut. L'interface web est bilingue : un sélecteur de langue vit dans la barre du haut, à droite des liens *Conversations* / *Agents* / *API* ; il bascule tous les libellés entre anglais et français sans recharger la page, et le navigateur retient le choix. Le terminal écrit en anglais, sauf si `BOUZECODE_LANG` commence par `fr`.
+
 ---
 
 ## 🎯 Présentation interactive
@@ -25,7 +27,7 @@ Un parcours visuel de la façon dont Bouzécode divise par ~10 la consommation d
 - **Python** ≥ 3.11 (3.13 est la version que les lanceurs épinglent à la création du venv).
 - **[uv](https://astral.sh/uv)** — venv et résolution de dépendances. Installation : `curl -LsSf https://astral.sh/uv/install.sh | sh` (macOS/Linux) ou `powershell -c "irm https://astral.sh/uv/install.ps1 | iex"` (Windows).
 - **ripgrep (`rg`)** — vivement recommandé : l'outil `Grep` l'appelle directement. `bouzecode.ps1` l'installe via `winget` s'il manque, et la CLI elle-même en télécharge une copie dans `~/.local/bin` sous Windows quand `rg` est absent du `PATH`. Ailleurs : `brew install ripgrep` ou `apt install ripgrep`.
-- Une **clé d'API** dans `ANTHROPIC_API_KEY` (`ANTHROPIC_AUTH_TOKEN` est également accepté). Les autres fournisseurs ont leurs propres variables — voir [Configuration](#configuration).
+- Une **clé d'API** pour le fournisseur qui sert votre modèle. Le modèle par défaut est un modèle Anthropic, donc `ANTHROPIC_API_KEY` (ou `ANTHROPIC_AUTH_TOKEN`) est la réponse habituelle ; OpenRouter et une passerelle compatible OpenAI à vous sont les deux autres emplacements — voir [Choisir un fournisseur](#choisir-un-fournisseur).
 
 ### Windows (lanceurs autonomes)
 
@@ -39,9 +41,11 @@ $env:ANTHROPIC_API_KEY = "sk-ant-..."   # ou dans un fichier .env à la racine d
 .\bouzegui.ps1 5099          # interface web sur un autre port
 ```
 
-Les deux lanceurs sont autonomes : ils localisent `uv`, créent le venv, installent le projet en editable, chargent le `.env` et démarrent. `bouzecode.ps1` utilise `.venv/` et vérifie en plus `ripgrep` ; `bouzegui.ps1` utilise un `.venv-ui/` distinct avec l'extra `[web]`. Chacun ne resynchronise les dépendances que si `pyproject.toml` est plus récent que sa marque d'installation.
+Les deux lanceurs sont autonomes : ils chargent le `.env`, localisent `uv`, créent le venv, installent le projet en editable et démarrent. `bouzecode.ps1` utilise `.venv/` et vérifie en plus `ripgrep` ; `bouzegui.ps1` utilise un `.venv-ui/` distinct avec l'extra `[web]`. Chacun ne resynchronise les dépendances que si `pyproject.toml` est plus récent que sa marque d'installation.
 
-Deux autres scripts vivent à la racine : `bouzecode_publish.ps1` (construit et publie le paquet) et `bouzecode_self_update.ps1` (met à jour la copie de travail sur place ; `bouzecode_self_update_detached.ps1` est la variante qui survit au processus qu'elle met à jour).
+L'ordre de ces étapes compte : le `.env` est lu **avant** toute installation, si bien que sur un réseau où l'index de paquets n'est joignable qu'à travers un proxy, y écrire `BOUZECODE_PROXY_URL` / `_USER` / `_PASSWORD` — ou les identifiants de votre index — suffit à amorcer depuis un clone nu.
+
+Trois autres scripts vivent à la racine : `bouzecode_publish.ps1` (construit et publie le paquet), `bouzecode_self_update.ps1` (met à jour la copie de travail sur place) et `bouzecode_self_update_detached.ps1` (la variante qui survit au processus qu'elle met à jour). `load_dotenv.ps1` est le lecteur de `.env` qu'ils sourcent tous.
 
 ### macOS / Linux
 
@@ -63,25 +67,55 @@ Le `.env` de la racine est chargé par les lanceurs PowerShell et par la suite d
 
 ### Ce qui est installé
 
-`pyproject.toml` déclare deux scripts — `bouzecode` (le REPL) et `bouzegui` (l'interface web) — et tire anthropic, openai, httpx, requests, rich, markdown, flask, psutil, pyyaml, prompt-toolkit et tree-sitter (avec les grammaires JavaScript et TypeScript). C'est toute l'installation : pas d'étape de compilation, aucun service externe à câbler au-delà de la clé d'API.
+`pyproject.toml` déclare deux scripts — `bouzecode` (le REPL) et `bouzegui` (l'interface web) — et tire anthropic, openai, httpx, requests, rich, markdown, flask, psutil, pyyaml, prompt-toolkit, tqdm et tree-sitter (avec les grammaires JavaScript et TypeScript). C'est toute l'installation : pas d'étape de compilation, aucun service externe à câbler au-delà de la clé d'API.
 
 Extras optionnels, chacun installable par `uv pip install -e ".[<extra>]"` :
 
 | Extra | Apporte | Pour |
 |---|---|---|
 | `web` | flask, psutil, pyyaml | l'interface web |
-| `test` | pytest, pytest-xdist, pytest-playwright | la suite de tests |
+| `test` | pytest, pytest-xdist, pytest-playwright, pytest-timeout | la suite de tests |
 | `voice` | sounddevice | la dictée `/voice` |
 | `vision` | Pillow | le traitement d'images |
-| `telegram` | python-telegram-bot | la passerelle Telegram |
+
+La passerelle Telegram n'a pas d'extra à elle : elle parle à l'API du bot via la bibliothèque standard et n'importe aucun client tiers.
+
+### Choisir un fournisseur
+
+Le modèle décide du fournisseur, et le fournisseur décide de la variable qui doit porter une clé. Le modèle par défaut est celui d'Anthropic, donc une installation nue attend `ANTHROPIC_API_KEY`. Avec une clé pour autre chose, il suffit de nommer un modèle que cet autre chose sert. Trois emplacements :
+
+| Vous avez | À poser | Puis lancer avec |
+|---|---|---|
+| une clé Anthropic | `ANTHROPIC_API_KEY` (ou `ANTHROPIC_AUTH_TOKEN`) | rien à changer — `opus`, `sonnet`, `haiku`, n'importe quel `claude-*` |
+| une clé OpenRouter | `OPENROUTER_KEY` (ou `OPENROUTER_API_KEY`) | `--model deepseek-v4-flash` (aussi `deepseek-v4-pro`, `kimi-k2.7-code`, `kimi-k3`, `glm-5.2`) |
+| un point d'accès compatible OpenAI | `BOUZECODE_GATEWAY_API_KEY`, plus `BOUZECODE_GATEWAY_BASE_URL` et `BOUZECODE_GATEWAY_MODELS` | `--model <un des noms que vous avez listés>` |
+
+```bash
+export OPENROUTER_KEY=sk-or-...
+.venv/bin/bouzecode --model deepseek-v4-flash        # pour ce run seulement
+```
+
+```bash
+export BOUZECODE_GATEWAY_BASE_URL=https://gateway.example.com/v1
+export BOUZECODE_GATEWAY_API_KEY=...
+export BOUZECODE_GATEWAY_MODELS=gpt-5,gemini-3-pro
+.venv/bin/bouzecode --model gpt-5
+```
+
+Pour que le choix tienne, posez-le une fois depuis le REPL : `/model deepseek-v4-flash` l'écrit dans `~/.bouzecode/config.json`, tout comme `/config model=deepseek-v4-flash`, et toutes les sessions suivantes démarrent dessus.
+
+Si le fournisseur du modèle choisi n'a pas de clé, le run s'arrête avant le premier appel : il affiche quels fournisseurs *ont* une clé ici, un `--model` prêt à coller pour chacun, et la variable à poser pour celui que vous avez demandé. C'est une erreur de configuration : sortie en code 2, sans trace d'appels.
 
 ### Vérifier
 
+```powershell
+.venv\Scripts\bouzecode.exe --version
+```
 ```bash
-.venv/bin/bouzecode --version    # affiche la version et les versions disponibles
+.venv/bin/bouzecode --version
 ```
 
-Puis, dans le REPL, `/doctor` — il diagnostique l'installation (interpréteur, clé, `rg`, registre d'outils) et nomme ce qui manque.
+Puis, dans le REPL, `/doctor` — il diagnostique l'installation (interpréteur, git, clé et joignabilité du fournisseur, `rg`, registre d'outils, modules optionnels), nomme ce qui manque et se termine sur une ligne `N passed, N warnings, N failures`.
 
 ---
 
@@ -117,8 +151,13 @@ Options utiles :
 | `--enable-chrome-devtools` | Attache les outils navigateur (désactivés par défaut : ~5k jetons de schémas) |
 | `--session-file` / `--resume-from` | Persiste et restaure l'état de session |
 | `--plan-output CHEMIN` | Écrit la réponse finale dans un fichier markdown |
-| `--monitor` | Affiche une ligne de supervision par tour |
-| `--version [TAG]` | Affiche la version et les versions publiées ; avec un tag, bascule la copie de travail dessus |
+| `--version [TAG]` | Affiche la version ; avec un tag, bascule la copie de travail dessus |
+
+`-p` est fait pour le tube et pour l'intégration continue : il prend le prompt en arguments positionnels, imprime le run et sort. L'animation de chargement ne se peint que sur un vrai terminal, donc une sortie redirigée ne porte que la réponse. Une erreur de configuration — un modèle dont le fournisseur n'a pas de clé — sort en code 2 avec un paragraphe court, sans trace d'appels : c'est ce qui en fait une étape de build utilisable.
+
+```bash
+.venv/bin/bouzecode -p "résume ce que fait src/bouzecode/ui/" > reponse.md
+```
 
 ### Commandes intégrées
 
@@ -174,19 +213,23 @@ python -m bouzecode.web_v2 --port 5056  # la même chose, en module
 
 Le serveur écoute sur `127.0.0.1` et refuse de démarrer si le port est déjà servi. Le principe : **on ne parse jamais le stdout** — toutes les vues sont rendues côté serveur depuis les JSON structurés (session, IPC des agents, dumps de payload).
 
+Toutes les pages fonctionnent hors ligne. Aucune police, feuille de style ou script n'est chargé depuis un hôte tiers : le CSS est local, l'éditeur Monaco est vendorisé dans l'arbre, et la typographie est celle du système. Un outil de développement qui a besoin d'Internet pour afficher un diff est un outil qui s'arrête au mauvais moment.
+
+L'interface parle anglais et français. Le sélecteur est dans la barre du haut, après les liens *Conversations* / *Agents* / *API* ; la bascule repeint les libellés sur place, sans rechargement et sans rien perdre de l'écran, et le navigateur retient le choix pour la visite suivante. Les libellés cités ci-dessous sont ceux de l'anglais, la langue par défaut ; leur équivalent français est entre parenthèses.
+
 ### La boîte de réception
 
-`/` redirige vers `/conversations`, la page d'accueil. À gauche, la barre latérale **Conversations** liste tout ce qui tourne ou a tourné, en trois sections — **⚠ Nécessite une action**, **● En cours**, **Terminés** — si bien que la première chose que vous voyez en arrivant, c'est ce qui vous attend. Les sous-agents sont imbriqués sous l'agent qui les a dispatchés.
+`/` redirige vers `/conversations`, la page d'accueil. À gauche, la barre latérale **Conversations** liste tout ce qui tourne ou a tourné, en trois sections — **⚠ Needs attention** (*Nécessite une action*), **● Running** (*En cours*), **Done** (*Terminés*) — si bien que la première chose que vous voyez en arrivant, c'est ce qui vous attend. Les sous-agents sont imbriqués sous l'agent qui les a dispatchés, et un champ de recherche au-dessus de la liste interroge en plein texte les conversations **Open** (*Ouvertes*) ou **All** (*Toutes*).
 
-En haut du panneau de droite, la barre de lancement : une zone de texte — *« Nouvelle conversation — décris ce qu'il faut faire »* — et une flèche d'envoi. Un prompt, un envoi, un agent démarre. Le titre du ticket est la première ligne du prompt.
+En haut du panneau de droite, la barre de lancement : une zone de texte — *« New conversation — describe what needs doing (Enter to send)… »* — et une flèche **Send**. Un prompt, un envoi, un agent démarre. Le titre du ticket est la première ligne du prompt.
 
 ### Le panneau Options
 
 Repliable sous la zone de prompt, **Options** porte les trois réglages du lancement :
 
-- **Projet** — le dépôt sur lequel l'agent travaillera. Rien n'est deviné : sans projet explicite, le serveur répond par la liste des projets enregistrés et le front la présente comme un choix à faire. Le même panneau enregistre un nouveau projet à partir d'un *nom*, d'un *chemin absolu* et d'une *description* optionnelle, et liste les dossiers que vous avez écartés.
-- **Type d'agent** — la typologie de l'agent (voir ci-dessous).
-- **Environnement** — le mode d'isolation : `shared`, `worktree` ou `worktree+venv` (voir [Modes d'exécution](#modes-dexécution)).
+- **Project** (*Projet*) — le dépôt sur lequel l'agent travaillera. Rien n'est deviné : tant que vous n'en avez pas choisi un, la valeur affiche *pick one*, et un lancement sans projet revient en **Project required** avec les projets enregistrés proposés en boutons. Le même panneau ouvre un projet à lui, à partir d'un *nom*, d'un *chemin absolu* et d'une *description* optionnelle ; le bouton **Add** le poste, et un refus du serveur (dossier introuvable, projet déjà ouvert) s'affiche tel quel sous les champs.
+- **Agent type** (*Type d'agent*) — la typologie de l'agent (voir ci-dessous).
+- **Environment** (*Environnement*) — le mode d'isolation : `shared`, `worktree` ou `worktree+venv` (voir [Modes d'exécution](#modes-dexécution)), chacun avec une ligne décrivant ce qu'il provisionne et quand le choisir.
 
 ### Les typologies
 
@@ -206,24 +249,24 @@ Comme un manager ne peut pas écrire, il est exclu du garde-fou anti-collision :
 
 ### Suivre une conversation
 
-Cliquez une conversation pour l'ouvrir en onglet dans le panneau de droite. Chaque onglet porte un sélecteur **Conversation / Recap** — le côté récap s'active à la fin de la session — plus une zone de saisie en bas pour répondre à une question ou relancer l'agent, et une commande de relance dans l'en-tête.
+Cliquez une conversation pour l'ouvrir en onglet dans le panneau de droite. Chaque onglet porte un sélecteur **Conversation / Recap** — le côté récap s'active à la fin de la session, et affiche d'ici là *available once the session ends* — plus une zone de saisie en bas (*« Message / follow-up… (Enter to send, Ctrl+C to interrupt) »*) pour répondre à une question ou relancer l'agent, et une commande **Relaunch** dans l'en-tête. Un agent mort sans clôture prouvée est marqué **crashed** et propose **Resume** ; **Kill agent** arrête un agent vivant.
 
 `/sessions` liste toutes les sessions enregistrées, et `/sessions/<clé>` en ouvre une en grand, avec quatre onglets :
 
 - **Conversation** — le fil des tours : la réflexion du modèle, puis chaque appel d'outil en bloc dépliable. Le texte arrive au fil de l'eau pendant que l'agent produit encore ;
-- **Fichiers modifiés** — les diffs produits par le run, rendus côté serveur, avec un éditeur Monaco vendorisé pour une lecture côte à côte (aucun CDN ; un repli `difflib` couvre l'absence de la copie vendorisée) ;
-- **Tours (analyse)** — une ligne par appel LLM : horodatage, Δ durée, jetons in/out, cache lu et cache écrit, % de cache hit, outils appelés, coût. Un clic ouvre le détail : le payload exact envoyé pour cet appel, item par item (système / utilisateur / assistant / résultat d'outil), chacun étiqueté **cached / new-cache / fresh** avec jetons estimés et aperçu lisible, à côté de la réponse du modèle rendue proprement. C'est ainsi qu'on diagnostique une perte de cache sans ouvrir un JSON ;
-- **Coûts** — l'agrégat de coût du run.
+- **Changed files** (*Fichiers modifiés*) — les diffs produits par le run, rendus côté serveur, avec un éditeur Monaco vendorisé pour une lecture côte à côte (un repli `difflib` couvre l'absence de la copie vendorisée) ;
+- **Turns (analysis)** (*Tours (analyse)*) — une ligne par appel LLM : horodatage, Δ durée, jetons in/out, cache lu et cache écrit, % de cache hit, outils appelés, coût. Un clic ouvre le détail : le payload exact envoyé pour cet appel, item par item (système / utilisateur / assistant / résultat d'outil), chacun étiqueté **cached / new-cache / fresh** avec jetons estimés et aperçu lisible, à côté de la réponse du modèle rendue proprement. C'est ainsi qu'on diagnostique une perte de cache sans ouvrir un JSON ;
+- **Costs** (*Coûts*) — l'agrégat de coût du run.
 
 Rien n'est jamais effacé. Archiver un ticket ou une conversation le retire du board et le conserve dans son magasin, récupérable.
 
 ### L'éditeur de profils
 
-`/agent-builder` compose ou édite un profil : on choisit ses outils, ses skills et ses hooks dans le catalogue, on écrit un complément de prompt, et on lit le **system prompt complet calculé** avant d'enregistrer — on sait ce que l'agent recevra avant de le lancer, pas après. La même page installe des plugins, parcourt le catalogue d'agents partagés (installés vs disponibles) et édite les fichiers `.md` des skills sur le disque.
+`/agent-builder` compose ou édite un profil en trois étapes — **Identity**, **Capabilities**, **Prompt** : on le nomme ou on en charge un existant comme base, on choisit ses outils, ses skills et ses hooks dans le catalogue, on écrit un complément de prompt, et on déplie **Computed full prompt** pour lire exactement ce que l'agent recevra avant d'enregistrer, pas après. Le résultat est un profil global sous `~/.bouzecode/profiles`, activé dans une session par `/agent <nom>`. La même page installe des plugins, parcourt le catalogue d'agents partagés (**Installed** vs **Available**) et édite les fichiers `.md` des skills sur le disque.
 
 ### Pour les agents et les scripts
 
-`GET /api/schema` décrit chaque route `/api/` avec ses paramètres et la forme de sa réponse. Il est **dérivé de la table des routes Flask**, jamais saisi à la main : il ne peut donc pas décrire une route disparue ni ignorer une route ajoutée. Les endpoints de lecture renvoient du JSON structuré ; `GET /api/sessions/<clé>/blocks?plain=1` renvoie les messages en texte brut pour analyse par un agent. `GET /api/search` couvre sessions et tickets en une requête.
+`GET /api/schema` décrit chaque route `/api/` avec ses paramètres et la forme de sa réponse. Il est **dérivé de la table des routes Flask**, jamais saisi à la main : il ne peut donc pas décrire une route disparue ni ignorer une route ajoutée. Les endpoints de lecture renvoient du JSON structuré ; `GET /api/sessions/<clé>/blocks?plain=1` renvoie les messages en texte brut pour analyse par un agent. `GET /api/search?q=<mots>&scope=open|all` fouille les conversations elles-mêmes — les messages de l'utilisateur et le rapport `FinalAnswer` du modèle, à l'exclusion du thinking et des résultats d'outils bruts — et rend chaque occurrence avec son ticket et un extrait de contexte.
 
 ### Périmètre de sécurité
 
@@ -299,15 +342,7 @@ Le routage est une fonction pure de la chaîne du modèle (`backend/agent/provid
 | `openrouter` | `OPENROUTER_KEY` (ou `OPENROUTER_API_KEY`) | `https://openrouter.ai/api/v1` | `deepseek-v4-flash`, `deepseek-v4-pro`, `kimi-k2.7-code`, `kimi-k3`, `glm-5.2` |
 | `gateway` | `BOUZECODE_GATEWAY_API_KEY` | `BOUZECODE_GATEWAY_BASE_URL` | ce que vous listez dans `BOUZECODE_GATEWAY_MODELS` |
 
-L'emplacement `gateway` est un **endpoint compatible OpenAI qui vous appartient** — LiteLLM, vLLM, un proxy maison. Rien n'y est écrit en dur : endpoint, clé et liste de modèles viennent tous de l'environnement, donc le fournisseur reste inerte tant que vous ne le pointez nulle part. Par exemple :
-
-```bash
-export BOUZECODE_GATEWAY_BASE_URL=https://gateway.example.com/v1
-export BOUZECODE_GATEWAY_API_KEY=...
-export BOUZECODE_GATEWAY_MODELS=gpt-5,gemini-3-pro
-```
-
-Les noms de modèles sont transmis tels quels à la passerelle : ils doivent donc être exactement ceux qu'elle attend. Les tarifs entrée/sortie par modèle et les surcharges de tarif de lecture de cache vivent dans le même fichier et alimentent les colonnes de coût de l'interface web.
+L'emplacement `gateway` est un **endpoint compatible OpenAI qui vous appartient** — LiteLLM, vLLM, un proxy maison. Rien n'y est écrit en dur : endpoint, clé et liste de modèles viennent tous de l'environnement (voir [Choisir un fournisseur](#choisir-un-fournisseur) pour les trois variables), donc le fournisseur reste inerte tant que vous ne le pointez nulle part. Les noms de modèles sont transmis tels quels à la passerelle : ils doivent donc être exactement ceux qu'elle attend. Les tarifs entrée/sortie par modèle et les surcharges de tarif de lecture de cache vivent dans le même fichier et alimentent les colonnes de coût de l'interface web.
 
 **Protocole d'appel d'outil.** Les fournisseurs compatibles OpenAI utilisent le function calling natif. Les endpoints Anthropic utilisent le protocole XML, sauf si vous demandez le natif avec `BOUZECODE_ANTHROPIC_NATIVE_TOOLS=1` (`0` reforce le XML) ; un profil ou une config qui pose `xml_tools` l'emporte sur les deux.
 
@@ -319,6 +354,8 @@ Les noms de modèles sont transmis tels quels à la passerelle : ils doivent don
 | `ANTHROPIC_BASE_URL` | pointe le transport Anthropic vers une passerelle compatible |
 | `OPENROUTER_KEY` / `OPENROUTER_API_KEY` | identifiants OpenRouter |
 | `BOUZECODE_GATEWAY_BASE_URL` / `_API_KEY` / `_MODELS` | l'emplacement passerelle compatible OpenAI |
+| `EXA_KEY` | clé de l'API de recherche Exa, que `WebSearch` privilégie ; sans elle l'outil retombe sur un moissonnage de DuckDuckGo |
+| `BOUZECODE_LANG` | langue du terminal : toute valeur commençant par `fr` écrit en français, tout le reste en anglais |
 | `BOUZECODE_NATIVE_TOOL_ENDPOINTS` | endpoints qui doivent utiliser le function calling natif |
 | `BOUZECODE_ANTHROPIC_NATIVE_TOOLS` | `1` outils natifs, `0` protocole XML |
 | `BOUZECODE_ENABLE_CHROME_DEVTOOLS` | `1` charge les outils navigateur (équivalent de `--enable-chrome-devtools`) |
@@ -348,16 +385,15 @@ Une skill est un gabarit de prompt réutilisable : un fichier markdown à frontm
 name: commit
 description: Indexe, rédige un message de commit conventionnel, et commite.
 triggers: ["/commit", "commite mes changements"]
-tools: [Bash, Read]
-scope: ""            # "" = global ; un chemin restreint la skill à ce sous-arbre
-updated: 2026-01-15  # dernière vérification du contenu face au code
-covers: [src/git/]   # le code que cette skill décrit — rend la dérive mesurable
+tools: [Bash, Read]      # `allowed-tools` est accepté au même sens
+scope: ""                # "" = global ; un chemin restreint la skill à ce sous-arbre
+context: inline          # `inline` l'exécute dans le tour courant, `fork` dans un sous-agent
 ---
 
 Lis le diff indexé, puis …
 ```
 
-Les skills sont découvertes dans les `.bouzecode/skills/` et `.claude/skills/` du répertoire courant **et de ses ancêtres** (le plus proche l'emporte, ce qui fait fonctionner un monorepo), puis dans `~/.bouzecode/skills/`, puis dans tout `--extra-dir`. Une skill s'exécute `inline` par défaut, ou en `fork` dans un sous-agent.
+Seul `name` est obligatoire ; sans `triggers`, la skill répond à `/<name>`. Les skills sont découvertes dans les `.bouzecode/skills/` et `.claude/skills/` du répertoire courant **et de ses ancêtres** (le plus proche l'emporte, ce qui fait fonctionner un monorepo), puis dans `~/.bouzecode/skills/` et `~/.claude/skills/`, puis dans tout `--extra-dir`.
 
 ### Profils d'agent
 
@@ -505,13 +541,15 @@ bouzecode/
 │   │       ├── services/             # logique métier, sans Flask, testable seule
 │   │       ├── runtime/              # cycle de vie des agents : runner, IPC, warm pool, contexte
 │   │       ├── templates/            # conversations, session, agent-builder
-│   │       └── static/               # CSS thème sombre, modules ES, Monaco vendorisé (aucun CDN)
+│   │       └── static/               # CSS thème sombre, modules ES, dictionnaires i18n,
+│   │                                 #   Monaco vendorisé (aucun CDN)
 │   └── system_prompts/               # les fragments de prompt, livrés dans le wheel
 ├── memory/  mcp/  voice/  video/  plugin/  html_renderer/  …   # voir Sous-systèmes
 ├── readme_sync/                      # maintient les cartes README des dossiers en phase avec le code
 ├── docs/                             # cette documentation et les pages du projet
 ├── tests/                            # la suite de tests
-├── bouzecode.ps1  bouzegui.ps1       # lanceurs Windows
+├── bouzecode.ps1  bouzegui.ps1       # lanceurs Windows (ASCII pur, .env avant l'install)
+├── load_dotenv.ps1                   # le lecteur de .env qu'ils partagent
 └── bouzecode_publish.ps1  bouzecode_self_update.ps1
 ```
 
@@ -549,17 +587,29 @@ Actifs par défaut : les douze outils de cadre (`Methodology`, `Snippet`, `Final
 La suite tourne contre un modèle scripté. Un garde hermétique dans `tests/conftest.py` **bloque tout appel LLM réel** tant qu'un test ne l'a pas explicitement demandé : une clé manquante ne peut donc jamais se transformer en facture surprise.
 
 ```powershell
-.venv\Scripts\python.exe -m pytest -q               # toute la suite
+uv pip install -e ".[test]"
+.venv\Scripts\python.exe -m pytest -q                        # toute la suite
+.venv\Scripts\python.exe -m pytest -q -n auto                # en parallèle, via pytest-xdist
+.venv\Scripts\python.exe -m pytest -q -m backend             # le moteur seul
+.venv\Scripts\python.exe -m pytest -q tests\web_v2           # la couche service du web
 ```
 ```bash
 uv pip install -e ".[test]"
 .venv/bin/python -m pytest -q
-.venv/bin/python -m pytest -q -n auto               # en parallèle, via pytest-xdist
-.venv/bin/python -m pytest -q -m backend            # le moteur seul
-.venv/bin/python -m pytest -q tests/web_v2          # la couche service du web
+.venv/bin/python -m pytest -q -n auto
+.venv/bin/python -m pytest -q -m backend
+.venv/bin/python -m pytest -q tests/web_v2
 ```
 
-`testpaths` vaut `tests/`. Chaque test est marqué automatiquement d'après son dossier de tête : `tests/backend/` → `backend`, `tests/ui/` → `ui`, `tests/frontend/` → `web`. Un quatrième marqueur, `slow`, étiquette les fichiers-cibles que visent les tests du lanceur de tests. Le paquet `web_v2` porte aussi ses propres tests sous `src/bouzecode/web_v2/tests/`, qu'on lance en pointant pytest sur ce chemin.
+`testpaths` vaut `tests/`. Chaque test est marqué automatiquement d'après le dossier où il vit : `tests/backend/` → `backend`, `tests/ui/` → `ui`, `tests/web_v2/` → `web`. Un quatrième marqueur, `slow`, étiquette les fichiers-cibles que visent les tests du lanceur de tests. Le paquet `web_v2` porte aussi ses propres tests sous `src/bouzecode/web_v2/tests/` — ils prennent le marqueur `web` eux aussi et se lancent en pointant pytest sur ce chemin, puisque `testpaths` n'entre pas dans `src/`.
+
+Le JavaScript de l'interface a sa propre suite, sous `src/bouzecode/web_v2/tests/js/` : les vrais modules de `static/js/` chargés dans un DOM simulé (happy-dom) et pilotés par clics et événements, sans navigateur.
+
+```bash
+cd src/bouzecode/web_v2
+npm install
+npm test
+```
 
 `tests/backend/TEST_METHODOLOGY.md` énonce la politique. En résumé : **un test doit se comprendre sans ouvrir le code qu'il teste** — on le lit comme une histoire, *l'utilisateur demande X, l'agent fait Y, on observe Z*. La suite est donc dominée par des tests de conversation, qui pilotent l'agent comme le ferait un humain, plutôt que par des tests unitaires de fonctions internes. Quatre niveaux, toujours prendre le plus haut qui suffit :
 
@@ -568,13 +618,15 @@ uv pip install -e ".[test]"
 3. **Client de test Flask** — le défaut pour `web_v2`. Comportement HTTP, JSON, codes de retour, effets de bord observables côté serveur, sans navigateur.
 4. **Playwright** — dernier recours, strictement réservé à ce que seul un vrai DOM prouve : rendu en streaming, interaction réelle de l'utilisateur, ordre de repaint.
 
+La suite JavaScript se glisse entre ces deux derniers niveaux : elle fait tourner les vrais scripts de l'interface avec de vrais événements, ce qui est exactement ce qui maintient le niveau Playwright aussi petit que la politique l'exige.
+
 ---
 
 ## Contribuer
 
 Deux documents à lire avant d'écrire quoi que ce soit :
 
-- **les cartes `README.md` de dossier** — chaque dossier de code porte la sienne, avec son objet, ses sous-dossiers et ses symboles. C'est le chemin le plus court vers une fonction sans grep. `python -m readme_sync --check` signale toute carte qui a divergé du code ; `--list-stale` les nomme, `--regen` en reconstruit une.
+- **les cartes `README.md` de dossier** — chaque dossier de code porte la sienne, avec son objet, ses sous-dossiers et ses symboles. C'est le chemin le plus court vers une fonction sans grep. `python -m readme_sync --check` parcourt l'arbre et sort en 0 quand chaque carte colle à son code ; `--list-stale` nomme celles qui ont divergé, `--regen` en reconstruit une. Le nom du fichier est un réglage et non une constante — `--doc-name`, la variable `README_SYNC_DOC_NAME`, ou `[tool.readme_sync] doc_name` dans `pyproject.toml`, du plus spécifique au moins — si bien que le même outil entretient un arbre d'`AGENTS.md` ailleurs ; ici c'est `README.md`.
 - **`tests/backend/TEST_METHODOLOGY.md`** — la politique de test en quatre niveaux ci-dessus.
 
 Où changer quoi :
@@ -591,9 +643,9 @@ Où changer quoi :
 | Un agent intégré | `backend/profiles/builtin/*.yaml` |
 | Une page ou un endpoint web | `web_v2/routes/` (HTTP) puis `web_v2/services/` (logique) |
 
-Deux conventions à connaître : le schéma d'API est dérivé de la table des routes plutôt qu'écrit à la main, et l'interface web ne parse jamais le stdout — si vous voulez afficher quelque chose, émettez-le dans le JSON de session structuré.
+Trois conventions à connaître : le schéma d'API est dérivé de la table des routes plutôt qu'écrit à la main ; l'interface web ne parse jamais le stdout — si vous voulez afficher quelque chose, émettez-le dans le JSON de session structuré ; et chaque `.ps1` de la racine est en **ASCII pur**, puisque Windows PowerShell 5.1 relit un script sans BOM en ANSI et abîme tout ce qui dépasse 127. Un test parcourt les lanceurs et échoue au premier octet non-ASCII, ainsi que sur tout lanceur qui installerait des dépendances avant de charger le `.env`.
 
-Pour aller plus loin : [l'architecture](./architecture.md), le [guide du contributeur](./contributor_guide.md), et le [comparatif avec Claude Code](./comparison_claude_code_vs_nano_v3.03_en.md).
+Pour aller plus loin : [l'architecture](./architecture.md) — la forme du code et les règles qui la tiennent — et le [guide du contributeur](./contributor_guide.md), qui associe chaque « je dois changer X » au fichier qui le porte.
 
 ---
 

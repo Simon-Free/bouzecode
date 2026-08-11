@@ -27,6 +27,7 @@ from .rendering import (
 )
 from .spinner import (
     _start_tool_spinner, _stop_tool_spinner, _change_spinner_phrase,
+    animation_enabled,
 )
 from .tool_display import print_tool_start, print_tool_end, _fmt_duration
 
@@ -263,8 +264,10 @@ def repl(config: dict, initial_prompt: str = None):
         except Exception:
             _BOUZECODE_LOGO = ["  bouz\u00e9code"]
 
-        _GALAXY_FRAMES = ["\u25dc", "\u25dd", "\u25de", "\u25df"]
-        try:
+        # Only on a real terminal: in a pipe `\r` does not overwrite, so each
+        # frame would land as its own line of noise (see spinner.animation_enabled).
+        if animation_enabled():
+            _GALAXY_FRAMES = ["\u25dc", "\u25dd", "\u25de", "\u25df"]
             for i in range(8):
                 frame = _GALAXY_FRAMES[i % 4]
                 sys.stdout.write(f"\r  {clr(frame, 'cyan', 'bold')} Initializing bouz\u00e9code...")
@@ -272,8 +275,6 @@ def repl(config: dict, initial_prompt: str = None):
                 time.sleep(0.12)
             sys.stdout.write(f"\r{' ' * 45}\r")
             sys.stdout.flush()
-        except Exception:
-            pass
 
         for line in _BOUZECODE_LOGO:
             print(clr(line, "cyan", "bold"))
@@ -308,7 +309,9 @@ def repl(config: dict, initial_prompt: str = None):
         if config.get("telegram_token") and config.get("telegram_chat_id"):
             active_flags.append("telegram")
         if active_flags:
-            print(info(f"Active: " + " · ".join(clr(f, "green") for f in active_flags)))
+            # `info` already prints and returns None — wrapping it in print()
+            # emitted a bare "None" line right under the banner.
+            info("Active: " + " · ".join(clr(f, "green") for f in active_flags))
         print()
 
     query_lock = threading.RLock()
@@ -381,7 +384,7 @@ def repl(config: dict, initial_prompt: str = None):
                                 stream_thinking(_content)
                                 if _loop_detector.feed(_content):
                                     flush_response()
-                                    print(warn("\n[Loop detected in thinking - cancelling turn]"))
+                                    warn("\n[Loop detected in thinking - cancelling turn]")
                                     gen.close()
                                     _cancel = True
                                     break
@@ -419,7 +422,7 @@ def repl(config: dict, initial_prompt: str = None):
                         stream_thinking(event.text)
                         if _loop_detector.feed(event.text):
                             flush_response()
-                            print(warn("\n[Loop detected in thinking - cancelling turn]"))
+                            warn("\n[Loop detected in thinking - cancelling turn]")
                             gen.close()
                             break
                     elif isinstance(event, ToolCallParsed):

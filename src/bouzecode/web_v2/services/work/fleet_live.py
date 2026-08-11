@@ -35,8 +35,8 @@ from . import activity
 # `verdict`, `suspect_dead` et `interrupted`, qu'il faudrait alors recalculer avec lui sous
 # peine de servir un node qui se contredit.
 VOLATILE_FIELDS = ("phase", "phase_label", "phase_detail", "phase_at",
-                   "activity", "activity_label", "last_event_at", "idle_seconds",
-                   "stale", "turn")
+                   "activity", "activity_live", "activity_label", "last_event_at",
+                   "idle_seconds", "stale", "turn")
 
 
 def overlay(page: dict) -> dict:

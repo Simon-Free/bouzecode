@@ -6,17 +6,21 @@ import { node } from "../dom.js";
 import { openTabs } from "../state.js";
 import { openTab, updateComposer } from "../panel/tabs.js";
 import { renderDiffBlock } from "./diff.js";
+import { t } from "../../i18n/index.js";
 
 // --- Sous-onglet Récap : rendu 100% bête depuis le payload serveur ----------
 // Le serveur (GET /api/sessions/<key>/recap) fait TOUT le tri/regroupement et
 // renvoie {recap, recap_missing, diffs:[{file, patch, is_test, is_new, section}]}.
 // Le front n'ordonne RIEN : il affiche les sections dans l'ordre reçu.
 
-const RECAP_SECTION_TITLES = {
-  changes: "Modifications",
-  other: "Autres modifications",
-  tests: "Tests",
-  all: "Diffs",
+// Section servie par le serveur → CLÉ i18n. La table ne porte que des clés : le titre
+// est composé au rendu, jamais au chargement du module (sinon la bascule de langue
+// laisserait les anciens mots).
+const RECAP_SECTION_KEYS = {
+  changes: "panel.recap_section_changes",
+  other: "panel.recap_section_other",
+  tests: "panel.recap_section_tests",
+  all: "panel.recap_section_all",
 };
 
 // Bascule le segmented control [Conversation | Recap]. Un seul pane visible à la
@@ -50,7 +54,7 @@ export function setView(key, view) {
 export function openRecap(key) {
   const entry = openTabs.get(key);
   if (!entry) return;
-  if (entry.segRecap) { entry.segRecap.disabled = false; entry.segRecap.title = "Voir le récap structuré"; }
+  if (entry.segRecap) { entry.segRecap.disabled = false; entry.segRecap.title = t("panel.recap_enabled_tip"); }
   setView(key, "recap");
 }
 
@@ -62,9 +66,9 @@ function showConversation(key) {
 // seule fois) le CTA « Voir le recap → » à la fin du fil. Idempotent.
 export function maybeEnableRecap(entry, key) {
   if (entry.lastState !== "finished") return;
-  if (entry.segRecap) { entry.segRecap.disabled = false; entry.segRecap.title = "Voir le récap structuré"; }
+  if (entry.segRecap) { entry.segRecap.disabled = false; entry.segRecap.title = t("panel.recap_enabled_tip"); }
   if (entry.conv && !entry.conv.querySelector(".conv-recap-cta")) {
-    const cta = node(entry.conv, "button", "conv-recap-cta", "Voir le recap →");
+    const cta = node(entry.conv, "button", "conv-recap-cta", t("panel.recap_cta"));
     cta.type = "button";
     cta.addEventListener("click", () => openRecap(key));
   }
@@ -74,14 +78,14 @@ async function fetchRecap(entry, key) {
   if (entry.recapLoaded) return;
   entry.recapLoaded = true;
   entry.recapBody.replaceChildren();
-  const loading = node(entry.recapBody, "div", "muted", "Chargement du récap…");
+  const loading = node(entry.recapBody, "div", "muted", t("panel.recap_loading"));
   try {
     const res = await fetch(`/api/sessions/${key}/recap`);
     const payload = await res.json();
     entry.recapBody.replaceChildren();
     renderRecap(entry.recapBody, payload);
   } catch (_) {
-    loading.textContent = "Erreur au chargement du récap.";
+    loading.textContent = t("panel.recap_load_error");
     entry.recapLoaded = false; // permet une nouvelle tentative au prochain clic
   }
 }
@@ -95,7 +99,7 @@ function renderRecap(root, payload) {
   const recap = payload && payload.recap;
   const missing = !payload || payload.recap_missing;
   if (missing) {
-    node(root, "div", "recap-banner", "Récap non généré (session sans récap structuré).");
+    node(root, "div", "recap-banner", t("panel.recap_missing"));
   } else if (recap) {
     renderRecapText(root, recap);
   }
@@ -105,10 +109,10 @@ function renderRecap(root, payload) {
 // Une carte par sous-agent (titre + sections texte + diffs), dans l'ordre de dispatch.
 function renderAggregateRecap(root, children) {
   if (!children.length) {
-    node(root, "div", "recap-banner", "Aucun récap de sous-agent pour ce lot.");
+    node(root, "div", "recap-banner", t("panel.recap_no_children"));
     return;
   }
-  node(root, "div", "recap-agg-intro", `${children.length} sous-agent(s) — récap consolidé du lot :`);
+  node(root, "div", "recap-agg-intro", t("panel.recap_agg_intro", { count: children.length }));
   for (const child of children) {
     const card = node(root, "div", "recap-child");
     const header = node(card, "div", "recap-child-header");
@@ -116,7 +120,7 @@ function renderAggregateRecap(root, children) {
     const title = node(header, "h3", "recap-child-title", child.title || child.agent_id);
     if (child.agent_id) {
       title.classList.add("recap-child-link");
-      title.title = "Ouvrir la conversation de ce sous-agent";
+      title.title = t("panel.recap_open_child");
       title.addEventListener("click", () => {
         openTab(child.agent_id, child.title || child.agent_id, child.title);
         openRecap(child.agent_id);
@@ -133,27 +137,27 @@ function renderAggregateRecap(root, children) {
       renderRecapText(card, child.recap);
       renderRecapDiffs(card, child.diffs || []);
     } else {
-      node(card, "div", "recap-banner", "Récap non disponible — voir la conversation du sous-agent.");
+      node(card, "div", "recap-banner", t("panel.recap_child_missing"));
     }
   }
 }
 
 function renderRecapText(root, recap) {
   const sections = [
-    ["Symptômes", recap.symptoms],
-    ["Cause / plan", recap.explanation],
-    ["Tests", recap.tests],
+    ["panel.recap_symptoms", recap.symptoms],
+    ["panel.recap_explanation", recap.explanation],
+    ["panel.recap_section_tests", recap.tests],
   ];
-  for (const [label, value] of sections) {
+  for (const [labelKey, value] of sections) {
     if (!value) continue;
     const box = node(root, "div", "recap-section");
-    node(box, "h4", "recap-section-title", label);
+    node(box, "h4", "recap-section-title", t(labelKey));
     node(box, "div", "recap-section-body", String(value));
   }
   const changes = Array.isArray(recap.changes) ? recap.changes : [];
   if (changes.length) {
     const box = node(root, "div", "recap-section");
-    node(box, "h4", "recap-section-title", "Modifications");
+    node(box, "h4", "recap-section-title", t("panel.recap_section_changes"));
     const list = node(box, "ol", "recap-changes");
     for (const ch of changes) {
       const li = node(list, "li", "recap-change");
@@ -169,8 +173,8 @@ function renderRecapDiffs(root, diffs) {
   for (const d of diffs) {
     if (d.section !== currentSection) {
       currentSection = d.section;
-      const title = RECAP_SECTION_TITLES[currentSection] || "Diffs";
-      node(root, "h4", "recap-diff-section-title", title);
+      const key = RECAP_SECTION_KEYS[currentSection] || RECAP_SECTION_KEYS.all;
+      node(root, "h4", "recap-diff-section-title", t(key));
     }
     renderDiffBlock(root, d);
   }

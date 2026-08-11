@@ -2,6 +2,7 @@
 // suggestions quand /api/dispatch répond needs_project.
 
 import { node } from "../dom.js";
+import { t } from "../../i18n/index.js";
 
 // --- Bannière "projet" togglée --------------------------------------------
 // Peuplée par GET /api/projects. Le dispatch ne devine PLUS le projet : l'utilisateur
@@ -19,8 +20,10 @@ function storeProject(slug) {
   try { localStorage.setItem(PROJECT_STORAGE_KEY, slug); } catch (_) { /* privé/quota */ }
 }
 
+// Le nom d'un projet est une donnée de l'utilisateur : il n'est jamais traduit. Seul le
+// libellé « aucun choix » l'est, et il est résolu à l'appel, pas au chargement du module.
 function projectLabel(slug) {
-  if (!slug) return "à choisir";
+  if (!slug) return t("composer.pick_one");
   const p = projects.find((x) => x.slug === slug);
   return (p && p.name) || slug;
 }
@@ -69,11 +72,70 @@ export async function loadProjects() {
     ? stored
     : (projects[0]?.slug || "");
   renderProjectPanel();
-  // Le formulaire d'ajout et la liste des dossiers écartés : la route POST /api/projects
-  // existait depuis toujours, mais aucun bouton ne l'appelait — seul un agent pouvait
-  // enregistrer un projet.
-  const { renderProjectsAdmin } = await import("/static/js/projects_admin.js");
-  await renderProjectsAdmin();
+  renderAddProject();
+}
+
+// --- Ouvrir un projet depuis l'interface ------------------------------------
+// `POST /api/projects` existe depuis toujours, mais aucun bouton ne l'appelait : seul un
+// agent pouvait enregistrer un projet. Sans projet enregistré la page est un cul-de-sac —
+// la bannière reste vide, le dispatch répond needs_project et n'a rien à suggérer.
+
+async function postProject(body) {
+  const resp = await fetch("/api/projects", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(body),
+  });
+  const data = await resp.json();
+  // Le serveur est monolingue : son refus (dossier introuvable, projet déjà ouvert) est
+  // rendu tel quel, comme les noms de projets.
+  if (!resp.ok) throw new Error(data.error || `POST /api/projects → ${resp.status}`);
+  return data;
+}
+
+function addField(row, key, size) {
+  const input = node(row, "input", "conv-projects-admin-input");
+  input.type = "text";
+  input.placeholder = t(key);
+  input.setAttribute("aria-label", t(key));
+  input.size = size;
+  return input;
+}
+
+function renderAddProject() {
+  const host = document.getElementById("conv-projects-admin");
+  if (!host) return;
+  host.replaceChildren();
+  const row = node(host, "div", "conv-projects-admin-row");
+  node(row, "span", "conv-projects-admin-label", t("composer.add_project"));
+  const name = addField(row, "composer.project_name", 16);
+  const path = addField(row, "composer.project_path", 34);
+  const description = addField(row, "composer.project_description", 24);
+  const button = node(row, "button", "conv-projects-admin-btn", t("composer.add"));
+  button.type = "button";
+  const error = node(host, "div", "conv-projects-admin-error");
+
+  button.addEventListener("click", async () => {
+    error.textContent = "";
+    if (!name.value.trim() || !path.value.trim()) {
+      error.textContent = t("composer.name_and_path_required");
+      return;
+    }
+    try {
+      await postProject({
+        name: name.value.trim(),
+        path: path.value.trim(),
+        description: description.value.trim(),
+      });
+    } catch (e) {
+      // Le refus est la RÉPONSE attendue de ce formulaire : on l'affiche, on ne l'avale pas.
+      error.textContent = e.message;
+      return;
+    }
+    // Recharge la liste : le projet neuf apparaît dans les radios, et ce bloc est redessiné
+    // vide (les champs saisis disparaissent avec lui).
+    await loadProjects();
+  });
 }
 
 export function wireProjectBanner() {
@@ -106,7 +168,7 @@ export function showProjectSuggestions(suggestions) {
   if (!box) return;
   box.replaceChildren();
   box.hidden = false;
-  node(box, "span", "conv-project-suggestions-label", "Projet requis — suggestions :");
+  node(box, "span", "conv-project-suggestions-label", t("composer.project_required"));
   (suggestions || []).forEach((s) => {
     const slug = typeof s === "string" ? s : (s.slug || "");
     const name = typeof s === "string" ? s : (s.name || s.slug || "");

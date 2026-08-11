@@ -1,5 +1,6 @@
 # [desc] Formats and prints tool invocation start/end status with ANSI colors, diffs, and duration info. [/desc]
 from .ansi import C, clr
+from .messages import msg
 from .rendering import _neutralize_tool_markup
 
 try:
@@ -120,7 +121,7 @@ def print_tool_start(name: str, inputs: dict, verbose: bool):
     if name == "WritePlan":
         content = inputs.get("content", "")
         print()
-        print(clr("  Plan :", "bold", "cyan"))
+        print(clr(msg("tool.plan_heading"), "bold", "cyan"))
         print()
         if _RICH_CONSOLE is not None:
             _RICH_CONSOLE.print(Panel(Markdown(content), border_style="cyan", padding=(0, 2)))

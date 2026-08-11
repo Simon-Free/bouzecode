@@ -15,7 +15,10 @@
     const { plugins } = await (await fetch("/api/plugins")).json();
     box.replaceChildren();
     if (!plugins || !plugins.length) {
-      box.innerHTML = '<p class="muted">Aucun plugin installé.</p>';
+      const empty = document.createElement("p");
+      empty.className = "muted";
+      empty.textContent = window.i18n.t("builder.no_plugins");
+      box.appendChild(empty);
       return;
     }
     plugins.forEach((p) => box.appendChild(pluginRow(p)));
@@ -28,7 +31,7 @@
     const ver = p.version ? ` v${p.version}` : "";
     label.textContent = `${p.name}${ver} — ${(p.tools || []).length} tool(s)`;
     const btn = document.createElement("button");
-    btn.textContent = "Mettre à jour";
+    btn.textContent = window.i18n.t("builder.update");
     btn.onclick = async () => {
       await installPluginPackage(p.name, p.source || "");
       loadPlugins();
@@ -48,12 +51,15 @@
     })).json());
     let data = await post();
     if (data.requires_confirmation) {
-      if (!confirm(data.message)) { pluginsBanner("Installation annulée.", false); return null; }
+      if (!confirm(data.message)) {
+        pluginsBanner(window.i18n.t("builder.install_cancelled"), false);
+        return null;
+      }
       body.confirm_git = true;
       data = await post();
     }
     if (data.error) { pluginsBanner(data.error, false); return null; }
-    pluginsBanner(data.message || "Plugin installé.");
+    pluginsBanner(data.message || window.i18n.t("builder.plugin_installed"));
     return data;
   }
   // Seule sortie publique historique de ce module.
@@ -72,18 +78,18 @@
     const input = $("xdir-input").value.trim();
     if (!input) return;
     const btn = $("xdir-add-btn");
-    btn.disabled = true; btn.textContent = "Installation…";
+    btn.disabled = true; btn.textContent = window.i18n.t("builder.installing");
     let data = await postFromGitlab(input, false);
     if (data.requires_confirmation && window.confirm(data.message)) {
-      btn.textContent = "Clonage…";
+      btn.textContent = window.i18n.t("builder.cloning");
       data = await postFromGitlab(input, true);
     }
-    btn.disabled = false; btn.textContent = "Installer";
+    btn.disabled = false; btn.textContent = window.i18n.t("builder.install");
     if (data.requires_confirmation) return;  // repli git refusé par l'utilisateur
     if (data.error) { pluginsBanner(data.error, false); return; }
     $("xdir-input").value = "";
-    const via = data.via === "git" ? "depuis le repo git" : "depuis l'index de paquets";
-    pluginsBanner(`Plugin « ${data.package} » installé ${via} — recharge la page pour ses skills.`);
+    const via = window.i18n.t(data.via === "git" ? "builder.via_git" : "builder.via_index");
+    pluginsBanner(window.i18n.t("builder.plugin_installed_from", { package: data.package, via }));
     await loadPlugins();
     await loadCatalog();
     await loadAgents();
@@ -91,7 +97,7 @@
 
   async function upgradeAgentPlugins() {
     const name = $("b-existing").value;
-    if (!name) { pluginsBanner("Choisis d'abord un agent à l'étape 1.", false); return; }
+    if (!name) { pluginsBanner(window.i18n.t("builder.err_pick_agent"), false); return; }
     const url = `/api/agents/${encodeURIComponent(name)}/upgrade-plugins`;
     const post = (body) => fetch(url, {
       method: "POST",
@@ -101,17 +107,24 @@
 
     let data = await post({});
     if (data.requires_confirmation) {
-      if (!confirm(data.message)) { pluginsBanner("Mise à jour annulée.", false); return; }
+      if (!confirm(data.message)) {
+        pluginsBanner(window.i18n.t("builder.update_cancelled"), false);
+        return;
+      }
       data = await post({ confirm_git: true });
     }
     if (data.error) { pluginsBanner(data.error, false); loadPlugins(); return; }
 
     const lines = (data.results || []).map((r) => (r.ok
       ? `${r.package} OK v${r.before || "?"}->v${r.after || "?"}`
-      : `${r.package} ECHEC ${r.message || ""}`));
-    pluginsBanner(lines.length ? lines.join(" | ") : "Aucun plugin à mettre à jour.");
+      : `${r.package} ${window.i18n.t("builder.failed")} ${r.message || ""}`));
+    pluginsBanner(lines.length
+      ? lines.join(" | ")
+      : window.i18n.t("builder.no_plugins_to_update"));
     loadPlugins();
   }
+
+  window.redrawPlugins = loadPlugins;
 
   $("xdir-add-btn").addEventListener("click", installFromGitlab);
   $("b-upgrade-agent").addEventListener("click", upgradeAgentPlugins);

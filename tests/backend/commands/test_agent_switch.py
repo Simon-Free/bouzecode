@@ -119,7 +119,7 @@ def test_list_mode_runs(tmp_path, monkeypatch, capsys):
     out = capsys.readouterr().out
     assert "p3" in out and "meta-agent" in out
     # The 3 system agents are listed; the composable fragment never is.
-    assert "Agents système" in out
+    assert "System agents" in out
     assert "general-purpose" in out and "manager" in out
     assert "deferred" not in out
 
@@ -179,8 +179,8 @@ def test_agent_list_shows_two_sections(tmp_path, monkeypatch, capsys):
                  {"avail-b": _prof("avail-b", tools=["Bash"])}))
     assert cmd_agent("", _state(), {}) is True
     out = capsys.readouterr().out
-    assert "Agents installés" in out and "inst-a" in out
-    assert "Agents disponibles" in out and "avail-b" in out
+    assert "Installed agents" in out and "inst-a" in out
+    assert "Available agents" in out and "avail-b" in out
     assert "/agent install" in out
 
 
@@ -221,5 +221,5 @@ def test_agent_install_unknown_warns(tmp_path, monkeypatch, capsys):
     monkeypatch.setattr(catalog, "list_catalog_profiles", lambda: {})
     assert cmd_agent("install nope", _state(), {}) is True
     out = capsys.readouterr().out
-    assert "inconnu" in out.lower()
+    assert "unknown agent" in out.lower()
     assert not (config.CONFIG_DIR / "profiles" / "nope.yaml").exists()

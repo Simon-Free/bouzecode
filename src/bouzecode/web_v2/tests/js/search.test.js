@@ -94,7 +94,7 @@ describe("conversations keyword search", () => {
       .toBe("Ticket about bananas");
     const roles = [...items[0].querySelectorAll(".conv-search-role")]
       .map((n) => n.textContent);
-    expect(roles).toEqual(["vous", "réponse"]);
+    expect(roles).toEqual(["you", "reply"]);
     const marks = items[0].querySelectorAll("mark");
     expect(marks.length).toBe(2);
     expect(marks[0].textContent).toBe("bananas");
@@ -106,7 +106,7 @@ describe("conversations keyword search", () => {
     enterQuery("nothing");
     await flush();
     expect(document.querySelector(".conv-search-results").textContent)
-      .toContain("Aucun résultat");
+      .toContain("No results");
   });
 
   it("opens the agent conversation on result click", async () => {

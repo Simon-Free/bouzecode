@@ -10,10 +10,11 @@ async function loadAgents() {
   const current = sel.value;
   const { agents } = await (await fetch("/api/builder/agents")).json();
   AGENTS_BY_NAME = {};
-  sel.replaceChildren(new Option("— nouveau —", ""));
+  sel.replaceChildren(new Option(window.i18n.t("builder.opt_new"), ""));
   (agents || []).forEach((a) => {
     AGENTS_BY_NAME[a.name] = a;
-    const tag = a.editable ? a.source : `${a.source} · ${a.kind} (lecture seule → clone)`;
+    const readOnly = window.i18n.t("builder.read_only_clone");
+    const tag = a.editable ? a.source : `${a.source} · ${a.kind} ${readOnly}`;
     sel.appendChild(new Option(`${a.name} — ${tag}`, a.name));
   });
   sel.value = current;
@@ -57,31 +58,31 @@ function collect() {
 
 async function save() {
   const body = collect();
-  if (!body.name) { banner("Donne un nom au profil.", false); return; }
+  if (!body.name) { banner(window.i18n.t("builder.err_name_required"), false); return; }
   const resp = await fetch("/api/profiles", {
     method: "POST", headers: { "Content-Type": "application/json" },
     body: JSON.stringify(body),
   });
   const data = await resp.json();
   if (data.error) { banner(data.error, false); return; }
-  banner(`Profil « ${data.name} » enregistré (global).`);
+  banner(window.i18n.t("builder.profile_saved", { name: data.name }));
   await loadAgents();
   $("b-existing").value = data.name;
 }
 
 async function remove() {
   const name = $("b-existing").value;
-  if (!name) { banner("Sélectionne un profil existant à supprimer.", false); return; }
+  if (!name) { banner(window.i18n.t("builder.err_pick_profile"), false); return; }
   const a = AGENTS_BY_NAME[name];
   if (a && !a.editable) {
-    banner(`« ${name} » (${a.source}) n'est pas un profil global — seuls les profils globaux sont supprimables ici.`, false);
+    banner(window.i18n.t("builder.err_not_global", { name, source: a.source }), false);
     return;
   }
-  if (!confirm(`Supprimer le profil « ${name} » ?`)) return;
+  if (!confirm(window.i18n.t("builder.confirm_delete_profile", { name }))) return;
   const resp = await fetch(`/api/profiles/${name}`, { method: "DELETE" });
   const data = await resp.json();
   if (data.error) { banner(data.error, false); return; }
-  banner(`Profil « ${name} » supprimé.`);
+  banner(window.i18n.t("builder.profile_deleted", { name }));
   clearForm();
   await loadAgents();
 }
@@ -91,8 +92,8 @@ $("b-existing").addEventListener("change", () => {
   if (!a) { clearForm(); return; }
   applyProfile(a);
   banner(a.editable
-    ? `Profil global « ${a.name} » chargé — édite et enregistre.`
-    : `« ${a.name} » (${a.source}) chargé en lecture seule — enregistre pour en faire un profil global.`);
+    ? window.i18n.t("builder.profile_loaded", { name: a.name })
+    : window.i18n.t("builder.profile_loaded_ro", { name: a.name, source: a.source }));
 });
 $("b-save").addEventListener("click", save);
 $("b-delete").addEventListener("click", remove);

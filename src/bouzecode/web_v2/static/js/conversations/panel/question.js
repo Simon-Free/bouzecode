@@ -6,6 +6,7 @@
 import { node, agentId } from "../dom.js";
 import { sendMsg } from "./send.js";
 import { poll } from "./poll.js";
+import { t } from "../../i18n/index.js";
 
 // --- Question (AskUserQuestion) : affiche options + permet de repondre -------
 
@@ -70,10 +71,10 @@ export function renderQuestion(entry, status) {
   // CHAUDE in-process si le process est encore idle vivant, sinon respawn COLD.
   if (!awaiting && status.interrupted) {
     entry.question.hidden = false;
-    entry.questionText.textContent = "Cet agent a été interrompu (crash ou redémarrage). Reprendre là où il en était ?";
+    entry.questionText.textContent = t("panel.interrupted_question");
     fillQuestionPlan(entry, null);
     entry.questionOptions.replaceChildren();
-    const button = node(entry.questionOptions, "button", "conv-question-option", "Reprendre");
+    const button = node(entry.questionOptions, "button", "conv-question-option", t("panel.resume"));
     button.addEventListener("click", () => {
       button.disabled = true;
       fetch(`/api/agents/${agentId(entry.key)}/continue`, {
@@ -88,7 +89,7 @@ export function renderQuestion(entry, status) {
           return r.text().then((body) => {
             let msg = "";
             try { msg = JSON.parse(body).error || ""; } catch (_) { msg = body; }
-            window.alert("La reprise a échoué : " + (msg || `HTTP ${r.status}`));
+            window.alert(t("panel.resume_failed", { detail: msg || `HTTP ${r.status}` }));
           });
         }
         return poll(entry.key);

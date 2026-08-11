@@ -5,6 +5,7 @@
 // n'émet aucun click) et la perte de l'état déplié.
 
 import { node } from "../dom.js";
+import { t } from "../../i18n/index.js";
 import { effectiveState, buildBadge } from "../badges.js";
 import { openTab } from "../panel/tabs.js";
 import { openRecap } from "../recap/view.js";
@@ -25,8 +26,25 @@ export const groupRegistry = new Map();   // key -> rec { group,row,badgeEl,titl
 const titleRegistry = new Map();   // catKey -> <div.conv-cat-title>
 let needinputWrapper = null;       // <div.conv-section-needinput> persistant
 let needinputTitle = null;         // son <div.conv-cat-title> interne
-export let emptyMsgEl = null;             // <p.muted> "Aucune conversation manager."
+export let emptyMsgEl = null;             // <p.muted> liste vide
 export function setEmptyMsgEl(el) { emptyMsgEl = el; }
+
+// Libellé RETRADUISIBLE d'un élément créé UNE SEULE FOIS. Une carte survit aux
+// re-render (rendu keyé) : son texte ne repasserait donc jamais par `t()` après une
+// bascule de langue. On pose le mot maintenant ET on laisse la clé dans le DOM, ce
+// qui suffit à `applyDom` pour le réécrire au changement de langue.
+export function i18nText(el, key, params) {
+  el.textContent = t(key, params);
+  el.setAttribute("data-i18n", key);
+  for (const name in params) el.setAttribute("data-i18n-arg-" + name, params[name]);
+  return el;
+}
+
+export function i18nTitle(el, key) {
+  el.title = t(key);
+  el.setAttribute("data-i18n-title", key);
+  return el;
+}
 
 // Crée (une fois) le DOM d'un groupe et mémorise ses slots pour update in-place.
 // L'identité DOM du <button.conv-item> et de son childrenBox est ainsi préservée
@@ -74,7 +92,8 @@ export function createGroup(n, depth) {
   // Entrée FLAT (sous-agent affiché en propre dans une section a/b) : lien vers le parent
   // « ↳ sous-agent de {titre} » sous le titre. n._realKey = la vraie key à ouvrir.
   if (n._realKey) {
-    rec.flatParentEl = node(row, "span", "conv-flat-parent", `↳ sous-agent de ${n._flatOf || "?"}`);
+    rec.flatParentEl = i18nText(node(row, "span", "conv-flat-parent"),
+      "sidebar.flat_parent", { parent: n._flatOf || "?" });
   }
   // Conteneur meta (branche + id court copiable — B8) créé une fois, rempli par updateGroup.
   rec.metaEl = node(row, "span", "conv-item-meta");
@@ -82,9 +101,9 @@ export function createGroup(n, depth) {
   // Pastille « Récap » (violette) DANS la ligne de l'agent — n'apparaît QUE si un récap
   // structuré existe (n.has_recap, exposé par /api/agents/tree). Clic → ouvre l'agent
   // directement sur la vue récap. stopPropagation : ne PAS déclencher l'ouverture conversation.
-  rec.recapBtn = node(row, "span", "conv-recap-pill", "Récap");
+  rec.recapBtn = i18nText(node(row, "span", "conv-recap-pill"), "sidebar.recap");
   rec.recapBtn.hidden = !n.has_recap;
-  rec.recapBtn.title = "Voir le récap structuré (symptômes, cause, tests, diffs)";
+  i18nTitle(rec.recapBtn, "sidebar.recap_tip");
   rec.recapBtn.addEventListener("click", (e) => {
     e.stopPropagation();
     openTab(openKey, n.title || n.agent_id || n.key, n.title_full);

@@ -17,6 +17,13 @@ function storeTypology(name) {
   try { localStorage.setItem(TYPOLOGY_STORAGE_KEY, name); } catch (_) { /* privé/quota */ }
 }
 
+// AUCUN texte de ce fichier n'est traduit, et c'est délibéré. Le catalogue servi par
+// /api/typologies est OUVERT : chaque profil YAML posé par un utilisateur (projet, global,
+// dossiers extra) y ajoute une entrée dont le `name` est le nom de fichier et la
+// `description` un extrait de son prompt. Il n'existe donc aucun identifiant stable
+// distinct du nom sur lequel accrocher une clé de traduction, et traduire les seuls
+// intégrés donnerait un panneau moitié anglais moitié langue de l'auteur du profil.
+// Les libellés restent ceux du serveur ; "default" est un code, pas un mot d'interface.
 function typologyLabel(name) {
   const t = typologies.find((x) => x.name === name);
   return (t && t.name) || (typologies[0] && typologies[0].name) || "default";

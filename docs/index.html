@@ -125,9 +125,9 @@ footer .updated strong{color:var(--ink2)}
 
 <!-- ══ 1. THE CLAIM ══ -->
 <section class="narrow">
-  <p class="kicker">bouzecode — how the context is built</p>
+  <p class="kicker">Bouzécode — how the context is built</p>
   <h1>The agent that forgets on purpose</h1>
-  <p class="lede" style="margin-top:12px">In a normal AI coding agent, everything read and said piles up, and <em>every single API call resends the whole pile</em>. bouzecode does the opposite: <strong>a tool result is destroyed at the end of the turn, unless the agent explicitly copied out what mattered.</strong> What survives is a notebook the agent writes for itself — plus the very last tool result. That is the entire context.</p>
+  <p class="lede" style="margin-top:12px">In a normal AI coding agent, everything read and said piles up, and <em>every single API call resends the whole pile</em>. Bouzécode does the opposite: <strong>a tool result is destroyed at the end of the turn, unless the agent explicitly copied out what mattered.</strong> What survives is a notebook the agent writes for itself — plus the very last tool result. That is the entire context.</p>
 
   <div class="callout">
     <p><strong>The lab notebook.</strong> You borrow a 400-page file from the archive, you copy the 20 lines that matter into your own notebook, you give the file back. Next week you still have the 20 lines — and you never paid to carry 400 pages around.</p>
@@ -154,7 +154,7 @@ footer .updated strong{color:var(--ink2)}
 
 <!-- ══ 3. WHAT BOUZECODE DOES ══ -->
 <section class="narrow">
-  <h2>3. What bouzecode does instead</h2>
+  <h2>3. What Bouzécode does instead</h2>
   <p>Every tool result arrives with this line stapled to the front of it — verbatim, from the source:</p>
 
   <pre class="quote"><span class="tag">[SYSTEM]</span> This tool_result will be destroyed at the next user turn unless you snippet it or stash a note with Methodology.</pre>
@@ -241,8 +241,8 @@ footer .updated strong{color:var(--ink2)}
   <p class="prov">Round token counts, chosen to be realistic rather than measured — the point is the <em>shape</em>. Cached tokens are counted at one tenth of fresh ones, the right order of magnitude for prompt caching.</p>
 
   <div class="callout key narrow">
-    <p><strong>Read the crossover, it is the honest part.</strong> For the first two calls bouzecode puts <em>more</em> on the wire, not less: it pays up front for the notebook and for a reminder that is deliberately never cached. It crosses over on call 3 and keeps pulling away. The 400 lines of <code>main.py</code> crossed the wire <strong>exactly once</strong>; on the keep-everything side they cross it three times, and would cross it again on every remaining call of the session.</p>
-    <p style="margin-top:8px">On <em>price</em>, at four calls with a warm cache, the two are roughly a wash — the second figure in the counter says so. Prompt caching makes keeping everything cheap for as long as the cache holds. The volume advantage turns into a price advantage precisely when it stops holding: a longer session, a second and third file to read, or a five-minute pause. Then everyone re-buys their prefix at full price, and bouzecode's prefix is a fraction of the size.</p>
+    <p><strong>Read the crossover, it is the honest part.</strong> For the first two calls Bouzécode puts <em>more</em> on the wire, not less: it pays up front for the notebook and for a reminder that is deliberately never cached. It crosses over on call 3 and keeps pulling away. The 400 lines of <code>main.py</code> crossed the wire <strong>exactly once</strong>; on the keep-everything side they cross it three times, and would cross it again on every remaining call of the session.</p>
+    <p style="margin-top:8px">On <em>price</em>, at four calls with a warm cache, the two are roughly a wash — the second figure in the counter says so. Prompt caching makes keeping everything cheap for as long as the cache holds. The volume advantage turns into a price advantage precisely when it stops holding: a longer session, a second and third file to read, or a five-minute pause. Then everyone re-buys their prefix at full price, and Bouzécode's prefix is a fraction of the size.</p>
   </div>
 </section>
 
@@ -256,7 +256,7 @@ footer .updated strong{color:var(--ink2)}
     <p>Rewrite one line in the middle of the notebook and everything from that line on is new bytes. You would be sending a <em>small</em> context that is <em>100% freshly billed</em>, every single turn. Cheaper-looking, more expensive.</p>
   </div>
 
-  <p>So bouzecode never rewrites. Old bytes are <strong>dropped</strong> from the wire, never edited in place — the design comment says so explicitly:</p>
+  <p>So Bouzécode never rewrites. Old bytes are <strong>dropped</strong> from the wire, never edited in place — the design comment says so explicitly:</p>
   <pre class="quote">Dropping prior wire bytes (rather than stripping/rewriting them) is
 load-bearing for the prompt cache: any post-hoc rewrite of an earlier
 byte invalidates the cache from that point on.</pre>
@@ -503,7 +503,7 @@ function show(t){
                 : r<=0.98 ? `<b style="color:#c2410c">×${(1/r).toFixed(2)} more</b>`
                 : `<b style="color:#6b7280">level</b>`;
   document.getElementById("tally").innerHTML =
-    `cumulative tokens transmitted — bouzecode <b>${num(bzSent)}</b> · keep-everything <b>${num(nvSent)}</b> — ${verdict}` +
+    `cumulative tokens transmitted — Bouzécode <b>${num(bzSent)}</b> · keep-everything <b>${num(nvSent)}</b> — ${verdict}` +
     `<br><span style="color:#6b7280">billed-equivalent (read 0.1× · write 1.25× · fresh 1×): ${num(Math.round(bzBill))} vs ${num(Math.round(nvBill))}</span>`;
 }
 let CALL = 1;

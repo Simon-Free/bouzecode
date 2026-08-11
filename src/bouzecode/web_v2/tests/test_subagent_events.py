@@ -111,13 +111,15 @@ def test_launch_and_completion_markers_in_coder_feed(client):
     html = "".join(b.get("html", "") for b in resp.get_json()["blocks"])
 
     # Marqueur de lancement : un seul sous-agent → « 1 agent lancé — Validateur ».
-    assert "1 agent lancé" in html
+    # Le libellé est traduisible (clé + texte de la langue par défaut) ; c'est la clé qui
+    # identifie le marqueur, dans les deux langues.
+    assert 'data-i18n="block.subagent_launched"' in html
     assert "Validateur" in html
     # Cliquable → ouvre l'onglet du sous-agent validateur.
     assert f'data-open-key="agent/{VALIDATOR_ID}"' in html
     # Marqueur de complétion avec le verdict.
-    assert "verdict KO" in html
-    assert "terminé" in html
+    assert 'data-i18n-arg-verdict="KO"' in html
+    assert 'data-i18n="block.subagent_done"' in html
 
 
 def _write_validator_agent(agents_dir):
@@ -163,7 +165,7 @@ def test_validator_feed_has_no_subagent_markers(client, env):
     resp = client.get(f"/api/sessions/agent/{VALIDATOR_ID}/blocks")
     assert resp.status_code == 200
     html = "".join(b.get("html", "") for b in resp.get_json()["blocks"])
-    assert "agent lancé" not in html
+    assert 'data-i18n="block.subagent_launched"' not in html
     assert "subagent-event" not in html
 
 
@@ -181,5 +183,5 @@ def test_no_markers_without_child_runs(client, env):
 
     resp = client.get(f"/api/sessions/agent/{CODER_ID}/blocks")
     html = "".join(b.get("html", "") for b in resp.get_json()["blocks"])
-    assert "agent lancé" not in html
+    assert 'data-i18n="block.subagent_launched"' not in html
     assert "subagent-event" not in html

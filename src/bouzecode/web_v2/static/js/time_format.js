@@ -5,9 +5,13 @@
 // L'entrée est TOUJOURS un instant ISO UTC (ex. "2026-07-06T23:41:00Z") émis par
 // le serveur. On le convertit en heure LOCALE du navigateur :
 //   - aujourd'hui        → "HH:MM"
-//   - hier               → "hier HH:MM"
-//   - autre jour         → "JJ/MM HH:MM"
+//   - hier               → "hier HH:MM"      / "yesterday HH:MM"
+//   - autre jour         → "JJ/MM HH:MM"     / "MM/DD HH:MM"
+// L'ordre jour-mois change avec la langue : il vit donc dans le dictionnaire
+// (`time.short_date`) au même titre que les mots.
 // Le tooltip garde l'ISO complet (formatEventTimeTooltip).
+
+import { t } from "./i18n/index.js";
 
 function _parse(iso) {
   if (!iso) return null;
@@ -33,8 +37,10 @@ export function formatEventTime(iso, now = new Date()) {
   const hhmm = `${_pad(d.getHours())}:${_pad(d.getMinutes())}`;
   const diff = _dayDiff(d, now);
   if (diff === 0) return hhmm;
-  if (diff === 1) return `hier ${hhmm}`;
-  return `${_pad(d.getDate())}/${_pad(d.getMonth() + 1)} ${hhmm}`;
+  if (diff === 1) return t("time.yesterday", { time: hhmm });
+  return t("time.short_date", {
+    day: _pad(d.getDate()), month: _pad(d.getMonth() + 1), time: hhmm,
+  });
 }
 
 // Tooltip = instant complet, non ambigu. On rend l'ISO local (avec fuseau) pour

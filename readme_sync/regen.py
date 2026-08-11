@@ -1,11 +1,11 @@
-# [desc] Regenerates a folder's AGENTS.md via an LLM call, using the human README.md as read-only context. [/desc]
+# [desc] Regenerates a folder's map via an LLM call, using a separate human README.md as read-only context. [/desc]
 from __future__ import annotations
 
 import os
 from pathlib import Path
 
+from .naming import doc_name
 from .hashing import (
-    DOC_NAME,
     code_files,
     compute_manifest,
     read_lock,
@@ -64,23 +64,24 @@ def changed_vs_unchanged(folder: Path) -> tuple[list[Path], list[str]]:
 
 
 def build_user_message(folder: Path, root: Path) -> str:
-    """Assemble the single user message for regenerating AGENTS.md.
+    """Assemble the single user message for regenerating the folder map.
 
-    Includes the current AGENTS.md (if any), the folder's human README.md as
-    READ-ONLY context (never rewritten), the full body of changed/new code
-    files, and the names of unchanged files.
+    Includes the current map (if any), the folder's human README.md as READ-ONLY
+    context when that is a DIFFERENT file (it is not when the map IS the
+    README.md), the full body of changed/new code files, and the names of
+    unchanged files.
     """
     changed, unchanged = changed_vs_unchanged(folder)
-    doc = folder / DOC_NAME
+    doc = folder / doc_name()
     current = doc.read_text(encoding="utf-8") if doc.exists() else "(none)"
 
     parts = [f"# Folder to document: {_rel(folder, root)}", ""]
-    parts.append("## Current AGENTS.md")
+    parts.append(f"## Current {doc_name()}")
     parts.append(current)
     parts.append("")
 
     human_readme = folder / "README.md"
-    if human_readme.exists():
+    if human_readme.exists() and human_readme != doc:
         parts.append("## Human README.md (read-only context — DO NOT reproduce or rewrite it)")
         parts.append(human_readme.read_text(encoding="utf-8"))
         parts.append("")
@@ -89,7 +90,7 @@ def build_user_message(folder: Path, root: Path) -> str:
     if changed:
         for p in changed:
             parts.append(f"### {p.name}")
-            parts.append("```python")
+            parts.append("```" + p.suffix.lstrip("."))
             parts.append(p.read_text(encoding="utf-8"))
             parts.append("```")
     else:
@@ -98,7 +99,7 @@ def build_user_message(folder: Path, root: Path) -> str:
     parts.append("## Unchanged code files (names only)")
     parts.append(", ".join(unchanged) if unchanged else "(none)")
     parts.append("")
-    parts.append("Regenerate AGENTS.md for this folder following the contract. "
+    parts.append(f"Regenerate {doc_name()} for this folder following the contract. "
                  "Output ONLY the markdown, no code fences around the whole thing.")
     return "\n".join(parts)
 
@@ -133,10 +134,11 @@ def _make_client():
 
 
 def regen_folder(folder: Path, root: Path, model: str | None = None, client=None) -> Path:
-    """One LLM call: regenerate folder/AGENTS.md and rewrite its lock fresh.
+    """One LLM call: regenerate the folder map and rewrite its lock fresh.
 
-    Always generates via the LLM and writes AGENTS.md — never touches the
-    folder's human README.md (passed to the model as read-only context only).
+    Always generates via the LLM and writes the map. When the map is a separate
+    file (doc_name != README.md) the folder's human README.md is never touched —
+    it is passed to the model as read-only context only.
     """
     folder = folder.resolve()
     root = root.resolve()
@@ -149,7 +151,7 @@ def regen_folder(folder: Path, root: Path, model: str | None = None, client=None
         messages=[{"role": "user", "content": build_user_message(folder, root)}],
     )
     text = "".join(block.text for block in resp.content if block.type == "text")
-    (folder / DOC_NAME).write_text(_strip_outer_fence(text), encoding="utf-8")
+    (folder / doc_name()).write_text(_strip_outer_fence(text), encoding="utf-8")
     write_lock(folder, stale=False)
     propagate_up(folder, root)
     return folder

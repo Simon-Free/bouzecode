@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 from bouzecode.ui.ansi import clr, info, ok, warn
+from bouzecode.ui.messages import msg
 
 from .agent_install import _catalog_split, _install
 
@@ -71,34 +72,34 @@ def _revert(config: dict) -> None:
 def _print_section(title: str, profiles: dict, active, *, installable: bool = False) -> None:
     if not profiles:
         return
-    print(clr(f"\n  {title} :", "cyan", "bold"))
+    print(clr(msg("agent.section_heading", title=title), "cyan", "bold"))
     for name, p in sorted(profiles.items()):
-        marker = clr("  ← actif", "green") if name == active else ""
+        marker = clr(f"  ← {msg('agent.active_marker')}", "green") if name == active else ""
         head = _head(p)
         print(clr(f"   {name:18s}", "yellow") + (clr(f"  {head}", "dim") if head else "") + marker)
     if installable:
-        print(clr("   → installer : ", "dim") + "/agent install <nom>")
+        print(clr(msg("agent.install_hint"), "dim") + msg("agent.install_usage_arg"))
 
 
 def _list(config: dict) -> None:
     from bouzecode.backend.profiles.discovery import load_system_profiles
 
     active = config.get("_active_agent")
-    info(clr("  Agent actif : ", "cyan") + (active or "(aucun — agent par défaut)"))
+    info(clr(msg("agent.active_label"), "cyan") + (active or msg("agent.no_active")))
 
     system = load_system_profiles()
     installed, available = _catalog_split()
     # A system agent shadowed by a same-named user profile is shown once, under système.
     installed = {n: p for n, p in installed.items() if n not in system}
 
-    _print_section("Agents système", system, active)
-    _print_section("Agents installés", installed, active)
-    _print_section("Agents disponibles (catalogue partagé)", available, active, installable=True)
+    _print_section(msg("agent.section_system"), system, active)
+    _print_section(msg("agent.section_installed"), installed, active)
+    _print_section(msg("agent.section_available"), available, active, installable=True)
 
-    print(clr("\n  Basculer : ", "cyan") + "/agent <nom>   |   revenir : /agent default")
-    print(clr("  Construire/modifier un agent :", "cyan"))
-    print("   - UI : lance le serveur web (bouzequi2), onglet « Agents » (tools/skills/hooks + prompt)")
-    print("   - ou demande à l'agent méta : /agent meta-agent")
+    print(clr(msg("agent.switch_label"), "cyan") + msg("agent.switch_usage"))
+    print(clr(msg("agent.build_label"), "cyan"))
+    print(msg("agent.build_via_ui"))
+    print(msg("agent.build_via_meta"))
 
 
 def cmd_agent(args: str, state, config) -> bool:
@@ -113,9 +114,9 @@ def cmd_agent(args: str, state, config) -> bool:
         from bouzecode.backend.profiles import catalog
         try:
             catalog.refresh_catalog(force=True)
-            ok("Catalogue d'agents partagés rafraîchi.")
+            ok(msg("agent.catalog_refreshed"))
         except Exception as exc:  # noqa: BLE001 — surface, don't crash
-            warn(f"Échec du rafraîchissement du catalogue : {exc}")
+            warn(msg("agent.catalog_refresh_failed", error=exc))
         _list(config)
         return True
 
@@ -125,12 +126,12 @@ def cmd_agent(args: str, state, config) -> bool:
 
     if name in _REVERT_WORDS:
         _revert(config)
-        ok("Agent par défaut restauré (tous les tools réactivés, prompt de base).")
+        ok(msg("agent.reverted_to_default"))
         return True
 
     profile = _resolve_target(name)
     if profile is None:
-        warn(f"Agent/profil inconnu : {name}. Tape /agent pour la liste.")
+        warn(msg("agent.unknown", name=name))
         return True
 
     _apply(profile, config)
@@ -139,7 +140,7 @@ def cmd_agent(args: str, state, config) -> bool:
     if profile.tools:
         bits.append(f"{len(profile.tools)} tools")
     if profile.model:
-        bits.append(f"modèle {profile.model}")
+        bits.append(msg("agent.model_summary", model=profile.model))
     suffix = f" ({', '.join(bits)})" if bits else ""
-    ok(f"Basculé sur l'agent « {profile.name} »{suffix}. Contexte conservé ; le cache KV repart.")
+    ok(msg("agent.switched", name=profile.name, summary=suffix))
     return True

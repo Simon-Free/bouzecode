@@ -1,7 +1,10 @@
 # ============================================================
-# bouzecode.ps1 — one-shot launcher for bouzecode CLI
-# Ensures uv is available, keeps .venv in sync, then launches the REPL.
+# bouzecode.ps1 - one-shot launcher for the bouzecode CLI
+# Loads .env, ensures uv is available, keeps .venv in sync, then launches the REPL.
 # Usage: .\bouzecode.ps1 [bouzecode args...]
+#
+# ASCII ONLY. Windows PowerShell 5.1 re-reads a BOM-less .ps1 as ANSI, which
+# turns any accent / em dash / box character into mojibake on the console.
 # ============================================================
 
 $ErrorActionPreference = "Stop"
@@ -13,7 +16,14 @@ $BouzecodeExe = Join-Path $VenvDir "Scripts\bouzecode.exe"
 $PyProject    = Join-Path $RepoDir "pyproject.toml"
 $Stamp        = Join-Path $VenvDir ".bouzecode_installed"
 
-# --- 1. Locate uv ------------------------------------------------------------
+# --- 1. Load .env (proxy, index credentials) --------------------------------
+# BEFORE the install step: on a network where the package index is only
+# reachable through a proxy, HTTP(S)_PROXY has to be in the environment by the
+# time uv runs, otherwise there is no way to bootstrap at all.
+. (Join-Path $PSScriptRoot "load_dotenv.ps1")
+Import-DotEnv -Path (Join-Path $RepoDir ".env") -Label "bouzecode"
+
+# --- 2. Locate uv ------------------------------------------------------------
 function Find-Uv {
     # 1. PATH first (normal install)
     $cmd = Get-Command uv -ErrorAction SilentlyContinue
@@ -37,7 +47,7 @@ if (-not $UvExe) {
 }
 Write-Host "[bouzecode] uv: $UvExe" -ForegroundColor Cyan
 
-# --- 2. Ensure venv ----------------------------------------------------------
+# --- 3. Ensure venv ----------------------------------------------------------
 if (-not (Test-Path $PythonExe)) {
     Write-Host "[bouzecode] creating venv..." -ForegroundColor Cyan
     Push-Location $RepoDir
@@ -45,7 +55,7 @@ if (-not (Test-Path $PythonExe)) {
     Pop-Location
 }
 
-# --- 3. Install / update deps if pyproject changed ---------------------------
+# --- 4. Install / update deps if pyproject changed ---------------------------
 $needInstall = $true
 if ((Test-Path $Stamp) -and (Test-Path $BouzecodeExe)) {
     $stampTime = (Get-Item $Stamp).LastWriteTimeUtc
@@ -61,7 +71,7 @@ if ($needInstall) {
     New-Item -ItemType File -Path $Stamp -Force | Out-Null
 }
 
-# --- 4. Ensure ripgrep is available ------------------------------------------
+# --- 5. Ensure ripgrep is available ------------------------------------------
 if (-not (Get-Command rg -ErrorAction SilentlyContinue)) {
     Write-Host "[bouzecode] ripgrep (rg) not found, installing via winget..." -ForegroundColor Yellow
     winget install BurntSushi.ripgrep.MSVC --accept-source-agreements --accept-package-agreements 2>$null
@@ -73,21 +83,6 @@ if (-not (Get-Command rg -ErrorAction SilentlyContinue)) {
     }
 }
 
-# --- 5. Load .env (proxy, credentials) ---------------------------------------
-$EnvFile = Join-Path $RepoDir ".env"
-if (Test-Path $EnvFile) {
-    Get-Content $EnvFile | ForEach-Object {
-        $line = $_.Trim()
-        if ($line -and -not $line.StartsWith("#") -and $line.Contains("=")) {
-            $eqIdx = $line.IndexOf("=")
-            $key   = $line.Substring(0, $eqIdx)
-            $val   = $line.Substring($eqIdx + 1).Trim('"')
-            [System.Environment]::SetEnvironmentVariable($key, $val, "Process")
-        }
-    }
-    Write-Host "[bouzecode] loaded .env" -ForegroundColor DarkGray
-}
-
 # --- 6. Runtime env ----------------------------------------------------------
 $env:PYTHONIOENCODING  = "utf-8"
 
@@ -96,9 +91,23 @@ if (-not $env:ANTHROPIC_API_KEY -and $env:ANTHROPIC_AUTH_TOKEN) {
     $env:ANTHROPIC_API_KEY = $env:ANTHROPIC_AUTH_TOKEN
 }
 
-if (-not $env:ANTHROPIC_API_KEY) {
-    Write-Host "[bouzecode] WARNING: ANTHROPIC_API_KEY not set." -ForegroundColor Yellow
-    Write-Host "  Add ANTHROPIC_API_KEY=sk-... to your .env file or set it as env var." -ForegroundColor Yellow
+# Warn only when NO provider at all can serve a model. With OPENROUTER_KEY (or a
+# gateway key) set, bouzecode itself tells the user which models are reachable.
+$ProviderKeys = @(
+    "ANTHROPIC_API_KEY", "ANTHROPIC_AUTH_TOKEN",
+    "OPENROUTER_KEY", "OPENROUTER_API_KEY",
+    "BOUZECODE_GATEWAY_API_KEY"
+)
+$HasProviderKey = $false
+foreach ($name in $ProviderKeys) {
+    if ([System.Environment]::GetEnvironmentVariable($name, "Process")) { $HasProviderKey = $true }
+}
+if (-not $HasProviderKey) {
+    Write-Host "[bouzecode] WARNING: no provider API key found." -ForegroundColor Yellow
+    Write-Host "  Add one of these to your .env file (repo root) or set it as an env var:" -ForegroundColor Yellow
+    Write-Host "    ANTHROPIC_API_KEY=sk-ant-...        (claude-* models)" -ForegroundColor Yellow
+    Write-Host "    OPENROUTER_KEY=sk-or-...            (deepseek/kimi/glm models)" -ForegroundColor Yellow
+    Write-Host "    BOUZECODE_GATEWAY_API_KEY=...       (OpenAI-compatible gateway)" -ForegroundColor Yellow
 }
 
 # --- 7. Launch ----------------------------------------------------------------

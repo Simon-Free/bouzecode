@@ -23,6 +23,10 @@ dependencies = [
     "tree-sitter>=0.23.0",
     "tree-sitter-javascript>=0.23.0",
     "tree-sitter-typescript>=0.23.0",
+    # RunPythonTest and the folder-description analyzer both import tqdm at use
+    # time. It used to arrive only as a transitive dependency of `openai`, so a
+    # resolver that dropped it left the progress bar silently absent.
+    "tqdm>=4.60",
 ]
 
 [project.optional-dependencies]
@@ -31,7 +35,10 @@ vision   = ["Pillow"]
 # No `telegram` extra: the /telegram bridge (backend/commands/telegram_cmd.py)
 # talks to the Bot API over urllib and imports no third-party client.
 web      = ["flask>=3.0", "psutil>=5.9", "pyyaml>=6.0"]
-test     = ["pytest", "pytest-xdist", "pytest-playwright"]
+# pytest-timeout is not optional: tests/backend/multi_agent/test_terminal_subagent.py
+# carries a @pytest.mark.timeout(90), which pytest reports as an unknown mark (and
+# silently does NOT enforce) when the plugin is absent.
+test     = ["pytest", "pytest-xdist", "pytest-playwright", "pytest-timeout"]
 
 [project.scripts]
 bouzecode = "bouzecode:main"

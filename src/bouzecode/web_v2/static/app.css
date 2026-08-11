@@ -1,6 +1,9 @@
 /* [desc] Thème sombre vscode-like pour BouzéqUI v2. [/desc] */
-/* Perfui fonts — fallback système déjà dans les stacks, ne bloque PAS le rendu si proxy coupe */
-@import url("https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap");
+/* Polices SYSTÈME uniquement. Le @import Google Fonts d'avant contredisait la règle
+   « aucune ressource externe » du projet (cf. Monaco vendorisé) : derrière un proxy
+   restrictif la requête part dans le vide et retarde le premier rendu. Les stacks
+   ci-dessous couvrent Windows (Segoe UI / Consolas), macOS (-apple-system / SF Mono)
+   et Linux (Roboto, DejaVu / Liberation Mono). */
 
 :root {
   /* Remap vers l'esthétique "performative UI" (thème sombre AI-native) */
@@ -18,6 +21,10 @@
      Assistant plus sombre que user, tous deux distincts de --panel/--panel2. */
   --bubble-user: #2a2a3a;
   --bubble-assistant: #26263a;
+  /* Surface d'une zone de SAISIE (barre de prompt). Même règle que les bulles : ratio
+     champ/fond >=1.3 (prouvé par newbar-css.test). --panel2 n'y suffit pas (1,09) et est
+     déjà le fond de la barre porteuse — le champ s'y confondait deux fois. */
+  --input-bg: #2b2b3c;
   --green: #22c55e; --orange: #fbbf24; --red: #f87171; --purple: #a78bfa;
   /* Dégradé signature perfui */
   --grad-from: #7c3aed; --grad-mid: #ec4899; --grad-to: #06b6d4;
@@ -26,8 +33,10 @@
   --glow: 0 0 24px rgba(124,58,237,.45);
   --shadow-card: 0 10px 40px rgba(0,0,0,.55);
   --radius-sm: 8px; --radius: 12px; --radius-lg: 18px;
-  --font-sans: "Inter", ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif;
-  --font-mono: "JetBrains Mono", ui-monospace, SFMono-Regular, Consolas, monospace;
+  --font-sans: ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto,
+    "Helvetica Neue", Arial, sans-serif;
+  --font-mono: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas,
+    "DejaVu Sans Mono", "Liberation Mono", monospace;
   --ease: cubic-bezier(.22,1,.36,1);
 }
 * { box-sizing: border-box; }
@@ -44,6 +53,11 @@ nav a { color: var(--muted); text-decoration: none; padding: 5px 12px; border-ra
   transition: color .18s var(--ease), background .18s var(--ease); }
 nav a:hover { background: var(--overlay, rgba(255,255,255,.07)); color: var(--text); }
 nav a.active { background: var(--grad); color: #fff; box-shadow: var(--glow); }
+/* Sélecteur de langue : poussé à droite, discret — c'est un réglage, pas une destination. */
+nav .lang-switch { margin-left: auto; background: var(--panel); color: var(--muted);
+  border: 1px solid var(--border); border-radius: var(--radius-sm); padding: 4px 8px;
+  font: inherit; font-size: 12px; cursor: pointer; }
+nav .lang-switch:hover { color: var(--text); }
 main { max-width: 1100px; margin: 0 auto; padding: 18px 20px 80px; }
 h1, h2, h3 { font-weight: 600; }
 h2 { margin-top: 28px; border-bottom: 1px solid var(--border); padding-bottom: 6px; }
@@ -97,11 +111,6 @@ select { cursor: pointer; }
    (--accent) : deux phases côte à côte dans la liste doivent se distinguer SANS lire. */
 .st-boot { background: color-mix(in srgb, #8aa0b8 14%, transparent); color: #9db2c8; }
 .st-wait { background: color-mix(in srgb, #3fc9d6 12%, transparent); color: #3fc9d6; }
-/* Verdict validateur affiché DANS le chip sous-agent (à côté du libellé role·heure). */
-.conv-sub-verdict { margin-left: 6px; font-size: 11px; font-weight: 600; white-space: nowrap; }
-.conv-sub-verdict--ok { color: var(--green); }
-.conv-sub-verdict--ko { color: var(--red); }
-
 .launch-bar { display: flex; gap: 8px; margin-bottom: 10px; }
 .launch-bar textarea { flex: 1; }
 .cards { display: flex; flex-direction: column; gap: 8px; }

@@ -19,6 +19,11 @@ $ErrorActionPreference = "Stop"
 $repo = $PSScriptRoot
 Set-Location $repo
 
+# Load .env BEFORE anything that reaches the network: step 3 pulls, step 4 runs
+# `pip install -e .`, and both need the proxy variables declared there.
+. (Join-Path $PSScriptRoot "load_dotenv.ps1")
+Import-DotEnv -Path (Join-Path $repo ".env") -Label "bouzecode-update"
+
 $logDir  = Join-Path $env:USERPROFILE ".bouzecode"
 if (-not (Test-Path $logDir)) { New-Item -ItemType Directory -Path $logDir | Out-Null }
 $ts      = Get-Date -Format "yyyyMMdd-HHmmss"

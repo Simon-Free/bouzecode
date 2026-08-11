@@ -3,6 +3,7 @@
 // historiques sans snapshots. Module PUR : aucune dépendance à l'état de la page.
 
 import { node } from "../dom.js";
+import { t } from "../../i18n/index.js";
 
 function diffStats(patch) {
   let added = 0, removed = 0;
@@ -174,7 +175,7 @@ function renderSideBySideDiff(container, original, modified, lang) {
   }
   const hidden = ops.length - shown;
   if (hidden > 0) {
-    node(grid, "div", "sxs-truncated", `… (${hidden} lignes supplémentaires masquées)`);
+    node(grid, "div", "sxs-truncated", t("panel.diff_truncated", { n: hidden }));
   }
   return grid;
 }
@@ -192,7 +193,7 @@ function renderPreDiff(container, patch) {
   }
   const hidden = allLines.length - lines.length;
   if (hidden > 0) {
-    node(pre, "span", "diff-truncated", `… (${hidden} lignes supplémentaires masquées)\n`);
+    node(pre, "span", "diff-truncated", t("panel.diff_truncated", { n: hidden }) + "\n");
   }
 }
 

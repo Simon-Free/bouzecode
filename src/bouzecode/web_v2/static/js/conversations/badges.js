@@ -5,6 +5,12 @@
 
 import { node, agentId } from "./dom.js";
 import { NODES } from "./state.js";
+import { t } from "../i18n/index.js";
+
+// Ces deux tables ne portent plus des MOTS mais des CLÉS (cf. i18n/en/state.js) : le
+// vocabulaire visuel reste unique, il est seulement rendu dans la langue choisie. Les clés
+// sont résolues au RENDU, jamais au chargement du module, sans quoi une bascule de langue
+// laisserait les pastilles figées.
 
 // PHASES DE DÉMARRAGE — servies par le backend (`n.phase`, cf. store.demarrage_phase).
 // « en cours » ne dit rien pendant les ~10 s qui séparent le clic du premier mot : 4 s de
@@ -13,33 +19,31 @@ import { NODES } from "./state.js";
 // travaille » — et le libellé de l'attente explique POURQUOI la première réponse est la plus
 // lente, ce qui est la question la plus posée. Vaut aussi à la reprise : un tour 12 qui
 // attend son modèle affiche la même chose qu'un tour 1.
+// Forme : [clé du libellé, classe CSS, clé de l'infobulle].
 export const PHASE_BADGE = {
-  demarrage: ["démarrage de l'agent…", "st-boot",
-              "Un processus neuf se lance : chargement du harnais et lecture du projet."],
-  attente_modele: ["le modèle lit votre demande…", "st-wait",
-                   "La première réponse est plus longue : le modèle met votre contexte en "
-                   + "mémoire. Les suivantes seront nettement plus rapides."],
+  demarrage: ["phase.demarrage", "st-boot", "phase.demarrage_detail"],
+  attente_modele: ["phase.attente_modele", "st-wait", "phase.attente_modele_detail"],
 };
 
 const STATE_BADGE = {
-  running: ["en cours", "st-run"],
-  starting: ["démarrage…", "st-run"],
+  running: ["state.running", "st-run"],
+  starting: ["state.starting", "st-run"],
   // Ticket en cours de lancement (worktree/venv/spawn en fond, aucun agent encore). Ce badge
   // était DÉCRIT par le commentaire de isActiveState mais absent de cette table : l'interface
   // affichait donc la chaîne brute « provisioning » en gris neutre. La phase précise (création
   // du worktree, installation uv, démarrage) arrive à part, dans la chip d'activité.
-  provisioning: ["préparation…", "st-run"],
-  awaiting_input: ["à répondre", "st-input"],
-  awaiting_plan_validation: ["plan à valider", "st-input"],
-  idle: ["chaud", "st-warm"],
-  finished: ["terminé", "st-ok"],
+  provisioning: ["state.provisioning", "st-run"],
+  awaiting_input: ["state.awaiting_input", "st-input"],
+  awaiting_plan_validation: ["state.awaiting_plan_validation", "st-input"],
+  idle: ["state.idle", "st-warm"],
+  finished: ["state.finished", "st-ok"],
   // Vivacité `crashed` SERVIE par le backend : mort PROUVÉE sans clôture (ni FinalAnswer,
-  // ni verdict). Certitude → libellé affirmatif, même mot que le board (« planté »).
-  crashed: ["planté", "st-ko"],
-  waiting_children: ["⏳ orchestre", "st-run"],
-  cli: ["cli", "st-cli"],
-  ko: ["KO", "st-ko"],
-  archived: ["archivé", "st-cli"],
+  // ni verdict). Certitude → libellé affirmatif, même mot que le board.
+  crashed: ["state.crashed", "st-ko"],
+  waiting_children: ["state.waiting_children", "st-run"],
+  cli: ["state.cli", "st-cli"],
+  ko: ["state.ko", "st-ko"],
+  archived: ["state.archived", "st-cli"],
 };
 
 // Un node "terminé" (finished) qui a des ENFANTS encore vivants n'est PAS fini : c'est un
@@ -61,7 +65,7 @@ export function effectiveState(n) {
   // Le VERDICT du validateur prime pour un node terminé : un finished au verdict KO
   // n'est PAS un succès → état synthétique "ko" (badge rouge), jamais vert. Un node
   // archivé passe en "archived" (gris neutre). Centralisé ici : sidebar (createGroup /
-  // updateGroup) ET chip sous-agent (renderSubagents) héritent tous du même verdict.
+  // updateGroup) et tout futur affichage héritent du même verdict.
   if (n.archived) return "archived";
   if (n.verdict === "KO") return "ko";
   // VIVACITÉ SERVIE PAR LE BACKEND (fleet._node → liveness.classify_agent) : elle croise pid
@@ -88,17 +92,20 @@ export function isActiveState(n) {
 
 export function badge(el, state, suspectDead, opts) {
   const compact = opts && opts.compact;
-  let [label, cls] = STATE_BADGE[state] || [state || "?", "st-cli"];
+  // État inconnu du catalogue : on affiche le mot de code brut plutôt qu'un marqueur de clé
+  // absente — c'est une donnée du backend, pas un libellé oublié.
+  const known = STATE_BADGE[state];
+  let [label, cls] = known ? [t(known[0]), known[1]] : [state || "?", "st-cli"];
   let tip = label;
   // La PHASE prime sur l'état quand elle existe : « en cours » est vrai mais muet pendant
   // les secondes de démarrage et d'attente du modèle. Le backend ne la sert QUE là
   // (cf. store.demarrage_phase) ; ailleurs elle est vide et l'état reprend la main.
   const phase = opts && opts.phase;
   if (phase && PHASE_BADGE[phase]) {
-    const [phLabel, phCls, phTip] = PHASE_BADGE[phase];
-    label = phLabel;
+    const [phLabelKey, phCls, phTipKey] = PHASE_BADGE[phase];
+    label = t(phLabelKey);
     cls = phCls;
-    tip = phTip;
+    tip = t(phTipKey);
   }
   // Deux niveaux de certitude, JAMAIS confondus (et jamais « terminé ») :
   //  - state === "crashed" : la vivacité backend PROUVE la mort sans clôture → « planté ».
@@ -106,12 +113,12 @@ export function badge(el, state, suspectDead, opts) {
   //                         → « mort ? », le point d'interrogation dit l'incertitude.
   // La certitude prime sur le soupçon : inutile de demander « mort ? » quand c'est prouvé.
   if (state === "crashed") {
-    tip = "Agent mort sans clôture prouvée (ni FinalAnswer, ni verdict) : à relancer.";
+    tip = t("state.tip_crashed");
   } else if (suspectDead) {
-    [label, cls] = ["mort ?", "st-ko"];
+    [label, cls] = [t("state.dead_maybe"), "st-ko"];
     // Règle transverse : une alerte (rouge/ambre) ne doit JAMAIS être un dot seul.
     // On explicite le critère qui a déclenché l'alerte dans le tooltip.
-    tip = "Agent suspecté mort : terminé sans aucun tour et code de sortie non nul.";
+    tip = t("state.tip_dead_maybe");
   }
   // Une phase est un état VIVANT : le point bat, comme pour « en cours ».
   const enPhase = !!(phase && PHASE_BADGE[phase]);
@@ -141,16 +148,15 @@ export function buildBadge(state, suspectDead, opts) {
 // les lecteurs d'écran et les snapshots d'accessibilité). Il doit dire EXACTEMENT ce que dit le
 // badge de la même carte : c'est ici que « terminé · branche … » contredisait un badge « mort ? ».
 export function stateTooltipLabel(eff, suspectDead) {
-  if (eff === "crashed") return "planté";
-  if (suspectDead) return "mort ?";
-  if (eff === "running" || eff === "orchestrating") return "en cours";
+  if (eff === "crashed") return t("state.crashed");
+  if (suspectDead) return t("state.dead_maybe");
+  if (eff === "running" || eff === "orchestrating") return t("state.running");
   // « provisioning » et « starting » tombaient dans le repli `String(eff)` : la description
   // accessible de la carte servait donc le mot de code brut, exactement le défaut corrigé
-  // ailleurs pour « planté ». Ils disent maintenant la même chose que leur badge.
-  if (eff === "provisioning") return "préparation…";
-  if (eff === "starting") return "démarrage…";
-  if (typeof eff === "string" && eff.startsWith("awaiting")) return "nécessite une réponse";
-  if (eff === "finished") return "terminé";
-  if (eff === "cli") return "terminé";
+  // ailleurs pour l'état planté. Ils disent maintenant la même chose que leur badge.
+  if (eff === "provisioning") return t("state.provisioning");
+  if (eff === "starting") return t("state.starting");
+  if (typeof eff === "string" && eff.startsWith("awaiting")) return t("state.needs_reply");
+  if (eff === "finished" || eff === "cli") return t("state.finished");
   return String(eff || "");
 }

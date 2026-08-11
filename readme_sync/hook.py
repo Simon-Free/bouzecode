@@ -6,10 +6,10 @@ from pathlib import Path
 
 from readme_sync.hashing import (
     CODE_EXTS,
-    DOC_NAME,
     IGNORE_DIRS,
     set_lock_stale,
 )
+from readme_sync.naming import doc_name
 
 
 def _extract_file_path(payload: dict) -> str | None:
@@ -26,11 +26,11 @@ def _is_ignored(path: Path) -> bool:
 def should_mark_stale(file_path: str) -> Path | None:
     """Return the folder to flag stale, or None if the edit is a no-op.
 
-    A no-op when: the file is the README itself, is not a code file, or lives
+    A no-op when: the file is the folder map itself, is not a code file, or lives
     under an ignored directory.
     """
     path = Path(file_path)
-    if path.name == DOC_NAME:
+    if path.name == doc_name():
         return None
     if path.suffix not in CODE_EXTS:
         return None

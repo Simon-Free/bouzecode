@@ -4,8 +4,8 @@ import re
 from pathlib import Path
 
 from .contract import purpose_of
+from .naming import doc_name
 from .hashing import (
-    DOC_NAME,
     code_files,
     git_ignored_paths,
     is_ignored_dir,
@@ -16,11 +16,11 @@ SUBFOLDERS_HEADING = "## Subfolders"
 
 
 def create_root_map(root: Path) -> Path:
-    """Write root/AGENTS.md as a flat map of every code folder + its 1-line purpose.
+    """Write the root folder map as a flat map of every code folder + its 1-line purpose.
 
     This is a pure map (no ## Module Reference): H1 + one-line purpose + a
     ## Subfolders table listing every non-ignored code folder under root (except
-    root itself), each with the purpose extracted from its own AGENTS.md. Idempotent.
+    root itself), each with the purpose extracted from its own map. Idempotent.
     """
     root = root.resolve()
     rows = []
@@ -31,7 +31,7 @@ def create_root_map(root: Path) -> Path:
             continue
         rel = folder.relative_to(root).as_posix()
         purpose = _child_purpose(folder)
-        rows.append(f"| [{rel}/]({rel}/{DOC_NAME}) | {purpose} |")
+        rows.append(f"| [{rel}/]({rel}/{doc_name()}) | {purpose} |")
     body = "\n".join(rows)
     table = (
         f"{SUBFOLDERS_HEADING}\n\n"
@@ -39,9 +39,9 @@ def create_root_map(root: Path) -> Path:
         "|--------|---------|\n"
         f"{body}\n"
     )
-    out = root / DOC_NAME
+    out = root / doc_name()
     if out.exists():
-        # Non-destructive: preserve the existing root AGENTS.md, just upsert
+        # Non-destructive: preserve the existing root map, just upsert
         # the ## Subfolders map. Never overwrite the H1 / prose.
         current = out.read_text(encoding="utf-8")
         out.write_text(upsert_subfolders_section(current, table), encoding="utf-8")
@@ -69,7 +69,7 @@ def code_subfolders(parent: Path) -> list[Path]:
     Git-ignored folders are skipped, exactly like `create_root_map`. Without this the
     two layers disagreed: the root map (built on `iter_code_folders`, which asks git)
     dropped a scratch folder, while parent propagation (this function) re-added it on
-    the next refresh — with a dead link, since a git-ignored folder has no AGENTS.md.
+    the next refresh — with a dead link, since a git-ignored folder has no folder map.
     """
     ignored = git_ignored_paths(parent)
     out = [
@@ -83,7 +83,7 @@ def code_subfolders(parent: Path) -> list[Path]:
 
 
 def _child_purpose(child: Path) -> str:
-    doc = child / DOC_NAME
+    doc = child / doc_name()
     if not doc.exists():
         return "—"
     purpose = purpose_of(doc.read_text(encoding="utf-8"))
@@ -96,7 +96,7 @@ def subfolders_table(parent: Path) -> str:
     for child in code_subfolders(parent):
         name = child.name
         purpose = _child_purpose(child)
-        rows.append(f"| [{name}/]({name}/{DOC_NAME}) | {purpose} |")
+        rows.append(f"| [{name}/]({name}/{doc_name()}) | {purpose} |")
     body = "\n".join(rows)
     return (
         f"{SUBFOLDERS_HEADING}\n\n"
@@ -177,13 +177,13 @@ def upsert_subfolders_section(md: str, table: str) -> str:
 
 
 def refresh_parent(parent: Path) -> None:
-    """Rewrite the parent's AGENTS.md ## Subfolders table from its real children.
+    """Rewrite the parent map's ## Subfolders table from its real children.
 
-    No-op if the parent has no AGENTS.md or no code subfolders. Does NOT touch the
-    parent's .agents.lock (its code manifest is unchanged; AGENTS.md is excluded)."""
+    No-op if the parent has no map or no code subfolders. Does NOT touch the
+    parent's lock (its code manifest is unchanged; the map itself is excluded)."""
     if not code_subfolders(parent):
         return
-    doc = parent / DOC_NAME
+    doc = parent / doc_name()
     if not doc.exists():
         return
     md = doc.read_text(encoding="utf-8")

@@ -4,6 +4,7 @@ from __future__ import annotations
 from importlib.metadata import PackageNotFoundError, version
 
 from bouzecode.ui.ansi import err, info, ok
+from bouzecode.ui.messages import msg
 from ..multi_agent.plugin_resolver import _normalize
 from ..plugin import install_plugin, register_plugin_tools
 from ..plugin.types import PluginScope
@@ -17,8 +18,8 @@ def _plugins_to_upgrade(profiles: dict, agent_name: str | None) -> tuple[list[di
     agent_name, returns ([], "<message listing available names>").
     """
     if agent_name and agent_name not in profiles:
-        available = ", ".join(sorted(profiles)) or "(aucun)"
-        return [], f"Agent inconnu: {agent_name}. Disponibles: {available}"
+        available = ", ".join(sorted(profiles)) or msg("upgrade.no_profile")
+        return [], msg("upgrade.unknown_agent", name=agent_name, available=available)
 
     if agent_name:
         targets = [profiles[agent_name]]
@@ -53,12 +54,14 @@ def cmd_agent_upgrade(arg: str, state, config):
         return True
 
     if not entries:
-        scope = f"l'agent {agent_name}" if agent_name else "les profils"
-        info(f"Aucun plugin requis par {scope}.")
+        scope = (msg("upgrade.scope_one_agent", name=agent_name) if agent_name
+                 else msg("upgrade.scope_all_profiles"))
+        info(msg("upgrade.nothing_required", scope=scope))
         return True
 
-    target = f"de l'agent {agent_name}" if agent_name else "de tous les profils"
-    info(f"Mise a jour de {len(entries)} plugin(s) {target}...")
+    target = (msg("upgrade.target_one_agent", name=agent_name) if agent_name
+              else msg("upgrade.target_all_profiles"))
+    info(msg("upgrade.updating", count=len(entries), target=target))
     for entry in entries:
         package = entry["package"]
         source = entry["source"]
@@ -69,8 +72,8 @@ def cmd_agent_upgrade(arg: str, state, config):
             transition = f"v{v_before or '?'}->v{v_after or '?'}"
             ok(f"  {package}: OK {transition}")
         else:
-            err(f"  {package}: ECHEC: {message}")
+            err(msg("upgrade.package_failed", package=package, message=message))
 
     register_plugin_tools()
-    info("Tools de plugins re-enregistres.")
+    info(msg("upgrade.tools_registered"))
     return True

@@ -246,7 +246,7 @@ describe("Récap — rendu des diffs (offline, side-by-side maison)", () => {
     // L'indicateur de troncature est présent et chiffre les lignes masquées.
     const trunc = pre.querySelector(".diff-truncated");
     expect(trunc).toBeTruthy();
-    expect(trunc.textContent).toMatch(/lignes supplémentaires masquées/);
+    expect(trunc.textContent).toMatch(/more lines hidden/);
   });
 
   it("payload enrichi (original + modified) : rend la grille side-by-side .recap-sxs (add/del), pas de <pre>", async () => {
@@ -282,7 +282,7 @@ describe("Récap — pastille dans la ligne de l'agent", () => {
     await mountTree(RECAP_FULL, []);
     const pill = document.querySelector("#conv-list .conv-recap-pill");
     expect(pill).toBeTruthy();
-    expect(pill.textContent).toBe("Récap");
+    expect(pill.textContent).toBe("Recap");
     expect(pill.hidden).toBe(false);
   });
 
@@ -341,7 +341,7 @@ describe("Récap — segmented control [Conversation | Recap]", () => {
 
     const recapBtn = document.querySelector('.conv-view-btn[data-view="recap"]');
     expect(recapBtn.disabled).toBe(true);
-    expect(recapBtn.title).toContain("disponible a la fin de la session");
+    expect(recapBtn.title).toContain("available once the session ends");
   });
 
   it("le bouton Recap est dégrisé une fois la session finished", async () => {
@@ -361,14 +361,14 @@ describe("Récap — points d'entrée (pill sidebar + CTA bloc final)", () => {
     expect(document.querySelector(".conv-pane-conv").hidden).toBe(true);
   });
 
-  it("le bloc final expose un bouton « Voir le recap → » qui bascule sur Recap", async () => {
+  it("le bloc final expose un bouton « View recap → » qui bascule sur Recap", async () => {
     await mountTree(RECAP_FULL, []);
     await openConversation();
 
     // Session finished → CTA injecté dans le fil.
     const cta = document.querySelector(".conv-recap-cta");
     expect(cta).toBeTruthy();
-    expect(cta.textContent).toContain("Voir le recap");
+    expect(cta.textContent).toContain("View recap");
 
     cta.click();
     await flush();
@@ -410,10 +410,10 @@ describe("Récap — contenu (INCHANGÉ)", () => {
 
     // a/b/c : sections textuelles Symptômes / Cause-plan / Tests.
     const titles = [...pane.querySelectorAll(".recap-section-title")].map((n) => n.textContent);
-    expect(titles).toContain("Symptômes");
+    expect(titles).toContain("Symptoms");
     expect(titles).toContain("Cause / plan");
     expect(titles).toContain("Tests");
-    expect(titles).toContain("Modifications");
+    expect(titles).toContain("Changes");
     // d : liste ordonnée des changements.
     const changeFiles = [...pane.querySelectorAll(".recap-change-file")].map((n) => n.textContent);
     expect(changeFiles).toEqual(["src/pkg/service.py"]);
@@ -424,7 +424,7 @@ describe("Récap — contenu (INCHANGÉ)", () => {
 
     // Titres de section de diff dans l'ordre reçu.
     const sectionTitles = [...pane.querySelectorAll(".recap-diff-section-title")].map((n) => n.textContent);
-    expect(sectionTitles).toEqual(["Modifications", "Autres modifications", "Tests"]);
+    expect(sectionTitles).toEqual(["Changes", "Other changes", "Tests"]);
 
     // Compteur +n/−n présent dans l'en-tête de chaque bloc.
     const first = pane.querySelector(".recap-diff");
@@ -512,7 +512,7 @@ describe("Récap — contenu (INCHANGÉ)", () => {
     // La 2e carte (sans recap) porte le bandeau « non disponible » et AUCUN diff.
     const bBanner = cards[1].querySelector(".recap-banner");
     expect(bBanner).toBeTruthy();
-    expect(bBanner.textContent).toContain("Récap non disponible");
+    expect(bBanner.textContent).toContain("Recap unavailable");
     expect(cards[1].querySelectorAll(".recap-diff-file").length).toBe(0);
     expect(cards[1].querySelectorAll(".recap-section-title").length).toBe(0);
     // Seul l'enfant A porte des diffs.

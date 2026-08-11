@@ -5,10 +5,11 @@ from typing import Generator
 
 from ..registry import (
     resolve_provider, model_uses_native_tools,
-    get_api_key, get_openrouter_key, get_gateway_key,
-    gateway_base_url, GATEWAY_PROVIDER, ENV_GATEWAY_API_KEY, ENV_GATEWAY_BASE_URL,
+    get_provider_key,
+    gateway_base_url, GATEWAY_PROVIDER,
     PROVIDERS,
 )
+from ..missing_key import MissingApiKeyError, missing_key_message
 from .anthropic_stream import stream_anthropic
 
 
@@ -129,39 +130,18 @@ _FRESH_REMINDER = (
 )
 
 
-def _require_key(provider_name: str, config: dict) -> str:
+def _require_key(provider_name: str, config: dict, model: str) -> str:
     """Resolve and validate the API key before any streaming begins, so a missing
-    key raises immediately (before the SystemPayload is yielded)."""
-    if provider_name == "openrouter":
-        key = get_openrouter_key(config)
-        if not key:
-            raise RuntimeError(
-                "\n\n"
-                "  No OpenRouter API key found.\n\n"
-                "  Add OPENROUTER_KEY=sk-or-... to your .env file\n"
-                "  (in the bouzecode repo root), or set it as an\n"
-                "  environment variable before launching bouzecode.\n"
-            )
-        return key
-    if provider_name == GATEWAY_PROVIDER:
-        key = get_gateway_key(config)
-        if not key:
-            raise RuntimeError(
-                "\n\n"
-                "  No API key found for the OpenAI-compatible gateway.\n\n"
-                f"  Set {ENV_GATEWAY_API_KEY} (and {ENV_GATEWAY_BASE_URL})\n"
-                "  before launching bouzecode.\n"
-            )
-        return key
-    key = get_api_key(config)
+    key raises immediately (before the SystemPayload is yielded).
+
+    The three providers used to raise three near-identical "add KEY=... to .env"
+    messages, none of which mentioned the keys the user already had. They now
+    share one diagnosis that names the configured providers and the models they
+    serve — and it is a MissingApiKeyError, which the CLI reports without a
+    traceback because it is a configuration error, not a crash."""
+    key = get_provider_key(provider_name, config)
     if not key:
-        raise RuntimeError(
-            "\n\n"
-            "  No Anthropic API key found.\n\n"
-            "  Add ANTHROPIC_API_KEY=sk-ant-... to your .env file\n"
-            "  (in the bouzecode repo root), or set it as an\n"
-            "  environment variable before launching bouzecode.\n"
-        )
+        raise MissingApiKeyError(missing_key_message(provider_name, model, config))
     return key
 
 
@@ -184,7 +164,7 @@ def stream(
 ) -> Generator:
     provider_name, model_name = resolve_provider(model)
     # Validate the key up front: a missing key must raise before the first yield.
-    api_key = _require_key(provider_name, config)
+    api_key = _require_key(provider_name, config, model)
     native = model_uses_native_tools(model, config)
 
     from ....xml_tool_protocol import build_tool_docs

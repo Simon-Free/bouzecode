@@ -1,4 +1,4 @@
-# Contributor Guide: Where to Change What in bouzecode
+# Contributor Guide: Where to Change What in Bouzécode
 
 This guide is for contributors implementing new features or updating existing behavior.
 It focuses on **which files matter**, **how data flows**, and **how to make safe changes quickly**.
@@ -158,18 +158,34 @@ If you remember only one thing, remember this flow:
 
 ## 5) Tests: what to run and where to add coverage
 
+```powershell
+uv pip install -e ".[test]"
+.venv\Scripts\python.exe -m pytest -q                          # the whole suite
+.venv\Scripts\python.exe -m pytest -q -n auto                  # in parallel
+.venv\Scripts\python.exe -m pytest -q -m backend               # the engine only
+.venv\Scripts\python.exe -m pytest -q tests\web_v2             # the web service layer
+.venv\Scripts\python.exe -m pytest -q src\bouzecode\web_v2\tests  # the tests shipped with the package
+```
 ```bash
 uv pip install -e ".[test]"
-python -m pytest -q                    # the whole suite
-python -m pytest -q -n auto            # in parallel
-python -m pytest -q -m backend         # the engine only
-python -m pytest -q tests/web_v2       # the web service layer
-python -m pytest -q src/bouzecode/web_v2/tests   # the tests that ship with the package
+python -m pytest -q
+python -m pytest -q -n auto
+python -m pytest -q -m backend
+python -m pytest -q tests/web_v2
+python -m pytest -q src/bouzecode/web_v2/tests
 ```
 
-`testpaths` is `tests/`. Tests are auto-marked from their top-level folder: `tests/backend/` → `backend`, `tests/ui/` → `ui`, `tests/frontend/` → `web`. A `slow` marker tags the fixture files the test-runner tests target.
+`testpaths` is `tests/`. Tests are auto-marked from the folder they live in: `tests/backend/` → `backend`, `tests/ui/` → `ui`, `tests/web_v2/` and `src/bouzecode/web_v2/tests/` → `web`. A `slow` marker tags the fixture files the test-runner tests target.
 
-A hermetic guard in `tests/conftest.py` blocks any real LLM call unless a test opts in with `require_api_key()`, so a stray credential can never turn a run into a bill.
+A hermetic guard in `tests/conftest.py` blocks any real LLM call unless a test opts in with `require_api_key()` (`tests/cache_conversation_helpers.py`), so a stray credential can never turn a run into a bill. A second autouse guard fails any test that writes into the git-tracked working tree — use the `agent_cwd` fixture to run the agent from a temporary directory.
+
+The front-end JavaScript has its own suite (Vitest on happy-dom), which loads the real `static/js/` modules into a simulated DOM and drives them through events:
+
+```bash
+cd src/bouzecode/web_v2
+npm install
+npm test
+```
 
 The policy lives in `tests/backend/TEST_METHODOLOGY.md`, with the per-file state in `TEST_TRIAGE.md`. In short: a test must be readable without opening the code it tests, so the suite is dominated by conversation tests driven through `tests/e2e_harness.py` and `tests/fake_llm.py`. Take the highest of the four levels that suffices: `mock_llm`, `mock_api`, Flask test client, Playwright.
 
@@ -187,7 +203,9 @@ Recommended workflow: run the impacted folder first, then the whole suite before
 - **The web UI never parses stdout.** Every view is rendered from the structured session JSON, the IPC files and the payload dumps.
 - **The API schema is derived, not written.** It comes from `app.url_map`.
 - **Runtime state is under `~/.bouzecode/`.** Tasks, memories and sessions are home- and cwd-dependent; a test that changes directory changes their behaviour.
-- **Folder maps must stay in step.** Every code folder carries a `README.md` listing its purpose and symbols. `python -m readme_sync --check` reports drift, `--list-stale` names it, `--regen` rebuilds one.
+- **Folder maps must stay in step.** Every code folder carries a `README.md` listing its purpose and symbols. `python -m readme_sync --check` reports drift and exits 0 when the tree is clean, `--list-stale` names it, `--regen` rebuilds one. The maintained filename is a setting — `--doc-name`, `README_SYNC_DOC_NAME`, or `[tool.readme_sync] doc_name` in `pyproject.toml` — and this repository leaves it at the default, `README.md`.
+- **`.ps1` files are pure ASCII.** Windows PowerShell 5.1 reads a BOM-less script as ANSI, so one accented character corrupts the file. `tests/backend/regression/structure/test_powershell_launchers.py` enforces that, and enforces that a launcher loads `.env` before it installs dependencies — otherwise the proxy settings documented for a corporate network cannot reach the package index.
+- **UI wording lives in a dictionary.** Terminal strings go through `msg()` in `src/bouzecode/ui/messages/`; web labels go through a `data-i18n` key and the dictionaries under `web_v2/static/js/i18n/`, English first. A string typed straight into a template or a `print()` is a string that cannot be translated.
 
 ---
 

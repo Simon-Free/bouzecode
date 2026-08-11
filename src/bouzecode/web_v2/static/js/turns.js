@@ -19,10 +19,14 @@ async function showTurnDetail(turn, container) {
   if (detail.error) { container.textContent = detail.error; return; }
   const summary = document.createElement("div");
   summary.className = "turn-summary";
-  summary.textContent =
-    `Tour ${detail.turn} — ${detail.wire_message_count} messages envoyés · ` +
-    `in ${fmtTokens(detail.input_tokens)} (cache lu ${fmtTokens(detail.cache_read)}, ` +
-    `écrit ${fmtTokens(detail.cache_create)}) · out ${fmtTokens(detail.output_tokens)}`;
+  summary.textContent = window.i18n.t("session.turn_summary", {
+    turn: detail.turn,
+    messages: detail.wire_message_count,
+    input: fmtTokens(detail.input_tokens),
+    read: fmtTokens(detail.cache_read),
+    write: fmtTokens(detail.cache_create),
+    output: fmtTokens(detail.output_tokens),
+  });
   container.appendChild(summary);
 
   detail.items.forEach((item) => {
@@ -37,18 +41,37 @@ async function showTurnDetail(turn, container) {
     block.appendChild(head);
     const body = document.createElement("pre");
     body.className = "code";
-    body.textContent = item.content || item.preview || "(aperçu vide)";
+    body.textContent = item.content || item.preview || window.i18n.t("session.preview_empty");
     block.appendChild(body);
     container.appendChild(block);
   });
 
   const responseTitle = document.createElement("h3");
-  responseTitle.textContent = "Réponse du modèle";
+  responseTitle.textContent = window.i18n.t("session.model_response");
   container.appendChild(responseTitle);
   const responseBox = document.createElement("div");
   responseBox.innerHTML = detail.response_html;
   container.appendChild(responseBox);
   container.scrollIntoView({ block: "nearest" });
+}
+
+// En-tête du tableau. « Δ s », « in », « out », « % hit » et « $ » s'écrivent pareil dans les
+// deux langues : les mettre au dictionnaire n'ajouterait que des clés à maintenir.
+function turnsTableHead() {
+  const labels = [
+    window.i18n.t("session.th_turn"), window.i18n.t("session.th_time"), "Δ s", "in", "out",
+    window.i18n.t("session.th_cache_read"), window.i18n.t("session.th_cache_write"),
+    "% hit", "$", window.i18n.t("session.th_tools"),
+  ];
+  const head = document.createElement("thead");
+  const row = document.createElement("tr");
+  labels.forEach((text) => {
+    const th = document.createElement("th");
+    th.textContent = text;
+    row.appendChild(th);
+  });
+  head.appendChild(row);
+  return head;
 }
 
 async function loadTurns() {
@@ -67,14 +90,14 @@ async function loadTurns() {
   if (!data.calls || !data.calls.length) return;
   const info = document.createElement("p");
   info.className = "muted";
-  info.textContent = `system prompt ≈ ${fmtTokens(data.system_prompt_tokens)} tok · coût total ≈ $${data.total_cost}` +
-    (data.missing_dumps ? " · dumps de payload absents (drill-down indisponible)" : "");
+  info.textContent = window.i18n.t("session.turns_info", {
+    tokens: fmtTokens(data.system_prompt_tokens), cost: data.total_cost,
+  }) + (data.missing_dumps ? ` · ${window.i18n.t("session.turns_no_dumps")}` : "");
   container.appendChild(info);
 
   const table = document.createElement("table");
   table.className = "turns-table";
-  table.innerHTML = "<thead><tr><th>tour</th><th>heure</th><th>Δ s</th><th>in</th><th>out</th>" +
-    "<th>cache lu</th><th>cache écrit</th><th>% hit</th><th>$</th><th>outils</th></tr></thead>";
+  table.appendChild(turnsTableHead());
   const body = document.createElement("tbody");
   const detailPane = document.createElement("div");
   detailPane.id = "turn-detail";

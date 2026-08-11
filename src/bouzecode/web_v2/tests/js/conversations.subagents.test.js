@@ -62,7 +62,7 @@ afterEach(() => {
 });
 
 describe("conversations.js — regle anti-dot-seul (§2)", () => {
-  it("un node suspect_dead affiche le libelle 'mort' (pas un dot rouge seul) + tooltip explicatif", async () => {
+  it("un node suspect_dead affiche le libelle 'dead?' (pas un dot rouge seul) + tooltip explicatif", async () => {
     const TREE = {
       nodes: [
         {
@@ -84,13 +84,14 @@ describe("conversations.js — regle anti-dot-seul (§2)", () => {
     expect(badge).not.toBeNull();
     // Alerte rouge : classe st-ko.
     expect(badge.classList.contains("st-ko")).toBe(true);
-    // ANTI-DOT-SEUL : le libelle "mort" est present dans le texte (pas seulement un dot).
-    expect(badge.textContent).toContain("mort");
+    // ANTI-DOT-SEUL : le libelle est present dans le texte (pas seulement un dot). On lit
+    // celui de la langue par DEFAUT : c'est la presence du mot qui est testee, pas sa langue.
+    expect(badge.textContent).toContain("dead?");
     // Le dot existe toujours (on n'a rien supprime), mais il n'est PAS seul.
     expect(badge.querySelector(".pui-dot")).not.toBeNull();
     // Tooltip explicite le critere declencheur.
     expect(badge.title.length).toBeGreaterThan(0);
-    expect(badge.title.toLowerCase()).toContain("mort");
+    expect(badge.title.toLowerCase()).toContain("suspected dead");
   });
 });
 

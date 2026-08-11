@@ -14,6 +14,10 @@ let partialPoller = null;
 // à décider si CET agent affiche le bandeau « interrompu — Reprendre » dans l'onglet.
 let interruptedItems = null;
 let interruptedFetched = false;
+// Dernier statut / dernière méta reçus : la bascule de langue les redessine sans attendre
+// le prochain poll (jusqu'à 5 s d'écart, soit un en-tête à moitié traduit).
+let lastStatus = null;
+let lastMeta = null;
 const isAgent = SESSION_KEY.startsWith("agent/");
 const agentId = isAgent ? SESSION_KEY.split("/")[1] : "";
 
@@ -24,9 +28,19 @@ function pinnedToBottom() {
   return window.innerHeight + window.scrollY >= document.body.scrollHeight - 120;
 }
 
+// La pastille réutilise le vocabulaire d'état PARTAGÉ (`state.*`), celui de la sidebar et des
+// chips : un agent ne peut pas être « terminé » ici et « done » ailleurs. Le serveur peut
+// inventer un état que le dictionnaire ignore — on rend alors le code brut plutôt que le
+// marqueur ⟦state.xxx⟧, qui ferait passer un état inconnu pour un bug de traduction.
+function stateLabel(state) {
+  const key = `state.${state}`;
+  return window.i18n.messages.en[key] === undefined ? state : window.i18n.t(key);
+}
+
 function setStatus(status) {
+  lastStatus = status;
   lastState = status.state;
-  badge.textContent = status.state;
+  badge.textContent = stateLabel(status.state);
   badge.className = `badge st-${status.state}`;
   document.getElementById("kill-btn").hidden = !(isAgent && status.state === "running");
   document.getElementById("composer").hidden = !(isAgent && status.state !== "running");
@@ -89,10 +103,12 @@ function wireInterruptedBanner() {
 
 function setMeta(meta) {
   if (!meta || !meta.first_message) return;
+  lastMeta = meta;
   document.getElementById("s-title").textContent = meta.first_message.slice(0, 160);
   const tokens = `${Math.round((meta.input_tokens || 0) / 1000)}k in / ${Math.round((meta.output_tokens || 0) / 1000)}k out`;
+  const turns = window.i18n.t("session.meta_turns", { n: meta.turn_count });
   document.getElementById("s-meta").textContent =
-    [meta.model, `${meta.turn_count} tours`, tokens, meta.saved_at].filter(Boolean).join(" · ");
+    [meta.model, turns, tokens, meta.saved_at].filter(Boolean).join(" · ");
   document.getElementById("diff-count").textContent = meta.files_edited ? `(${meta.files_edited})` : "";
 }
 
@@ -125,6 +141,10 @@ async function poll() {
     }
     data.blocks.forEach((block) => conv.insertAdjacentHTML("beforeend", block.html));
     if (data.blocks.length) {
+      // Le chrome de ces blocs arrive du serveur avec sa clé et son texte anglais : un
+      // utilisateur en français doit le lire en français dès l'insertion. Les clés restent
+      // dans le DOM, donc c'est idempotent et une bascule ultérieure les réécrira aussi.
+      window.i18n.applyDom(conv);
       nextIndex = data.total;
       if (pinned) window.scrollTo(0, document.body.scrollHeight);
     }
@@ -170,11 +190,11 @@ function renderStreamingPartial(container, data) {
     const label = stk.querySelector(".st-label");
     const body = stk.querySelector(".st-body");
     if (phase === "thinking") {
-      label.textContent = "Réflexion en cours…";
+      label.textContent = window.i18n.t("session.thinking_live");
       stk.classList.remove("collapsed");
       stk.classList.add("thinking-active");
     } else {
-      label.textContent = "Réflexion";
+      label.textContent = window.i18n.t("session.thinking");
       stk.classList.add("collapsed");
       stk.classList.remove("thinking-active");
     }
@@ -196,7 +216,8 @@ function renderStreamingPartial(container, data) {
       const sbExisting = container.querySelector(".streaming-block");
       container.insertBefore(stool, sbExisting || null);
     }
-    stool.querySelector(".st-tool-label").textContent = `Outil en cours : ${toolName}`;
+    stool.querySelector(".st-tool-label").textContent =
+      window.i18n.t("session.tool_running", { tool: toolName });
   } else if (stool) {
     stool.remove();
   }
@@ -287,7 +308,10 @@ async function loadDiffs() {
   const container = document.getElementById("tab-diffs");
   container.replaceChildren();
   if (!data.files.length) {
-    container.innerHTML = '<p class="muted">Aucun fichier modifié dans cette session.</p>';
+    const empty = document.createElement("p");
+    empty.className = "muted";
+    empty.textContent = window.i18n.t("session.no_files");
+    container.appendChild(empty);
     return;
   }
   const monaco = await loadMonaco();
@@ -295,7 +319,8 @@ async function loadDiffs() {
     const details = document.createElement("details");
     details.className = "diff-file";
     const summary = document.createElement("summary");
-    summary.textContent = `${file.is_new ? "NOUVEAU " : ""}${file.path} (+${file.added})`;
+    const isNew = file.is_new ? `${window.i18n.t("session.file_new")} ` : "";
+    summary.textContent = `${isNew}${file.path} (+${file.added})`;
     details.appendChild(summary);
     const body = document.createElement("div");
     body.className = "diff-body";
@@ -341,11 +366,11 @@ function renderTurnContext(html) {
   const header = document.createElement("div");
   header.className = "turn-context-header";
   const title = document.createElement("h3");
-  title.textContent = "Contexte du tour";
+  title.textContent = window.i18n.t("session.turn_context_title");
   const closeBtn = document.createElement("button");
   closeBtn.type = "button";
   closeBtn.className = "turn-context-close";
-  closeBtn.setAttribute("aria-label", "Fermer");
+  closeBtn.setAttribute("aria-label", window.i18n.t("session.close"));
   closeBtn.textContent = "×";
   closeBtn.addEventListener("click", closeTurnContextModal);
   header.append(title, closeBtn);
@@ -355,7 +380,8 @@ function renderTurnContext(html) {
 
   // L'endpoint /turns/<n>/context renvoie du HTML riche (delta/cached/tokens,
   // CSS inline) produit par render_context_diag_html — on l'injecte tel quel.
-  body.innerHTML = html || "<p>Aucun contenu pour ce tour.</p>";
+  if (html) body.innerHTML = html;
+  else body.textContent = window.i18n.t("session.turn_context_empty");
 
   dialog.append(header, body);
   overlay.appendChild(dialog);
@@ -395,6 +421,20 @@ document.getElementById("composer-text").addEventListener("keydown", (event) => 
 
 document.getElementById("kill-btn").addEventListener("click", async () => {
   await fetch(`/api/agents/${agentId}/kill`, { method: "POST" });
+});
+
+// Bascule de langue — L'UNIQUE point de redessin de la page. `applyDom` (dans le noyau) a déjà
+// retraduit tout ce qui porte un `data-i18n` dans le gabarit ; ne restent que les fragments
+// composés en JavaScript. Les onglets déjà chargés sont rejoués (le drapeau de garde tombe),
+// ceux jamais ouverts n'ont rien à réécrire.
+window.i18n.onChange(() => {
+  if (lastStatus) setStatus(lastStatus);
+  if (lastMeta) setMeta(lastMeta);
+  if (diffsLoaded) { diffsLoaded = false; loadDiffs(); }
+  if (turnsLoaded) { turnsLoaded = false; loadTurns(); }
+  // costs.js est une IIFE : il publie son redessin sur `window` plutôt que dans la portée
+  // globale partagée. Absent tant que l'onglet Coûts n'a jamais été ouvert.
+  if (window.redrawCosts) window.redrawCosts();
 });
 
 poll();

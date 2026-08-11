@@ -6,6 +6,7 @@ import sys
 from pathlib import Path
 
 from .hashing import code_files, iter_code_folders, scan
+from .naming import doc_name, resolve_naming, use
 from .propagate import SUBFOLDERS_HEADING, create_root_map
 from .regen import regen_folder
 
@@ -36,8 +37,8 @@ def _is_linked_worktree(root: Path) -> bool:
 
 
 def _root_map_present(root: Path) -> bool:
-    """True when the root AGENTS.md exists AND already carries a Subfolders map."""
-    doc = root / "AGENTS.md"
+    """True when the root map exists AND already carries a Subfolders section."""
+    doc = root / doc_name()
     if not doc.exists():
         return False
     return SUBFOLDERS_HEADING in doc.read_text(encoding="utf-8")
@@ -56,6 +57,7 @@ def bootstrap_readme_map(
     `deferred` so a launch is never frozen.
     """
     root = root.resolve()
+    use(resolve_naming(root))
     if _is_linked_worktree(root):
         return {"disabled": False, "skipped": "worktree"}
     total_folders = code_folder_count(root)

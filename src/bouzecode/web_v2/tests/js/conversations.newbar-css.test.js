@@ -7,7 +7,7 @@ import { dirname, resolve } from "node:path";
 // conversation" refondue. On lit le template conversations.html, on extrait le
 // bloc <style> et on vérifie les règles clés :
 //   - .conv-new-bar est en flex-direction:row (bouton à côté du textarea, pas dessous)
-//   - le fond du textarea (#conv-new-input) diffère du fond de page (--pui-bg #08080b)
+//   - le fond du textarea (#conv-new-input) diffère du fond de page (token --bg)
 //   - le ratio de luminance zone/fond >= 1.3 (zone plus claire que le fond)
 //   - aucune règle .conv-new-tab-btn ne subsiste (bouton "+" supprimé)
 // Les critères de LAYOUT en pixels (y bouton < bas textarea, largeur >=95%) sont
@@ -15,13 +15,31 @@ import { dirname, resolve } from "node:path";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const TEMPLATE = resolve(__dirname, "../../templates/conversations.html");
-const PAGE_BG = "#08080b"; // var(--pui-bg) : fond de page mesuré (rgb 8,8,11)
+const APP_CSS = resolve(__dirname, "../../static/app.css");
 
 function styleBlock() {
   const html = readFileSync(TEMPLATE, "utf8");
   const m = html.match(/<style[^>]*>([\s\S]*?)<\/style>/i);
   expect(m).not.toBeNull();
   return m[1];
+}
+
+// Les règles du gabarit ne portent AUCUN hex : `conversations.nohex.test.js` l'interdit, tout
+// passe par les tokens du thème. Un critère de couleur se vérifie donc en deux temps —
+// la règle nomme un token, `:root` (app.css) lui donne sa valeur. Même lecture que
+// `conversations.ui3-bubble.test.js`.
+function tokenValue(name) {
+  const css = readFileSync(APP_CSS, "utf8");
+  const m = css.match(new RegExp(`${name}:\\s*(#[0-9a-fA-F]{6})`));
+  expect(m, `token ${name} introuvable dans :root`).not.toBeNull();
+  return m[1];
+}
+
+// Résout `var(--panel2)` (ou un hex écrit en dur) vers un #rrggbb.
+function colorOf(declaration) {
+  const variable = declaration.match(/var\(\s*(--[\w-]+)/);
+  if (variable) return tokenValue(variable[1]);
+  return (declaration.match(/#[0-9a-f]{6}/i) || [])[0];
 }
 
 // Extrait le corps `{ ... }` de la PREMIÈRE règle dont le sélecteur contient `sel`.
@@ -76,12 +94,12 @@ describe("conversations.html — CSS barre nouvelle conversation refondue", () =
     const input = ruleBody(styleBlock(), ".conv-new-input {");
     const bg = declValue(input, "background");
     expect(bg).not.toBeNull();
-    // background peut être un simple hex ; on isole le token couleur.
-    const hex = (bg.match(/#[0-9a-f]{6}/i) || [])[0];
+    const hex = colorOf(bg);
     expect(hex).toBeTruthy();
-    expect(hex.toLowerCase()).not.toBe(PAGE_BG);
-    expect(relLuminance(hex)).toBeGreaterThan(relLuminance(PAGE_BG));
-    expect(contrastRatio(hex, PAGE_BG)).toBeGreaterThanOrEqual(1.3);
+    const pageBg = tokenValue("--bg"); // fond de page, lu au même endroit que le reste
+    expect(hex.toLowerCase()).not.toBe(pageBg.toLowerCase());
+    expect(relLuminance(hex)).toBeGreaterThan(relLuminance(pageBg));
+    expect(contrastRatio(hex, pageBg)).toBeGreaterThanOrEqual(1.3);
   });
 
   it("aucune règle .conv-new-tab-btn ne subsiste (bouton + supprimé)", () => {

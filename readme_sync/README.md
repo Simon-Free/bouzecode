@@ -24,8 +24,11 @@ Folder states: **FRESH** (locks match) / **STALE** (hash differs, file added/rem
 or lock flagged stale) / **MISSING** (code folder with no README) / **ORPHAN**
 (README with no code).
 
+Code files are `.py` and `.js`: a front-end folder is documented like a Python one.
+
 Ignored dirs: `.venv`, `node_modules`, `dist`, `.pytest_cache`, `deploy_build`,
-`bin`, `.git`, `__pycache__`.
+`bin`, `.git`, `__pycache__`, `vendor` (third-party code shipped in-tree is not
+ours to document).
 
 ---
 

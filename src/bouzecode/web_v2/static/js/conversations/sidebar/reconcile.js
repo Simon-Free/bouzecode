@@ -2,6 +2,7 @@
 // existants par insertBefore (déplace sans détruire) et ne retire que le delta.
 
 import { node } from "../dom.js";
+import { t } from "../../i18n/index.js";
 import { groupRegistry, createGroup, emptyMsgEl } from "./group.js";
 import { updateGroup } from "./group_update.js";
 
@@ -60,9 +61,9 @@ export function purgeRec(key, rec) {
 // son cadre orange ; running/finished sont des conteneurs neutres.
 const SECTION_ORDER = ["needinput", "running", "finished"];
 const SECTION_META = {
-  needinput: { cls: "conv-section-needinput", title: "⚠ Nécessite une action" },
-  running: { cls: "conv-section-running", title: "● En cours" },
-  finished: { cls: "conv-section-finished", title: "Terminés" },
+  needinput: { cls: "conv-section-needinput", key: "sidebar.section_needinput" },
+  running: { cls: "conv-section-running", key: "sidebar.section_running" },
+  finished: { cls: "conv-section-finished", key: "sidebar.section_finished" },
 };
 // wrapper DOM persistant par section (créé à la demande, retiré quand vide).
 const sectionWrappers = new Map(); // sectionKey -> <div.conv-section-*>
@@ -76,13 +77,16 @@ export function reconcileTopLevel(list, needInput, running, finished) {
     const items = bySection[sec] || [];
     let wrapper = sectionWrappers.get(sec);
     if (items.length) {
+      const meta = SECTION_META[sec];
       if (!wrapper) {
-        const meta = SECTION_META[sec];
         wrapper = document.createElement("div");
         wrapper.className = meta.cls;
-        node(wrapper, "div", "conv-cat-title", meta.title);
+        node(wrapper, "div", "conv-cat-title");
         sectionWrappers.set(sec, wrapper);
       }
+      // Le wrapper survit aux refresh : son titre est retraduit à CHAQUE passe, donc
+      // une bascule de langue (qui relance un render) le réécrit sans le recréer.
+      wrapper.firstChild.textContent = t(meta.key);
       // Le titre est le firstChild du wrapper ; reconcileGroups gère uniquement les
       // .conv-group frères du titre (il ignore les non-.conv-group).
       reconcileGroups(wrapper, items, 0);

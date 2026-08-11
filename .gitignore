@@ -5,7 +5,11 @@ build/
 dist/
 .venv/
 .venv-ui/
+uv.lock
 node_modules/
+# readme_sync lock sidecars: a generated hash cache, named after the configured
+# folder-map file (.readme.lock for README.md, .agents.lock for AGENTS.md).
+.readme.lock
 .agents.lock
 .idea/
 .pytest_cache/
@@ -19,3 +23,6 @@ uvx.exe
 uvw.exe
 .env
 .env.*
+
+# Runtime state written by the agent in the working directory
+.nano_claude/

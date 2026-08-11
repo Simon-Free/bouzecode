@@ -16,6 +16,7 @@ import { wireNewConversationBar } from "./conversations/composer/launch.js";
 import { loadTypologies, wireAgentBanner } from "./conversations/composer/typology.js";
 import { loadProjects, wireProjectBanner } from "./conversations/composer/project.js";
 import { wireIsolationBanner } from "./conversations/composer/isolation.js";
+import { onLangChange } from "./i18n/index.js";
 
 // Hook de test/debug minimal (aucun effet en prod) : expose le poller et la map
 // d'onglets pour piloter la réentrance du poll depuis les tests unitaires (vitest)
@@ -45,6 +46,22 @@ async function autoArchiveStale() {
   }
 }
 
+
+// --- Bascule de langue, sans rechargement ------------------------------------
+// `applyDom` (dans le noyau i18n) a déjà retraduit tout ce qui porte une clé dans le DOM :
+// le chrome du gabarit ET les blocs de conversation rendus par le serveur, qui gardent leurs
+// attributs `data-i18n` après insertion. Restent les zones que CE fichier a fait construire
+// en JavaScript ; on les redessine par leur chemin normal, celui-là même que le poll emprunte
+// chaque seconde et demie — aucun chemin de rendu parallèle à maintenir.
+onLangChange(() => {
+  refreshList();          // sidebar : pastilles, sections, chips d'activité
+  updateComposer();       // onglets et barre de lancement
+  loadTypologies();
+  loadProjects();
+  // Corps des onglets ouverts : `poll` réécrit la ligne meta, la question en attente et le
+  // placeholder d'état. Sans blocs neufs à insérer, il ne fait que retraduire.
+  openTabs.forEach((_entry, key) => poll(key));
+});
 
 wireSearch();
 wireNewConversationBar();

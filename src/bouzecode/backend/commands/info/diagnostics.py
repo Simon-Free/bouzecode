@@ -93,6 +93,13 @@ def cmd_doctor(args: str, state, config) -> bool:
     except Exception:
         _warn("Could not check git repo status")
 
+    # ripgrep decides Grep/Glob performance, the registry decides whether the
+    # agent has any tools at all. Both are promised by the README's /doctor line.
+    from .runtime_checks import ripgrep_status, tool_registry_status
+    _report = {"pass": _ok, "warn": _warn, "fail": _fail}
+    for level, message in (ripgrep_status(), tool_registry_status()):
+        _report[level](message)
+
     key = get_provider_key(provider, config)
 
     if key:

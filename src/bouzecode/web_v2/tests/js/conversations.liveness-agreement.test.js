@@ -83,12 +83,12 @@ describe("un agent mort à 0 bloc ne s'affiche « terminé » sur aucune surface
     expect(row).toBeTruthy();
     const badge = row.querySelector(".badge");
     expect(badge.classList.contains("st-ko")).toBe(true);
-    expect(badge.textContent).toContain("planté");
-    expect(badge.textContent).not.toContain("terminé");
+    expect(badge.textContent).toContain("crashed");
+    expect(badge.textContent).not.toContain("done");
     // La DESCRIPTION accessible de la carte (attribut title, lu par les lecteurs d'écran
     // et les snapshots d'accessibilité) : c'est elle qui annonçait « terminé · branche … ».
-    expect(row.title).toContain("planté");
-    expect(row.title).not.toContain("terminé");
+    expect(row.title).toContain("crashed");
+    expect(row.title).not.toContain("done");
     // Le badge vert de succès n'existe nulle part sur cette carte.
     expect(row.querySelector(".st-ok")).toBeNull();
   });
@@ -102,8 +102,8 @@ describe("un agent mort à 0 bloc ne s'affiche « terminé » sur aucune surface
     expect(panel).toBeTruthy();
     const badge = panel.querySelector(".conv-panel-status .badge");
     expect(badge).toBeTruthy();
-    expect(badge.textContent).toContain("planté");
-    expect(badge.textContent).not.toContain("terminé");
+    expect(badge.textContent).toContain("crashed");
+    expect(badge.textContent).not.toContain("done");
   });
 
   it("un mort SUSPECTÉ mais non prouvé garde son point d'interrogation", async () => {
@@ -114,10 +114,10 @@ describe("un agent mort à 0 bloc ne s'affiche « terminé » sur aucune surface
 
     const row = document.querySelector(`#conv-list .conv-item[data-key="${KEY}"]`);
     const badge = row.querySelector(".badge");
-    expect(badge.textContent).toContain("mort ?");
-    expect(badge.textContent).not.toContain("terminé");
-    expect(row.title).toContain("mort ?");
-    expect(row.title).not.toContain("terminé");
+    expect(badge.textContent).toContain("dead?");
+    expect(badge.textContent).not.toContain("done");
+    expect(row.title).toContain("dead?");
+    expect(row.title).not.toContain("done");
   });
 
   it("NON-RÉGRESSION : un agent qui a vraiment livré reste « terminé »", async () => {
@@ -132,7 +132,7 @@ describe("un agent mort à 0 bloc ne s'affiche « terminé » sur aucune surface
     const row = document.querySelector(`#conv-list .conv-item[data-key="${KEY}"]`);
     const badge = row.querySelector(".badge");
     expect(badge.classList.contains("st-ok")).toBe(true);
-    expect(row.title).toContain("terminé");
-    expect(row.title).not.toContain("planté");
+    expect(row.title).toContain("done");
+    expect(row.title).not.toContain("crashed");
   });
 });

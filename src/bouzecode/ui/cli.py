@@ -59,6 +59,7 @@ import os
 import sys
 from pathlib import Path
 from .ansi import C, clr, info, ok, warn, err
+from .messages import msg
 from .rendering import (
     console, _RICH, _accumulated_text, _current_live, _live_overflow,
     _overflow_lines_buf, stream_text, stream_thinking, flush_response,
@@ -149,14 +150,14 @@ def _ensure_ripgrep() -> None:
         os.environ["PATH"] = local_bin + os.pathsep + os.environ.get("PATH", "")
         return
     # 3. Download from GitHub
-    print("\033[33m⚠ ripgrep (rg) non trouvé — téléchargement depuis GitHub...\033[0m", flush=True)
+    print(f"\033[33m⚠ {msg('ripgrep.missing')}\033[0m", flush=True)
     try:
         import urllib.request, zipfile, tempfile
         version = "14.1.1"
         url = f"https://github.com/BurntSushi/ripgrep/releases/download/{version}/ripgrep-{version}-x86_64-pc-windows-msvc.zip"
         os.makedirs(local_bin, exist_ok=True)
         zip_path = os.path.join(tempfile.gettempdir(), "ripgrep.zip")
-        print(f"  Téléchargement de ripgrep {version}...", flush=True)
+        print(msg("ripgrep.downloading", version=version), flush=True)
         urllib.request.urlretrieve(url, zip_path)
         with zipfile.ZipFile(zip_path, "r") as zf:
             for member in zf.namelist():
@@ -169,11 +170,12 @@ def _ensure_ripgrep() -> None:
         os.environ["PATH"] = local_bin + os.pathsep + os.environ.get("PATH", "")
         # Verify
         subprocess.run([rg_path, "--version"], capture_output=True, check=True)
-        print("\033[32m✓ ripgrep installé avec succès.\033[0m", flush=True)
+        print(f"\033[32m✓ {msg('ripgrep.installed')}\033[0m", flush=True)
     except Exception as exc:
+        releases_url = "https://github.com/BurntSushi/ripgrep/releases"
         print(
-            f"\033[31m✗ Échec de l'installation automatique de ripgrep: {exc}\033[0m\n"
-            "  → Télécharger manuellement: https://github.com/BurntSushi/ripgrep/releases",
+            f"\033[31m✗ {msg('ripgrep.install_failed', error=exc)}\033[0m\n"
+            + msg("ripgrep.download_manually", url=releases_url),
             flush=True,
         )
 
@@ -224,15 +226,12 @@ def _persist_user_path_entry(directory: str) -> None:
     new_user_path = _planned_user_path(directory, user_path)
     if new_user_path is None:
         if len(directory + os.pathsep + user_path) > 1024:
-            print("   PATH utilisateur trop long pour setx (>1024 car.) — "
-                  "ajoute le dossier manuellement (Variables d'environnement).",
-                  file=sys.stderr, flush=True)
+            print(msg("path.too_long_for_setx"), file=sys.stderr, flush=True)
         return
     import subprocess
     subprocess.run(["setx", "PATH", new_user_path],
                    stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-    print("   → ajouté au PATH utilisateur de façon permanente (setx).",
-          file=sys.stderr, flush=True)
+    print(msg("path.persisted"), file=sys.stderr, flush=True)
 
 
 def _ensure_powershell_on_path() -> None:
@@ -249,13 +248,12 @@ def _ensure_powershell_on_path() -> None:
         return
     ps_dir = _find_powershell_dir()
     if ps_dir is None:
-        print("\033[31m✗ PowerShell introuvable (ni dans le PATH ni à l'emplacement "
-              "standard). Les commandes shell échoueront — installe/restaure "
-              "PowerShell.\033[0m", file=sys.stderr, flush=True)
+        print(f"\033[31m✗ {msg('powershell.not_found')}\033[0m",
+              file=sys.stderr, flush=True)
         return
     os.environ["PATH"] = ps_dir + os.pathsep + os.environ.get("PATH", "")
-    print(f"\033[33m⚠ PowerShell absent du PATH — ajouté pour cette session "
-          f"({ps_dir}).\033[0m", file=sys.stderr, flush=True)
+    print(f"\033[33m⚠ {msg('powershell.added_to_path', directory=ps_dir)}\033[0m",
+          file=sys.stderr, flush=True)
     _persist_user_path_entry(ps_dir)
 
 
@@ -462,7 +460,7 @@ def main() -> None:
         print(__doc__)
         sys.exit(0)
 
-    from bouzecode.backend.core.config import load_config, has_api_key
+    from bouzecode.backend.core.config import load_config
     from bouzecode.backend.agent.providers import detect_provider, PROVIDERS
     from bouzecode.backend.core.paths import register_extra_dirs
 
@@ -532,8 +530,13 @@ def main() -> None:
     if args.resume_deferred:
         config["_resume_deferred"] = args.resume_deferred
 
-    if not has_api_key(config):
-        warn("No API key found. Set ANTHROPIC_API_KEY env var or run: /config anthropic_api_key=YOUR_KEY")
+    # Takes every provider into account: a user with only OPENROUTER_KEY used to
+    # be told "No API key found", which is false — what is missing is a model
+    # that OpenRouter serves.
+    from bouzecode.backend.agent.providers.missing_key import startup_key_warning
+    _key_warning = startup_key_warning(config["model"], config)
+    if _key_warning:
+        warn(_key_warning)
 
     initial = " ".join(args.prompt) if args.prompt else None
     # --resume-deferred (like --resume-auto) carries no positional prompt: the prompt is
@@ -545,7 +548,14 @@ def main() -> None:
         sys.exit(1)
 
     from .repl import repl
-    repl(config, initial_prompt=initial)
+    from bouzecode.backend.agent.providers.missing_key import MissingApiKeyError
+    try:
+        repl(config, initial_prompt=initial)
+    except MissingApiKeyError as exc:
+        # A configuration error, not a crash: print the diagnosis, skip the
+        # 25-line traceback that used to bury it.
+        print(str(exc), file=sys.stderr)
+        sys.exit(2)
 
 
 if __name__ == "__main__":

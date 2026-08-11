@@ -77,9 +77,10 @@ def test_clicking_install_moves_the_agent_to_the_installed_list(seeded_catalog, 
     page.locator('#ab-tabs .tab[data-panel="ab-panel-catalog"]').click()
 
     # Les deux sections se remplissent depuis le catalogue.
+    # La page est servie en anglais, langue par defaut de l'interface bilingue.
     page.wait_for_function(
         "document.querySelector('#cat-installed') && "
-        "!document.querySelector('#cat-installed').textContent.includes('Chargement')"
+        "!document.querySelector('#cat-installed').textContent.includes('Loading')"
     )
     assert "installed-agent" in _section_text(page, "cat-installed")
     page.locator("#cat-available").wait_for()
@@ -88,7 +89,7 @@ def test_clicking_install_moves_the_agent_to_the_installed_list(seeded_catalog, 
     # Seul l'agent non installé propose un bouton d'installation.
     install_button = page.locator(
         "#cat-available .cat-row", has_text="available-agent"
-    ).get_by_role("button", name="Installer")
+    ).get_by_role("button", name="Install")
     assert install_button.count() == 1
 
     install_button.click()

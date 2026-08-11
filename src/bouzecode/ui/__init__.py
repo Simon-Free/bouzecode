@@ -10,6 +10,7 @@ from .spinner import (
     _TOOL_SPINNER_PHRASES, _DEBATE_SPINNER_PHRASES,
     _spinner_phrase, _spinner_lock,
     _run_tool_spinner, _start_tool_spinner, _change_spinner_phrase, _stop_tool_spinner,
+    animation_enabled,
 )
 from .tool_display import (
     render_diff, _has_diff, _last_diffs, _fmt_duration,

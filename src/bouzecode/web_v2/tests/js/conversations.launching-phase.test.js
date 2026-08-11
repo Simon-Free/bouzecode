@@ -96,7 +96,7 @@ describe("poll() — un onglet de lancement nomme la phase au lieu d'une phrase 
         phase_label: "création du worktree",
         phase_detail: "depuis develop",
       }),
-    ).toBe("Création du worktree… — depuis develop");
+    ).toBe("Creating the worktree… — depuis develop");
   });
 
   it("annonce l'installation de l'environnement uv", async () => {
@@ -107,7 +107,7 @@ describe("poll() — un onglet de lancement nomme la phase au lieu d'une phrase 
         phase: "syncing_venv",
         phase_label: "installation de l'environnement uv",
       }),
-    ).toBe("Installation de l'environnement uv…");
+    ).toBe("Installing the uv environment…");
   });
 
   it("dit qu'on en est au 2e essai quand le premier `git worktree add` a expiré", async () => {
@@ -126,7 +126,7 @@ describe("poll() — un onglet de lancement nomme la phase au lieu d'une phrase 
   it("retombe sur la phrase générique quand le serveur n'a plus de phase à servir", async () => {
     await loadModule();
     // 404 : l'agent vient de naître, l'onglet va basculer sur `agent/<id>`.
-    expect(await texteAffiche({}, false)).toBe("Préparation de la conversation…");
+    expect(await texteAffiche({}, false)).toBe("Preparing the conversation…");
   });
 
   it("un onglet OPTIMISTE, lui, n'a aucun ticket à interroger et reste générique", async () => {
@@ -141,7 +141,7 @@ describe("poll() — un onglet de lancement nomme la phase au lieu d'une phrase 
     await flush();
 
     expect(entry.conv.querySelector(".conv-empty-state").textContent)
-      .toBe("Préparation de la conversation…");
+      .toBe("Preparing the conversation…");
     expect(global.fetch).not.toHaveBeenCalled();
     clearTimeout(entry.poller);
     openTabs.delete(key);

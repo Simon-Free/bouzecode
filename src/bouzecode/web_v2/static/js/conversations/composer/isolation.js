@@ -2,6 +2,7 @@
 // côté manager, pour que l'humain et le manager parlent la même langue.
 
 import { node } from "../dom.js";
+import { t } from "../../i18n/index.js";
 
 // --- Bannière "environnement" (isolation) ----------------------------------
 // UN choix à TROIS valeurs, exactement celui que le manager passe à Agent(isolation=…) :
@@ -9,10 +10,13 @@ import { node } from "../dom.js";
 // « worktree » / « venv », dont le couple (pas de worktree, venv) n'avait aucun sens.
 // Persisté en localStorage, injecté comme `isolation` dans le POST /api/dispatch.
 const ISOLATION_STORAGE_KEY = "bz.conv.isolation";
+// `value` est le CODE envoyé au serveur (Agent(isolation=…)) : il n'est JAMAIS traduit.
+// Seule la description est du texte d'interface ; elle est résolue à chaque rendu, jamais
+// au chargement du module, sinon une bascule de langue la laisserait figée.
 const ISOLATION_CHOICES = [
-  { value: "shared", desc: "Rien de provisionné : l'agent travaille dans le dépôt principal. Le plus rapide — pour un agent en lecture seule, une tâche courte, ou le seul écrivain." },
-  { value: "worktree", desc: "Worktree git dédié, SANS venv. Dès que plusieurs agents écrivent en parallèle sur le même dépôt. Quasi gratuit." },
-  { value: "worktree+venv", desc: "Worktree ET venv dédiés. Uniquement si l'agent touche aux dépendances (uv sync complet : ~30 s de lancement)." },
+  { value: "shared", descKey: "composer.isolation.shared_desc" },
+  { value: "worktree", descKey: "composer.isolation.worktree_desc" },
+  { value: "worktree+venv", descKey: "composer.isolation.worktree_venv_desc" },
 ];
 export let selectedIsolation = "shared";
 
@@ -40,7 +44,7 @@ function renderIsolationPanel() {
     });
     const text = node(opt, "span", "conv-agent-option-text");
     node(text, "span", "conv-agent-option-name", choice.value);
-    node(text, "span", "conv-agent-option-desc", choice.desc);
+    node(text, "span", "conv-agent-option-desc", t(choice.descKey));
   });
 }
 

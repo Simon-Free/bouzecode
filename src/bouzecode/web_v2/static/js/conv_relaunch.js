@@ -7,6 +7,8 @@
 // valide. `POST /api/tickets/<slug>/<id>/launch` est le seul chemin qui
 // re-provisionne l'isolation (dispatch.reisolate) et purge les drapeaux terminaux.
 
+import { t } from "./i18n/index.js";
+
 // États de vivacité du TICKET (services/work/liveness.py::classify_ticket) pour
 // lesquels une relance a du sens. `classify_ticket` renvoie 'running' dès qu'UN run
 // est encore vivant : ces états prouvent donc déjà qu'aucun agent ne tourne.
@@ -32,10 +34,6 @@ export const RELAUNCHABLE_STATES = new Set([
 const LIVE_PANEL_STATES = new Set(["running", "awaiting_input", "awaiting_plan_validation"]);
 
 const SHARED = "shared";
-const CONFIRM_MESSAGE =
-  "Relancer ce ticket ?\n\nUn NOUVEL agent est créé et le worktree est re-provisionné "
-  + "(peut prendre ~45 s). L'agent mort n'est pas repris : son travail non commité reste "
-  + "dans le worktree.";
 
 // Cible de relance, ou null si la relance n'a PAS de sens. `node` = node de flotte
 // (/api/agents/tree : project_slug, ticket_id, liveness), `ticket` = détail ticket
@@ -66,7 +64,8 @@ function errorDetail(status, raw) {
     const parsed = JSON.parse(raw);
     detail = parsed.error || raw;
   }
-  return `Relance impossible (HTTP ${status})` + (detail ? ` : ${detail}` : "");
+  if (!detail) return t("panel.relaunch_failed_http", { status });
+  return t("panel.relaunch_failed_http_detail", { status, detail });
 }
 
 // Contrôle persistant (créé UNE fois par onglet, comme le segmented control) : il
@@ -79,8 +78,8 @@ export function createRelaunchControl(deps) {
   const button = document.createElement("button");
   button.type = "button";
   button.className = "conv-relaunch-btn";
-  button.textContent = "Relancer";
-  button.title = "Créer un nouvel agent sur ce ticket (re-provisionne le worktree)";
+  button.textContent = t("panel.relaunch");
+  button.title = t("panel.relaunch_tip");
   const error = document.createElement("div");
   error.className = "conv-relaunch-error";
   slot.appendChild(button);
@@ -106,12 +105,12 @@ export function createRelaunchControl(deps) {
 
   async function relaunch() {
     if (busy || launched || !target) return;
-    if (!deps.confirm(CONFIRM_MESSAGE)) return;
+    if (!deps.confirm(t("panel.relaunch_confirm"))) return;
     busy = true;
     error.textContent = "";
     // Le POST est SYNCHRONE côté serveur (reisolate + spawn, ~45 s mesuré) : le bouton
     // devient non cliquable pendant toute l'attente, jamais un second lancement.
-    show("Relance en cours…", false);
+    show(t("panel.relaunching"), false);
     const response = await deps.fetch(
       `/api/tickets/${target.slug}/${target.id}/launch`,
       {
@@ -122,19 +121,19 @@ export function createRelaunchControl(deps) {
     ).catch((exc) => ({ networkError: String((exc && exc.message) || exc) }));
     busy = false;
     if (response.networkError) {
-      show("Relancer", true);
-      error.textContent = `Relance impossible : ${response.networkError}`;
+      show(t("panel.relaunch"), true);
+      error.textContent = t("panel.relaunch_failed_network", { detail: response.networkError });
       return;
     }
     if (!response.ok) {
       const raw = await response.text().catch(() => "");
-      show("Relancer", true);
+      show(t("panel.relaunch"), true);
       error.textContent = errorDetail(response.status, raw);
       return;
     }
     const payload = await response.json();
     launched = true;
-    show("Relancé ✓", false);
+    show(t("panel.relaunched"), false);
     // La réponse est {"key": "agent/<id>"} : on ouvre le nouvel agent en onglet pour
     // que la relance soit VISIBLE (sinon rien ne bouge à l'écran).
     if (payload && payload.key && deps.onLaunched) deps.onLaunched(payload.key);
@@ -168,7 +167,7 @@ export function createRelaunchControl(deps) {
       return;
     }
     target = relaunchTarget(panelState, node, await response.json());
-    if (target) show("Relancer", true); else hide();
+    if (target) show(t("panel.relaunch"), true); else hide();
   }
 
   return { slot, update };

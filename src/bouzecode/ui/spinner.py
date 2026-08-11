@@ -38,6 +38,18 @@ _tool_spinner_stop = threading.Event()
 _spinner_phrase = ""
 _spinner_lock = threading.Lock()
 
+
+def animation_enabled() -> bool:
+    """True only when stdout is a real terminal.
+
+    The spinner repaints a frame every 100 ms with a leading `\\r`. On a terminal
+    that overwrites one line; in a pipe (`bouzecode -p ... > out.txt`, a CI step)
+    `\\r` is just another byte, so a two-minute run buries the ~40 useful lines
+    under hundreds of animation frames. Non-interactive output carries no
+    animation at all."""
+    isatty = getattr(sys.stdout, "isatty", None)
+    return bool(isatty and isatty())
+
 def _run_tool_spinner():
     chars = "\u280b\u2819\u2839\u2838\u283c\u2834\u2826\u2827\u2807\u280f"
     i = 0
@@ -52,6 +64,8 @@ def _run_tool_spinner():
 
 def _start_tool_spinner():
     global _tool_spinner_thread
+    if not animation_enabled():
+        return
     if _tool_spinner_thread and _tool_spinner_thread.is_alive():
         return
     import random

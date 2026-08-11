@@ -100,6 +100,14 @@ def describe(status: dict, meta: dict, now: float | None = None) -> dict:
 
     view = {
         "activity": activity,
+        # `activity_label` est la phrase FRANÇAISE, servie telle quelle aux agents de
+        # monitoring et à l'API : le serveur ne négocie pas de langue. L'interface, elle,
+        # est bilingue et recompose la phrase à partir des trois champs STRUCTURÉS qui
+        # l'entourent (`activity`, `activity_live`, `idle_seconds`) — le serveur donne les
+        # faits, le client choisit les mots. `activity_live` était la seule pièce manquante :
+        # sans elle, « Bash en cours » et « dernier outil vu : Bash » — deux affirmations de
+        # fiabilité très différentes — étaient indiscernables une fois la phrase défaite.
+        "activity_live": bool(live),
         "activity_label": label,
         "last_event_at": last_event_at,
         "idle_seconds": idle_seconds,

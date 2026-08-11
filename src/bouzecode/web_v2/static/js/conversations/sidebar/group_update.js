@@ -4,7 +4,10 @@
 
 import { node, agentId } from "../dom.js";
 import { openTabs, activeKey } from "../state.js";
+import { t } from "../../i18n/index.js";
+import { activityChipText } from "../activity.js";
 import { effectiveState, buildBadge, stateTooltipLabel } from "../badges.js";
+import { i18nText, i18nTitle } from "./group.js";
 import {
   childrenOf, markExpanded, markCollapsed, forgetToggle, desiredOpen, aggregateChildren,
 } from "./toggles.js";
@@ -19,9 +22,7 @@ import { formatEventTime, formatEventTimeTooltip } from "../../time_format.js";
 // `stale` (aucun battement depuis > 4 min sur un agent « en cours ») ajoute une classe ET un
 // texte explicite : règle transverse du front, une alerte n'est JAMAIS un simple point coloré.
 function updateActivityChip(rec, n) {
-  const phrase = n.activity_label || n.phase_label || "";
-  const detail = n.phase_detail ? ` — ${n.phase_detail}` : "";
-  const texte = phrase ? phrase + detail : "";
+  const texte = activityChipText(n);
   if (!texte) {
     if (rec.activityEl) { rec.activityEl.remove(); rec.activityEl = null; rec.activity = undefined; }
     return;
@@ -32,10 +33,7 @@ function updateActivityChip(rec, n) {
   }
   if (rec.activity !== texte) { rec.activityEl.textContent = texte; rec.activity = texte; }
   rec.activityEl.classList.toggle("is-stale", !!n.stale);
-  rec.activityEl.title = n.stale
-    ? "Aucun battement depuis plus de 4 minutes : l'agent tient peut-être un outil long, "
-      + "ou il est bloqué. À regarder — ce n'est pas un constat de mort."
-    : texte;
+  rec.activityEl.title = n.stale ? t("activity.stale_tip") : texte;
 }
 
 // Met à jour IN-PLACE ce qui a changé — ne détruit rien, ne touche pas hidden.
@@ -90,7 +88,7 @@ export function updateGroup(rec, n, depth) {
   if (n.branch) {
     if (!rec.branchWrap) {
       rec.branchWrap = node(rec.metaEl, "span", "conv-item-branch");
-      node(rec.branchWrap, "span", "conv-item-branch-label", "branche");
+      i18nText(node(rec.branchWrap, "span", "conv-item-branch-label"), "sidebar.branch_label");
       rec.branchNameEl = node(rec.branchWrap, "span", "conv-item-branch-name", n.branch);
       // La branche doit précéder l'id court dans la ligne meta.
       rec.metaEl.insertBefore(rec.branchWrap, rec.metaEl.firstChild);
@@ -109,13 +107,13 @@ export function updateGroup(rec, n, depth) {
       const idBadge = node(rec.metaEl, "span", "conv-item-agentid", `#${shortId}`);
       idBadge.setAttribute("role", "button");
       idBadge.tabIndex = 0;
-      idBadge.title = "Copier l'id de l'agent";
+      i18nTitle(idBadge, "sidebar.copy_agent_id");
       const copyId = (e) => {
         e.stopPropagation();
         const current = rec.shortId; // capture la valeur courante au moment du clic
         navigator.clipboard.writeText(current).then(() => {
           const prev = idBadge.textContent;
-          idBadge.textContent = "copié ✓";
+          idBadge.textContent = t("sidebar.copied");
           idBadge.classList.add("is-copied");
           setTimeout(() => {
             idBadge.textContent = prev;
@@ -187,9 +185,9 @@ export function updateGroup(rec, n, depth) {
   // en needinput n'avait aucun bouton Archiver.
   const wantArch = depth === 0 && !n._ghost;
   if (wantArch && !rec.archBtn) {
-    const arch = node(row, "span", "conv-archive-btn", "Archiver");
+    const arch = i18nText(node(row, "span", "conv-archive-btn"), "sidebar.archive");
     arch.setAttribute("role", "button");
-    arch.title = "Marquer comme traitée (archiver)";
+    i18nTitle(arch, "sidebar.archive_tip");
     arch.addEventListener("click", (e) => { e.stopPropagation(); handleArchiveClick(n._realKey || n.key, arch); });
     rec.archBtn = arch;
   } else if (!wantArch && rec.archBtn) {
@@ -201,7 +199,7 @@ export function updateGroup(rec, n, depth) {
   const stateLabel = stateTooltipLabel(eff, n.suspect_dead);
   const tipParts = [];
   if (stateLabel) tipParts.push(stateLabel);
-  if (n.branch) tipParts.push(`branche ${n.branch}`);
+  if (n.branch) tipParts.push(t("sidebar.branch_tip", { branch: n.branch }));
   if (rec.shortId) tipParts.push(`#${rec.shortId}`);
   row.title = tipParts.join(" · ");
 }

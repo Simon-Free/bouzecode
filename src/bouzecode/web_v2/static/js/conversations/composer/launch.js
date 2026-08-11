@@ -2,7 +2,7 @@
 // OPTIMISTE immédiat d'un node synthétique « starting » qui tient la place tant que
 // l'agent réel n'est pas né.
 
-import { node } from "../dom.js";
+import { t } from "../../i18n/index.js";
 import { optimisticNodes, setOptimisticNodes } from "../state.js";
 import { refreshList } from "../sidebar/list.js";
 import { renderList } from "../sidebar/render_list.js";
@@ -113,7 +113,7 @@ export async function newConversation() {
     if (data.needs_project) {
       removeOptimistic(optNode.key);
       input.value = prompt;
-      err.textContent = "Choisis un projet ci-dessus avant de lancer la conversation.";
+      err.textContent = t("composer.needs_project");
       showProjectSuggestions(data.suggestions);
       return;
     }
@@ -134,7 +134,7 @@ export async function newConversation() {
   } catch (_) {
     removeOptimistic(optNode.key);
     input.value = prompt;
-    err.textContent = "réseau : réessaie.";
+    err.textContent = t("composer.network_retry");
   } finally {
     input.disabled = send.disabled = false;
     input.focus();

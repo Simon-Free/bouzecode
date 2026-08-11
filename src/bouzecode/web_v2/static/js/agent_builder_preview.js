@@ -4,27 +4,42 @@
 (function () {
   const out = document.getElementById("b-preview-out");
   const btn = document.getElementById("b-preview");
+  // Dernier aperçu rendu : la bascule de langue le réécrit sans rappeler le serveur.
+  let lastPreview = null;
 
-  function label(open) { return `${open ? "▾" : "▸"} Prompt complet calculé`; }
+  // Le libellé du bouton porte sa clé en `data-i18n` plutôt que d'être posé en dur : c'est
+  // `applyDom` qui le retraduira, et il restera cohérent avec l'état ouvert/fermé.
+  function setLabel(open) {
+    const key = open ? "builder.preview_open" : "builder.preview_closed";
+    btn.setAttribute("data-i18n", key);
+    btn.textContent = window.i18n.t(key);
+  }
 
-  async function togglePreview() {
-    if (!out.hidden) { out.hidden = true; btn.textContent = label(false); return; }
-    const data = await (await fetch("/api/builder/preview", {
-      method: "POST", headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(collect()),
-    })).json();
+  function renderPreview(data) {
+    lastPreview = data;
     const r = data.runtime || {};
     const fmt = (xs) => (xs && xs.length ? xs.join(", ") : "—");
     document.getElementById("b-preview-runtime").innerHTML =
-      `<b>Hors prompt (runtime) :</b> tools = ${fmt(r.tools)} · hooks = ${fmt(r.hooks)}` +
-      `<br><b>Préchargées dans le prompt :</b> skills = ${fmt(r.skills)}` +
-      `<br><span style="opacity:.8">Les tools sont envoyés comme schémas d'API séparés et les hooks agissent à ` +
-      `l'exécution (absents du texte) ; les skills sélectionnées sont injectées dans le prompt ci-dessous. ` +
-      `La partie éditable est sous « ${data.custom_marker} ».</span>`;
+      `<b>${window.i18n.t("builder.preview_runtime")}</b> tools = ${fmt(r.tools)} · ` +
+      `hooks = ${fmt(r.hooks)}` +
+      `<br><b>${window.i18n.t("builder.preview_preloaded")}</b> skills = ${fmt(r.skills)}` +
+      `<br><span style="opacity:.8">` +
+      window.i18n.t("builder.preview_note", { marker: data.custom_marker }) +
+      `</span>`;
     document.getElementById("b-preview-prompt").textContent = data.system_prompt || "";
-    out.hidden = false;
-    btn.textContent = label(true);
   }
+
+  async function togglePreview() {
+    if (!out.hidden) { out.hidden = true; setLabel(false); return; }
+    renderPreview(await (await fetch("/api/builder/preview", {
+      method: "POST", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(collect()),
+    })).json());
+    out.hidden = false;
+    setLabel(true);
+  }
+
+  window.redrawPreview = () => { if (lastPreview && !out.hidden) renderPreview(lastPreview); };
 
   btn.addEventListener("click", togglePreview);
 })();

@@ -192,7 +192,7 @@ describe("conversations.js — sidebar (filtre des racines + sections par état)
   it("affiche un message quand aucune conversation manager", async () => {
     await loadModule({ nodes: [] });
     const list = document.getElementById("conv-list");
-    expect(list.textContent).toContain("Aucune conversation manager");
+    expect(list.textContent).toContain("No manager conversation");
     expect(list.querySelectorAll(".conv-item").length).toBe(0);
   });
 });
@@ -220,9 +220,9 @@ describe("conversations.js — A5/T1 persistance deplie + badge + auto-expand", 
   it("badge agrégé : le toggle affiche la flèche + N sous-agents + agrégat d'états", async () => {
     await loadModule();
     const toggle = groupOf("agent/mgr-1").querySelector(".conv-toggle");
-    // mgr-1 a exactement 1 enfant (sub-a running). Flèche ▸ (replié) + "1 sous-agent · 1 en cours".
-    expect(toggle.textContent).toMatch(/^▸\s+1 sous-agent/);
-    expect(toggle.textContent).toContain("1 en cours");
+    // mgr-1 a exactement 1 enfant (sub-a running). Flèche ▸ (replié) + "1 subagent · 1 running".
+    expect(toggle.textContent).toMatch(/^▸\s+1 subagent/);
+    expect(toggle.textContent).toContain("1 running");
   });
 
   it("auto-expand awaiting-only : un enfant awaiting_* déplie automatiquement", async () => {
@@ -440,7 +440,7 @@ describe("conversations.js — rendu d'une conversation (paires + question)", ()
   // On réutilise le formatage awaiting (bloc question) pour offrir la reprise : pseudo-question
   // + bouton "Reprendre" → POST /continue {text:""} (reprise CHAUDE in-process si idle vivant,
   // sinon respawn COLD). Pas de zone séparée « agents interrompus ».
-  it("agent interrompu (status.interrupted) : affiche pseudo-question + bouton Reprendre → /continue {text:\"\"}", async () => {
+  it("agent interrompu (status.interrupted) : affiche pseudo-question + bouton Resume → /continue {text:\"\"}", async () => {
     const continueCalls = [];
     const status = { state: "finished", interrupted: true };
     await loadWithBlocks([], status, continueCalls);
@@ -448,11 +448,11 @@ describe("conversations.js — rendu d'une conversation (paires + question)", ()
     const question = document.querySelector("#conv-panels .conv-question");
     expect(question).not.toBeNull();
     expect(question.hidden).toBe(false);
-    expect(document.querySelector(".conv-question-text").textContent.toLowerCase()).toContain("interrompu");
+    expect(document.querySelector(".conv-question-text").textContent.toLowerCase()).toContain("interrupted");
 
     const opts = document.querySelectorAll(".conv-question-option");
     expect(opts.length).toBe(1);
-    expect(opts[0].textContent).toBe("Reprendre");
+    expect(opts[0].textContent).toBe("Resume");
 
     opts[0].click();
     await flush();
@@ -672,14 +672,14 @@ describe("conversations.js — sectionnement par ÉTAT + bouton Archiver", () =>
 
     // Titres par section, chacun PREMIER enfant de son wrapper.
     expect(needSec.firstElementChild.classList.contains("conv-cat-title")).toBe(true);
-    expect(needSec.textContent).toContain("Nécessite une action");
+    expect(needSec.textContent).toContain("Needs attention");
     expect(needSec.textContent).toContain("A traiter"); // need-1 awaiting → section a
     expect(runSec.firstElementChild.classList.contains("conv-cat-title")).toBe(true);
-    expect(runSec.textContent).toContain("En cours");
+    expect(runSec.textContent).toContain("Running");
     expect(runSec.textContent).toContain("Ma conv");   // user-1 running → section b
     expect(runSec.textContent).toContain("Meta run");  // meta-1 running → section b
     expect(finSec.firstElementChild.classList.contains("conv-cat-title")).toBe(true);
-    expect(finSec.textContent).toContain("Terminés");
+    expect(finSec.textContent).toContain("Done");
     expect(finSec.textContent).toContain("smoke test login"); // test-1 finished → section c
 
     // sub-1 (enfant running de user-1) → NOUVELLE règle : ne remonte PAS en section
@@ -1557,7 +1557,7 @@ describe("conversations.js — manager en attente d'enfants affiché actif", () 
     const badge = item.querySelector(".badge");
     expect(badge.classList.contains("st-run")).toBe(true);
     expect(badge.classList.contains("st-ok")).toBe(false);
-    expect(badge.title).toContain("orchestre");
+    expect(badge.title).toContain("orchestrating");
     expect(badge.querySelector(".pui-dot--pulse")).not.toBeNull();
   });
 
@@ -1567,7 +1567,7 @@ describe("conversations.js — manager en attente d'enfants affiché actif", () 
     expect(item).not.toBeNull();
     const badge = item.querySelector(".badge");
     expect(badge.classList.contains("st-ok")).toBe(true);
-    expect(badge.title).toContain("terminé");
+    expect(badge.title).toContain("done");
   });
 });
 
@@ -1746,7 +1746,7 @@ describe("conversations.js — agent en démarrage (session absente)", () => {
     const badge = node.querySelector(".badge");
     expect(badge).not.toBeNull();
     expect(badge.className).toContain("st-run");
-    expect(badge.title).toBe("démarrage…");
+    expect(badge.title).toBe("starting…");
   });
 
   it("bascule sur le badge normal « en cours » quand la session arrive au polling suivant", async () => {
@@ -1760,8 +1760,8 @@ describe("conversations.js — agent en démarrage (session absente)", () => {
     // Le badge bascule : title « en cours » (state running), plus « démarrage… ».
     const badge = node.querySelector(".badge");
     expect(badge).not.toBeNull();
-    expect(badge.title).toBe("en cours");
-    expect(badge.title).not.toBe("démarrage…");
+    expect(badge.title).toBe("running");
+    expect(badge.title).not.toBe("starting…");
   });
 });
 

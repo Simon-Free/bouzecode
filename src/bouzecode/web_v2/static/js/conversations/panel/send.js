@@ -7,6 +7,7 @@ import { openTabs } from "../state.js";
 import { refreshList } from "../sidebar/list.js";
 import { poll } from "./poll.js";
 import { pollPartial } from "./streaming.js";
+import { t } from "../../i18n/index.js";
 
 export async function sendMsg(key) {
   const entry = openTabs.get(key);
@@ -40,7 +41,7 @@ export async function sendMsg(key) {
       // Agent running: interrupt it (graceful cancel), then retry /continue
       // until it lands (bounded). Lets the user precise a turn IN PROGRESS
       // without the manual Ctrl+C-then-retype flow.
-      if (entry.inputError) entry.inputError.textContent = "interruption en cours…";
+      if (entry.inputError) entry.inputError.textContent = t("panel.interrupting");
       await fetch(`/api/agents/${agentId(key)}/interrupt`, { method: "POST" }).catch(
         () => {}
       );
@@ -72,15 +73,13 @@ export async function sendMsg(key) {
         if (r2.status === 404 || retry.reason === "agent_missing") break;
       }
       if (!landed && entry.inputError) {
-        entry.inputError.textContent =
-          lastError || "l'agent n'a pas pu être interrompu, réessaie.";
+        entry.inputError.textContent = lastError || t("panel.interrupt_failed");
       }
     } else if (entry.inputError) {
-      entry.inputError.textContent =
-        failure.error || "envoi impossible — interromps l'agent d'abord (Ctrl+C).";
+      entry.inputError.textContent = failure.error || t("panel.send_blocked");
     }
   } catch (_) {
-    if (entry.inputError) entry.inputError.textContent = "réseau : réessaie.";
+    if (entry.inputError) entry.inputError.textContent = t("panel.network_retry");
   } finally {
     entry.input.disabled = false;
     entry.input.focus();

@@ -3,6 +3,7 @@
 import pytest
 
 from bouzecode.backend.agent.providers.backends.dispatch import stream
+from bouzecode.backend.agent.providers.missing_key import MissingApiKeyError
 from bouzecode.backend.agent.providers.types import SystemPayload
 
 
@@ -21,9 +22,20 @@ def _first_event(model: str, config: dict):
 
 
 def test_missing_openrouter_key_raises_clear_error(monkeypatch):
+    """The diagnosis names the provider, the model and the variable to set.
+
+    It is a MissingApiKeyError (a RuntimeError) so the CLI can print it without
+    a traceback — see tests/backend/providers/test_missing_api_key_message.py."""
     monkeypatch.delenv("OPENROUTER_KEY", raising=False)
-    with pytest.raises(RuntimeError, match="OpenRouter"):
+    monkeypatch.delenv("OPENROUTER_API_KEY", raising=False)
+
+    with pytest.raises(MissingApiKeyError) as raised:
         _first_event("deepseek-v4-flash", {})
+
+    message = str(raised.value)
+    assert "openrouter" in message
+    assert "deepseek-v4-flash" in message
+    assert "OPENROUTER_KEY=sk-or-..." in message
 
 
 def test_deepseek_routes_without_anthropic_key(monkeypatch):

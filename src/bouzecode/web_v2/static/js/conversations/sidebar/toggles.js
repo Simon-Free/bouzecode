@@ -5,6 +5,7 @@
 import { agentId } from "../dom.js";
 import { NODES } from "../state.js";
 import { CONTRACT } from "../contract.js";
+import { t } from "../../i18n/index.js";
 
 // Enfants directs d'un node dans l'arbre plat (parent = agentId OU key du parent).
 export function childrenOf(n) {
@@ -57,13 +58,13 @@ export function desiredOpen(n, kids) {
 }
 
 // Agrège les états des enfants pour le libellé du header de repli.
-// Ex. "2 sous-agents · 1 en cours". running -> "en cours", awaiting_* -> "en attente".
+// Ex. « 2 sous-agents · 1 en cours ». running -> « en cours », awaiting_* -> « en attente ».
 export function aggregateChildren(kids) {
   const n = kids.length;
   const running = kids.filter((k) => k.state === "running").length;
   const awaiting = kids.filter((k) => CONTRACT.needsInput(k)).length;
-  const parts = [`${n} sous-agent${n > 1 ? "s" : ""}`];
-  if (awaiting) parts.push(`${awaiting} en attente`);
-  if (running) parts.push(`${running} en cours`);
+  const parts = [t(n > 1 ? "sidebar.subagents_many" : "sidebar.subagents_one", { n })];
+  if (awaiting) parts.push(t("sidebar.children_awaiting", { n: awaiting }));
+  if (running) parts.push(t("sidebar.children_running", { n: running }));
   return parts.join(" · ");
 }

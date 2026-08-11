@@ -81,6 +81,40 @@ def pytest_collection_modifyitems(config, items):
                 break
 
 
+from tests import repo_tree_guard
+
+# Resolved once: `git ls-files` per test would cost 2800 subprocesses.
+_WATCHED_PATHS = repo_tree_guard.watched_paths(_BOUZECODE_ROOT)
+
+
+@pytest.fixture(autouse=True)
+def _repo_working_tree_untouched():
+    """Fail any test that writes into this checkout (see tests/repo_tree_guard)."""
+    before = repo_tree_guard.snapshot(_WATCHED_PATHS)
+    yield
+    after = repo_tree_guard.snapshot(_WATCHED_PATHS)
+    touched = [p for p in _WATCHED_PATHS if before[p] != after[p]]
+    if not touched:
+        return
+    repo_tree_guard.revert(_BOUZECODE_ROOT, touched)
+    pytest.fail(
+        "this test wrote into the git-tracked working tree: "
+        + ", ".join(str(p.relative_to(_BOUZECODE_ROOT)) for p in touched)
+        + " — use the `agent_cwd` fixture so the agent runs in a tmp directory."
+    )
+
+
+@pytest.fixture
+def agent_cwd(tmp_path, monkeypatch):
+    """Run the agent from a scratch directory instead of this checkout.
+
+    Tools that persist artifacts relative to `Path.cwd()` — plan mode writes
+    `.nano_claude/plans/<session>.md` — otherwise edit the developer's repo.
+    `_isolate_global_state` already restores the cwd; this picks the right one."""
+    monkeypatch.chdir(tmp_path)
+    return tmp_path
+
+
 @pytest.fixture(autouse=True)
 def _disable_web_ipc(monkeypatch):
     """Neutralize web-IPC mode so tests never raise PausedForInput."""

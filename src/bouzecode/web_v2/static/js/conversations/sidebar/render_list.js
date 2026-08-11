@@ -5,6 +5,7 @@
 import { node, agentId } from "../dom.js";
 import { NODES, setNodes, optimisticNodes } from "../state.js";
 import { CONTRACT } from "../contract.js";
+import { t } from "../../i18n/index.js";
 import { isActiveState } from "../badges.js";
 import { emptyMsgEl, setEmptyMsgEl } from "./group.js";
 import { reconcileTopLevel } from "./reconcile.js";
@@ -100,8 +101,8 @@ export function renderList() {
     parent: "",
     state: "finished",
     _ghost: true,
-    title: `⌀ conversation archivée · #${String(pid).slice(0, 8)}`,
-    title_full: "Conversation parente archivée, purgée ou disparue — validateur rattaché ci-dessous.",
+    title: t("sidebar.ghost_title", { id: String(pid).slice(0, 8) }),
+    title_full: t("sidebar.ghost_tip"),
   }));
 
   // Cas vide : message unique, on purge tout le reste. NB : s'il existe des
@@ -109,8 +110,10 @@ export function renderList() {
   // NE tombe PAS dans le cas vide — le flux normal les rend en « Terminés ».
   if (!roots.length && !ghosts.length) {
     reconcileTopLevel(list, [], []);
-    if (!emptyMsgEl) setEmptyMsgEl(node(list, "p", "muted", "Aucune conversation manager."));
+    if (!emptyMsgEl) setEmptyMsgEl(node(list, "p", "muted"));
     else if (emptyMsgEl.parentNode !== list) list.appendChild(emptyMsgEl);
+    // Message retraduit à chaque passe : le <p> persiste entre les render.
+    emptyMsgEl.textContent = t("sidebar.empty");
     return;
   }
   if (emptyMsgEl) { emptyMsgEl.remove(); setEmptyMsgEl(null); }

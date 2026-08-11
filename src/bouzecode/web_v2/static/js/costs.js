@@ -3,6 +3,9 @@
   "use strict";
 
   let loaded = false;
+  // Dernière réponse rendue : la bascule de langue redessine le tableau à partir d'elle,
+  // sans refaire l'appel réseau.
+  let lastData = null;
 
   function fmt(n) {
     if (n == null) return "—";
@@ -10,16 +13,26 @@
     return n.toLocaleString();
   }
 
+  // « Input tokens », « Output tokens » et « Total » s'écrivent pareil dans les deux langues.
+  function headerCells() {
+    return [
+      window.i18n.t("session.costs_model"), window.i18n.t("session.costs_calls"),
+      "Input tokens", "Output tokens",
+      window.i18n.t("session.costs_cache_read"), window.i18n.t("session.costs_cache_write"),
+      window.i18n.t("session.costs_hit_pct"), window.i18n.t("session.costs_cost"),
+    ].map((label) => `<th>${label}</th>`).join("");
+  }
+
   function buildTable(data) {
+    lastData = data;
     const container = document.getElementById("tab-costs");
     if (!data || !data.total) {
-      container.innerHTML = '<p class="muted">Pas de données de coûts disponibles.</p>';
+      container.innerHTML = `<p class="muted">${window.i18n.t("session.costs_none")}</p>`;
       return;
     }
 
     let html = '<table class="data-table costs-table"><thead><tr>';
-    html += "<th>Modèle</th><th>Appels</th><th>Input tokens</th><th>Output tokens</th>";
-    html += "<th>Cache lu</th><th>Cache écrit</th><th>% hit cache</th><th>Coût ($)</th>";
+    html += headerCells();
     html += "</tr></thead><tbody>";
 
     const models = data.models || {};
@@ -62,9 +75,14 @@
       const data = await resp.json();
       buildTable(data);
     } catch (e) {
-      container.innerHTML = `<p class="error">Erreur chargement coûts: ${e.message}</p>`;
+      const msg = window.i18n.t("session.costs_error", { msg: e.message });
+      container.innerHTML = `<p class="error">${msg}</p>`;
     }
   }
+
+  // Redessin sur bascule de langue, appelé par l'unique gestionnaire de session.js : ce
+  // module est une IIFE, `lastData` ne lui est pas accessible autrement.
+  window.redrawCosts = () => { if (lastData) buildTable(lastData); };
 
   // Hook into tab switching
   document.addEventListener("DOMContentLoaded", () => {

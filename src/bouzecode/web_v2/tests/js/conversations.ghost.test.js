@@ -83,7 +83,7 @@ describe("conversations.js — orphelins validateurs (§2/§3/§4)", () => {
     // Grisée via la classe dédiée (aucune info supprimée, juste atténuée).
     expect(ghost.classList.contains("conv-item--ghost")).toBe(true);
     // Libellé fantôme lisible.
-    expect(ghost.textContent).toContain("conversation archivée");
+    expect(ghost.textContent).toContain("archived conversation");
   });
 
   it("§4 : le validateur orphelin reste rattaché sous le fantôme (visible/ouvrable)", async () => {

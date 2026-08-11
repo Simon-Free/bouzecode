@@ -124,8 +124,8 @@ describe("UI-2 — ligne meta unique + menu document", () => {
     expect(menu).not.toBeNull();
     expect(menu.querySelector(".conv-path-code").textContent).toContain("session.json");
     const btns = [...menu.querySelectorAll(".conv-path-btn")].map((b) => b.textContent);
-    expect(btns.join(" ")).toContain("Copier");
-    expect(btns.join(" ")).toContain("Télécharger");
+    expect(btns.join(" ")).toContain("Copy");
+    expect(btns.join(" ")).toContain("Download");
   });
 });
 

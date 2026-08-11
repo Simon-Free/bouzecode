@@ -74,7 +74,7 @@ describe("poll() empty-state placeholder — an opened tab is never a silent voi
     vi.restoreAllMocks();
   });
 
-  it("blocks:[] + state 'starting' shows « Démarrage de l'agent… »", async () => {
+  it("blocks:[] + state 'starting' shows « Starting the agent… »", async () => {
     await loadModule();
     const { poll, openTabs } = window.__convTest;
     const key = "agent/deadbeef";
@@ -87,13 +87,13 @@ describe("poll() empty-state placeholder — an opened tab is never a silent voi
 
     const ph = entry.conv.querySelector(".conv-empty-state");
     expect(ph).toBeTruthy();
-    expect(ph.textContent).toBe("Démarrage de l'agent…");
+    expect(ph.textContent).toBe("Starting the agent…");
 
     clearTimeout(entry.poller);
     openTabs.delete(key);
   });
 
-  it("blocks:[] + terminal state shows « Aucun contenu (session vide ou introuvable). »", async () => {
+  it("blocks:[] + terminal state shows « No content (session empty or not found). »", async () => {
     await loadModule();
     const { poll, openTabs } = window.__convTest;
     const key = "agent/deadbee2";
@@ -106,7 +106,7 @@ describe("poll() empty-state placeholder — an opened tab is never a silent voi
 
     const ph = entry.conv.querySelector(".conv-empty-state");
     expect(ph).toBeTruthy();
-    expect(ph.textContent).toBe("Aucun contenu (session vide ou introuvable).");
+    expect(ph.textContent).toBe("No content (session empty or not found).");
 
     clearTimeout(entry.poller);
     openTabs.delete(key);
@@ -143,7 +143,7 @@ describe("poll() empty-state placeholder — an opened tab is never a silent voi
   // elle, interroge désormais /blocks pour NOMMER la phase en cours — cf.
   // conversations.launching-phase.test.js : la phrase générique ci-dessous restait figée
   // pendant les ~20 s à ~55 s de `git worktree add`.
-  it("an optimistic: tab (fetch skipped) shows « Préparation de la conversation… »", async () => {
+  it("an optimistic: tab (fetch skipped) shows « Preparing the conversation… »", async () => {
     await loadModule();
     const { poll, openTabs } = window.__convTest;
     const key = "optimistic:1730000000000-some1";
@@ -158,7 +158,7 @@ describe("poll() empty-state placeholder — an opened tab is never a silent voi
 
     const ph = entry.conv.querySelector(".conv-empty-state");
     expect(ph).toBeTruthy();
-    expect(ph.textContent).toBe("Préparation de la conversation…");
+    expect(ph.textContent).toBe("Preparing the conversation…");
     expect(global.fetch).not.toHaveBeenCalled();
 
     clearTimeout(entry.poller);

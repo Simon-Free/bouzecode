@@ -137,7 +137,7 @@ describe("panneau de conversation — relance d'un ticket mort", () => {
     });
 
     expect(control.hidden).toBe(false);
-    expect(control.querySelector(".conv-relaunch-btn").textContent).toBe("Relancer");
+    expect(control.querySelector(".conv-relaunch-btn").textContent).toBe("Relaunch");
   });
 
   it("offre aussi la relance sur un ticket en péril (stalled = rien de commité)", async () => {
@@ -232,7 +232,7 @@ describe("panneau de conversation — relance d'un ticket mort", () => {
     button.click();
     await flush();
 
-    expect(button.textContent).toBe("Relance en cours…");
+    expect(button.textContent).toBe("Relaunching…");
     expect(button.disabled).toBe(true);
     button.click();
     await flush();
@@ -250,7 +250,7 @@ describe("panneau de conversation — relance d'un ticket mort", () => {
     await flush();
 
     expect(document.querySelectorAll("#conv-tabs .conv-tab")).toHaveLength(2);
-    expect(control.querySelector(".conv-relaunch-btn").textContent).toBe("Relancé ✓");
+    expect(control.querySelector(".conv-relaunch-btn").textContent).toBe("Relaunched ✓");
   });
 
   it("AFFICHE l'erreur serveur au lieu de l'avaler", async () => {

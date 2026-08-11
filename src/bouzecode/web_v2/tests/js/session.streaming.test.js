@@ -6,6 +6,9 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
 import { fileURLToPath } from "node:url";
 import path from "node:path";
+// session.js compose ses libellés avec `window.i18n` : hors gabarit, c'est à l'import ci-dessous
+// d'installer le noyau et les dictionnaires. Sans lui, le script planterait dès le chargement.
+import "../../static/js/i18n/index.js";
 
 const SCRIPT = path.resolve(
   path.dirname(fileURLToPath(import.meta.url)),
@@ -148,7 +151,7 @@ describe("session.js — streaming token-par-token (/partial → .streaming-bloc
     expect(document.querySelector("#conv .block.assistant")).not.toBeNull();
   });
 
-  it("phase=thinking → bloc repliable .streaming-thinking + label 'Réflexion en cours…'", async () => {
+  it("phase=thinking → bloc repliable .streaming-thinking + label 'Thinking…'", async () => {
     const partialPayload = { current: { turn: 1, seq: 2, phase: "thinking", thinking: "Je réfléchis à la solution", text: "" } };
     mockFetch(partialPayload);
     await loadModule();
@@ -161,12 +164,12 @@ describe("session.js — streaming token-par-token (/partial → .streaming-bloc
     const stk = document.querySelector("#conv .streaming-thinking");
     expect(stk).not.toBeNull();
     expect(stk.classList.contains("collapsed")).toBe(false);
-    expect(stk.querySelector(".st-label").textContent).toBe("Réflexion en cours…");
+    expect(stk.querySelector(".st-label").textContent).toBe("Thinking…");
     expect(stk.querySelector(".st-body").textContent).toBe("Je réfléchis à la solution");
     expect(document.querySelector("#conv .streaming-block")).toBeNull();
   });
 
-  it("bascule phase thinking→text → .streaming-thinking se referme (collapsed) + label 'Réflexion'", async () => {
+  it("bascule phase thinking→text → .streaming-thinking se referme (collapsed) + label 'Thinking'", async () => {
     const partialPayload = { current: { phase: "thinking", thinking: "mon raisonnement", text: "" } };
     mockFetch(partialPayload);
     await loadModule();
@@ -184,11 +187,11 @@ describe("session.js — streaming token-par-token (/partial → .streaming-bloc
     const stk = document.querySelector("#conv .streaming-thinking");
     expect(stk).not.toBeNull();
     expect(stk.classList.contains("collapsed")).toBe(true);
-    expect(stk.querySelector(".st-label").textContent).toBe("Réflexion");
+    expect(stk.querySelector(".st-label").textContent).toBe("Thinking");
     expect(document.querySelector("#conv .streaming-block").textContent).toBe("La réponse est 42");
   });
 
-  it("texte contenant <tool_use name=X> → header .streaming-tool 'Outil en cours : X'", async () => {
+  it("texte contenant <tool_use name=X> → header .streaming-tool 'Tool running: X'", async () => {
     const partialPayload = { current: { phase: "text", thinking: "", text: 'Je corrige.\n<tool_use name="Edit" id="e1"><param' } };
     mockFetch(partialPayload);
     await loadModule();
@@ -200,6 +203,6 @@ describe("session.js — streaming token-par-token (/partial → .streaming-bloc
 
     const stool = document.querySelector("#conv .streaming-tool");
     expect(stool).not.toBeNull();
-    expect(stool.querySelector(".st-tool-label").textContent).toBe("Outil en cours : Edit");
+    expect(stool.querySelector(".st-tool-label").textContent).toBe("Tool running: Edit");
   });
 });

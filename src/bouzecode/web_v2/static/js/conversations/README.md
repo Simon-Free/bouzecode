@@ -16,8 +16,13 @@ sont réassignées par des setters — les modules ES interdisent d'affecter un 
 | `dom.js` | `node()` / `agentId()` — feuille du graphe, ne dépend de rien |
 | `state.js` | état partagé : `NODES`, `openTabs`, `activeKey`, `optimisticNodes` |
 | `contract.js` | ce que le front lit sur un node de `/api/agents/tree` |
-| `badges.js` | tables d'état et de phase, `effectiveState`, `badge` |
+| `badges.js` | tables d'état et de phase (des CLÉS i18n), `effectiveState`, `badge` |
+| `activity.js` | ce que l'agent fait, recomposé et TRADUIT depuis les faits servis |
 | `search.js` | recherche plein-texte au-dessus de la sidebar |
+
+Les libellés viennent tous de `../i18n/` (`import { t } from "../i18n/index.js"`) : rien
+n'est écrit en dur, et rien n'est résolu à l'évaluation du module — sinon une bascule de
+langue laisserait le texte figé.
 
 ## Subfolders
 | Folder | Description |

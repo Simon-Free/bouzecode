@@ -21,7 +21,9 @@ from bouzecode.backend.core.tool_registry import enable_tool
 
 
 @pytest.fixture(autouse=True)
-def _enable_plan_tools():
+def _enable_plan_tools(agent_cwd):
+    """`agent_cwd`: these scenarios WritePlan and Write real files, which without
+    a scratch cwd landed on the checkout's own .nano_claude/plans/ and main.py."""
     enable_tool("EnterPlanMode")
     enable_tool("ExitPlanMode")
 

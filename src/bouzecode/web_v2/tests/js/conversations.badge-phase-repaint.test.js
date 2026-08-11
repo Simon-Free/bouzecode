@@ -86,24 +86,24 @@ describe("le badge suit la phase, même quand l'état ne bouge pas", () => {
     await loadModule([AGENT_EN_ATTENTE_DU_MODELE]);
     // Une phase force TOUJOURS son libellé, même en vignette compacte : un point de couleur
     // muet n'explique aucune attente.
-    expect(badge(KEY).textContent).toContain("le modèle lit votre demande");
+    expect(badge(KEY).textContent).toContain("the model is reading your request");
 
     // Le modèle a répondu : le serveur n'annonce plus de phase, l'état reste `running`.
     await servirPuisRafraichir([{ ...AGENT_EN_ATTENTE_DU_MODELE, phase: "" }]);
 
-    expect(badge(KEY).textContent).not.toContain("le modèle lit votre demande");
+    expect(badge(KEY).textContent).not.toContain("the model is reading your request");
     // Sans phase, la vignette redevient un point ; l'état se lit dans son infobulle.
-    expect(badge(KEY).title).toBe("en cours");
+    expect(badge(KEY).title).toBe("running");
   });
 
   it("une phase qui s'ouvre à état constant s'affiche tout de suite", async () => {
     await loadModule([{ ...AGENT_EN_ATTENTE_DU_MODELE, phase: "" }]);
-    expect(badge(KEY).title).toBe("en cours");
+    expect(badge(KEY).title).toBe("running");
 
     // Tour suivant : l'agent redemande au modèle, toujours `running`.
     await servirPuisRafraichir([AGENT_EN_ATTENTE_DU_MODELE]);
 
-    expect(badge(KEY).textContent).toContain("le modèle lit votre demande");
+    expect(badge(KEY).textContent).toContain("the model is reading your request");
   });
 
   it("un état inchangé ET une phase inchangée ne recréent aucun badge", async () => {

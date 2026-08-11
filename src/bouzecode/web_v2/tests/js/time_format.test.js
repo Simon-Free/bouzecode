@@ -3,6 +3,7 @@ import {
   formatEventTime,
   formatEventTimeTooltip,
 } from "../../static/js/time_format.js";
+import { setLang } from "../../static/js/i18n/index.js";
 
 // On raisonne en heure LOCALE du runner. Pour rendre le test déterministe quel
 // que soit le fuseau CI, on construit les instants de référence via `new Date(y,
@@ -21,14 +22,21 @@ describe("formatEventTime", () => {
     expect(formatEventTime(localIso(2026, 6, 7, 1, 5), now)).toBe("01:05");
   });
 
-  it("hier → 'hier HH:MM'", () => {
-    expect(formatEventTime(localIso(2026, 6, 6, 23, 41), now)).toBe("hier 23:41");
-    expect(formatEventTime(localIso(2026, 6, 6, 0, 0), now)).toBe("hier 00:00");
+  it("hier → 'yesterday HH:MM' dans la langue par défaut", () => {
+    expect(formatEventTime(localIso(2026, 6, 6, 23, 41), now)).toBe("yesterday 23:41");
+    expect(formatEventTime(localIso(2026, 6, 6, 0, 0), now)).toBe("yesterday 00:00");
   });
 
-  it("autre jour → 'JJ/MM HH:MM'", () => {
+  it("autre jour → 'MM/JJ HH:MM' : l'ordre suit la langue, pas le serveur", () => {
+    expect(formatEventTime(localIso(2026, 6, 5, 9, 3), now)).toBe("07/05 09:03");
+    expect(formatEventTime(localIso(2026, 0, 2, 18, 7), now)).toBe("01/02 18:07");
+  });
+
+  it("en français, le mot ET l'ordre jour-mois redeviennent ceux d'avant", () => {
+    setLang("fr");
+    expect(formatEventTime(localIso(2026, 6, 6, 23, 41), now)).toBe("hier 23:41");
     expect(formatEventTime(localIso(2026, 6, 5, 9, 3), now)).toBe("05/07 09:03");
-    expect(formatEventTime(localIso(2026, 0, 2, 18, 7), now)).toBe("02/01 18:07");
+    setLang("en");
   });
 
   it("iso vide/invalide → chaîne vide", () => {

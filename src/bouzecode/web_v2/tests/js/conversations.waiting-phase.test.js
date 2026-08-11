@@ -90,31 +90,31 @@ describe("poll() — la phase servie par /blocks dit où en est l'agent, à 1,5 
   it("phase 'demarrage' annonce le démarrage de l'agent", async () => {
     await loadModule();
     expect(await texteAffiche("agent/aaa00001", "starting", "demarrage"))
-      .toBe("Démarrage de l'agent…");
+      .toBe("Starting the agent…");
   });
 
   it("phase 'attente_modele' explique que le modèle lit la demande", async () => {
     await loadModule();
     // Le cas qui manquait : l'état est « running » (donc muet), seule la phase informe.
     expect(await texteAffiche("agent/aaa00002", "running", "attente_modele"))
-      .toBe("Le modèle lit votre demande…");
+      .toBe("The model is reading your request…");
   });
 
   it("sans phase, l'état reprend la main — « running » reste une attente indéterminée", async () => {
     await loadModule();
     expect(await texteAffiche("agent/aaa00003", "running", ""))
-      .toBe("En attente de contenu…");
+      .toBe("Waiting for content…");
   });
 
   it("sans phase, un état terminal dit qu'il n'y a rien à montrer", async () => {
     await loadModule();
     expect(await texteAffiche("agent/aaa00004", "finished", ""))
-      .toBe("Aucun contenu (session vide ou introuvable).");
+      .toBe("No content (session empty or not found).");
   });
 
   it("une phase inconnue du front ne masque pas l'état", async () => {
     await loadModule();
     expect(await texteAffiche("agent/aaa00005", "starting", "phase_du_futur"))
-      .toBe("Démarrage de l'agent…");
+      .toBe("Starting the agent…");
   });
 });

@@ -2,6 +2,7 @@
 // Vit à part du poll de blocs : sa cadence est de 250 ms, contre 1,5 s pour /blocks.
 
 import { openTabs } from "../state.js";
+import { t } from "../../i18n/index.js";
 
 // Au retour de visibilité : réveiller immédiatement le streaming des onglets running
 // (pollPartial a été stoppé pendant que l'onglet était caché).
@@ -50,11 +51,11 @@ function renderStreamingPartial(container, data) {
     const label = stk.querySelector(".st-label");
     const body = stk.querySelector(".st-body");
     if (phase === "thinking") {
-      label.textContent = "Réflexion en cours…";
+      label.textContent = t("panel.thinking_live");
       stk.classList.remove("collapsed");
       stk.classList.add("thinking-active");
     } else {
-      label.textContent = "Réflexion";
+      label.textContent = t("panel.thinking");
       stk.classList.add("collapsed");
       stk.classList.remove("thinking-active");
     }
@@ -75,7 +76,7 @@ function renderStreamingPartial(container, data) {
       const sbExisting = container.querySelector(".streaming-block");
       container.insertBefore(stool, sbExisting || null);
     }
-    stool.querySelector(".st-tool-label").textContent = `Outil en cours : ${toolName}`;
+    stool.querySelector(".st-tool-label").textContent = t("panel.tool_running", { tool: toolName });
   } else if (stool) {
     stool.remove();
   }

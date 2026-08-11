@@ -1,0 +1,155 @@
+// Pages Session et Agent builder (gabarits + scripts classiques).
+window.i18n.register("en", {
+  // ── Page session : en-tête, onglets, composeur ──────────────────────────────
+  "session.kill": "Kill agent",
+  "session.tab_diffs": "Changed files",
+  "session.tab_turns": "Turns (analysis)",
+  "session.tab_costs": "Costs",
+  "session.interrupted": "⚠ This agent was interrupted (crash/restart) before it finished.",
+  "session.resume": "Resume",
+  "session.composer_placeholder": "Reply / relaunch the session…",
+  "session.send": "Send",
+  "session.loading": "Loading…",
+
+  // Composé en JavaScript : méta, streaming token-par-token, onglet diffs, modale.
+  "session.meta_turns": "{n} turns",
+  "session.thinking_live": "Thinking…",
+  "session.thinking": "Thinking",
+  "session.tool_running": "Tool running: {tool}",
+  "session.no_files": "No file changed in this session.",
+  "session.file_new": "NEW",
+  "session.turn_context_title": "Turn context",
+  "session.close": "Close",
+  "session.turn_context_empty": "No content for this turn.",
+
+  // Onglet « Tours (analyse) ».
+  "session.turn_summary": "Turn {turn} — {messages} messages sent · in {input} "
+    + "(cache read {read}, written {write}) · out {output}",
+  "session.preview_empty": "(empty preview)",
+  "session.model_response": "Model response",
+  "session.turns_info": "system prompt ≈ {tokens} tok · total cost ≈ ${cost}",
+  "session.turns_no_dumps": "payload dumps missing (drill-down unavailable)",
+  "session.th_turn": "turn",
+  "session.th_time": "time",
+  "session.th_cache_read": "cache read",
+  "session.th_cache_write": "cache written",
+  "session.th_tools": "tools",
+
+  // Onglet « Coûts ».
+  "session.costs_none": "No cost data available.",
+  "session.costs_model": "Model",
+  "session.costs_calls": "Calls",
+  "session.costs_cache_read": "Cache read",
+  "session.costs_cache_write": "Cache written",
+  "session.costs_hit_pct": "Cache hit %",
+  "session.costs_cost": "Cost ($)",
+  "session.costs_error": "Cost loading error: {msg}",
+
+  // ── Agent builder : chapeau et parcours en trois étapes ─────────────────────
+  "builder.intro_a": "Three steps, in the order you think of them: who this agent is, what it "
+    + "can do, what you tell it. The result is a",
+  "builder.intro_global": "global",
+  "builder.intro_b": "profile (~/.bouzecode/profiles) — switch it on in a session with",
+  "builder.intro_cmd": "/agent <name>",
+  "builder.tab_new": "New agent",
+  "builder.step_identity": "Identity",
+  "builder.step_capabilities": "Capabilities",
+  "builder.step_prompt": "Prompt",
+  "builder.field_name": "Name",
+  "builder.name_placeholder": "e.g. code-reviewer",
+  "builder.field_base": "Base — existing agent / profile",
+  "builder.opt_new": "— new —",
+  "builder.hint_load": "Loading an existing profile fills in the three steps: that is how you "
+    + "edit an agent.",
+  "builder.filter_placeholder": "filter…",
+  "builder.loading": "Loading…",
+  "builder.prompt_placeholder": "Instructions specific to this agent (added to the base prompt)…",
+  "builder.preview_closed": "▸ Computed full prompt",
+  "builder.preview_open": "▾ Computed full prompt",
+  "builder.delete": "Delete",
+  "builder.save": "Save",
+
+  // Onglets Catalogue / Plugins / Skills.
+  "builder.agent_catalog": "Agent catalogue",
+  "builder.refresh_catalog": "Refresh catalogue",
+  "builder.cat_hint_installed": "installed",
+  "builder.cat_hint_mid": "(ready to use) vs",
+  "builder.cat_hint_available": "available",
+  "builder.cat_hint_end": "in the remote catalogue — “Install” writes the profile to "
+    + "~/.bouzecode/profiles and materialises its plugins.",
+  "builder.installed": "Installed",
+  "builder.available": "Available (catalogue)",
+  "builder.plugins_hint": "Install from GitLab (bundled tools + skills) — or from the path of a "
+    + "local git folder.",
+  "builder.plugin_input_placeholder": "URL of a GitLab plugin repo — or path of a local git folder",
+  "builder.install": "Install",
+  "builder.upgrade_agent_plugins": "Update the selected agent's plugins",
+  "builder.skills_hint": "Create / edit skills — saved to ~/.bouzecode/skills, global.",
+  "builder.existing_skill": "Existing skill",
+  "builder.opt_choose": "— choose —",
+  "builder.new_skill": "New skill",
+  "builder.skill_name_placeholder": "e.g. my-skill",
+  "builder.new": "New",
+  "builder.skill_content_placeholder": "Markdown content (YAML front-matter + body)…",
+  "builder.save_skill": "Save skill",
+
+  // Composé en JavaScript : capacités, formulaire, aperçu du prompt.
+  "builder.system_tool": "System tool — always on",
+  "builder.hook_default": "default",
+  "builder.hook_on": "on",
+  "builder.hook_off": "off",
+  "builder.read_only_clone": "(read-only → clone)",
+  "builder.err_name_required": "Give the profile a name.",
+  "builder.profile_saved": "Profile “{name}” saved (global).",
+  "builder.err_pick_profile": "Select an existing profile to delete.",
+  "builder.err_not_global": "“{name}” ({source}) is not a global profile — only global profiles "
+    + "can be deleted here.",
+  "builder.confirm_delete_profile": "Delete profile “{name}”?",
+  "builder.profile_deleted": "Profile “{name}” deleted.",
+  "builder.profile_loaded": "Global profile “{name}” loaded — edit and save.",
+  "builder.profile_loaded_ro": "“{name}” ({source}) loaded read-only — save it to make it a "
+    + "global profile.",
+  "builder.preview_runtime": "Outside the prompt (runtime):",
+  "builder.preview_preloaded": "Preloaded in the prompt:",
+  "builder.preview_note": "Tools are sent as separate API schemas and hooks act at runtime "
+    + "(absent from the text); the selected skills are injected into the prompt below. The "
+    + "editable part sits under “{marker}”.",
+
+  // Composé en JavaScript : catalogue d'agents.
+  "builder.cat_unavailable": "Catalogue unavailable: {error}",
+  "builder.none": "(none)",
+  "builder.installed_badge": "Installed",
+  "builder.installing": "Installing…",
+  "builder.install_failed": "Install failed: {error}",
+  "builder.agent_installed": "Agent “{name}” installed.",
+  "builder.errors": "Errors: {errors}",
+  "builder.refreshing": "Refreshing…",
+  "builder.catalog_refreshed": "Catalogue refreshed.",
+  "builder.refresh_failed": "Refresh failed: {error}",
+  "builder.import_cancelled": "Import cancelled.",
+  "builder.import_errors": "errors: {errors}",
+  "builder.agent_imported": "Agent “{name}” imported{errs}.",
+
+  // Composé en JavaScript : plugins et skills.
+  "builder.no_plugins": "No plugin installed.",
+  "builder.update": "Update",
+  "builder.install_cancelled": "Installation cancelled.",
+  "builder.plugin_installed": "Plugin installed.",
+  "builder.cloning": "Cloning…",
+  "builder.via_git": "from the git repo",
+  "builder.via_index": "from the package index",
+  "builder.plugin_installed_from": "Plugin “{package}” installed {via} — reload the page for "
+    + "its skills.",
+  "builder.err_pick_agent": "Pick an agent in step 1 first.",
+  "builder.update_cancelled": "Update cancelled.",
+  "builder.failed": "FAILED",
+  "builder.no_plugins_to_update": "No plugin to update.",
+  "builder.skill_global_editable": "global — directly editable",
+  "builder.skill_readonly": "{source} — read-only; save to fork it into a global skill",
+  "builder.err_skill_name": "Give the new skill a name.",
+  "builder.skill_new_unsaved": "new global skill (unsaved)",
+  "builder.skill_saved": "Skill “{name}” saved.",
+  "builder.err_pick_skill": "Select a skill to delete.",
+  "builder.confirm_delete_skill": "Delete global skill “{name}”?",
+  "builder.skill_deleted": "Skill “{name}” deleted.",
+});

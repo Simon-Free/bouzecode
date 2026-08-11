@@ -3,6 +3,9 @@
 // et injecte le HTML dans la modale. Fixture bulle assistant = markup EXACT de
 // _assistant_block (message_view.py).
 import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
+// session.js compose ses libellés avec `window.i18n` (titre de la modale, aria-label de la
+// croix) : hors gabarit, c'est cet import qui installe le noyau et les dictionnaires.
+import "../../static/js/i18n/index.js";
 
 const SCRIPT = new URL("../../static/js/session.js", import.meta.url).pathname;
 const KEY = "agent/abc123";

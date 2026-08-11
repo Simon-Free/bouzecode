@@ -30,9 +30,16 @@ def page_html() -> str:
 
 
 def test_la_creation_se_lit_en_trois_etapes_numerotees(page_html):
-    """La colonne de creation annonce Identite, Capacites puis Prompt, dans cet ordre."""
-    etapes = re.findall(r'ab-num">(\d)</span>\s*([A-Za-zÀ-ÿ]+)', page_html)
-    assert etapes == [("1", "Identité"), ("2", "Capacités"), ("3", "Prompt")]
+    """La colonne de creation annonce Identity, Capabilities puis Prompt, dans cet ordre.
+
+    Depuis la bilinguisation, l'etiquette de l'etape vit dans son propre <span data-i18n>
+    (sinon `applyDom` ecraserait la pastille numerotee en reecrivant le titre entier). Le
+    HTML servi est en ANGLAIS : c'est la langue par defaut, celle qui evite le scintillement.
+    """
+    etapes = re.findall(
+        r'ab-num">(\d)</span>\s*<span data-i18n="[^"]+">([A-Za-zÀ-ÿ]+)</span>', page_html
+    )
+    assert etapes == [("1", "Identity"), ("2", "Capabilities"), ("3", "Prompt")]
 
 
 def test_les_capacites_sont_repliees_derriere_un_resume(page_html):

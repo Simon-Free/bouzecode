@@ -10,7 +10,7 @@
 
   .conv-new-input { flex: 1; resize: none; min-height: 24px; max-height: 200px;
     padding: 9px 12px; border: 1px solid var(--border); border-radius: 20px;
-    background: var(--panel2); color: var(--text); font: inherit; line-height: 1.4; }
+    background: var(--input-bg); color: var(--text); font: inherit; line-height: 1.4; }
   .conv-new-input:focus { outline: none; border-color: var(--accent); }
   .conv-new-send { flex: 0 0 auto; width: 38px; height: 38px; border: none;
     border-radius: 50%; background: var(--accent); color: var(--on-accent); cursor: pointer;
@@ -42,22 +42,38 @@
   .conv-agent-option-name { font-size: 13px; color: var(--text); font-weight: 500; }
   .conv-agent-option-desc { font-size: 11px; color: var(--muted, #888);
     overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  /* Formulaire « ouvrir un projet », sous la liste des projets. Aucune couleur en dur :
+     tout passe par les tokens du thème (cf. conversations.nohex.test.js). */
+  .conv-projects-admin { padding: 2px 8px 10px 8px; font-size: 12px; }
+  .conv-projects-admin-row { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; }
+  .conv-projects-admin-label { color: var(--muted); }
+  .conv-projects-admin-input { padding: 4px 8px; border: 1px solid var(--border);
+    border-radius: 6px; background: var(--panel); color: var(--text); font: inherit;
+    font-size: 12px; }
+  .conv-projects-admin-input:focus { outline: none; border-color: var(--accent); }
+  .conv-projects-admin-btn { padding: 4px 10px; border: 1px solid var(--border);
+    border-radius: 6px; background: var(--panel2); color: var(--text); font: inherit;
+    font-size: 12px; cursor: pointer; }
+  .conv-projects-admin-btn:hover { border-color: var(--border-bright); }
+  .conv-projects-admin-error { color: var(--red); min-height: 14px; }
   /* La barre de lancement (composer + type d'agent + projet) reste TOUJOURS
      ouverte, même quand des onglets de conversation sont ouverts : on doit
      pouvoir lancer un nouvel agent à tout moment (choix typologie + projet). */
 </style>
 <div class="conv-layout">
   <aside class="conv-sidebar">
-    <h2>Conversations</h2>
+    <h2 data-i18n="conv.sidebar_title">Conversations</h2>
     <div id="conv-list" class="conv-list">
-      <p class="muted">Chargement…</p>
+      <p class="muted" data-i18n="conv.loading">Loading…</p>
     </div>
   </aside>
   <section class="conv-main">
     <form id="conv-new-bar" class="conv-new-bar pui-promptbox">
       <textarea id="conv-new-input" name="conv-new-input" class="conv-new-input pui-promptbox__textarea" rows="1"
-        placeholder="Nouvelle conversation — décris ce qu'il faut faire (Entrée pour envoyer)…"></textarea>
-      <button id="conv-new-send" class="conv-new-send pui-promptbox__iconbtn" type="submit" title="Envoyer" aria-label="Envoyer">
+        data-i18n-placeholder="conv.new_placeholder"
+        placeholder="New conversation — describe what needs doing (Enter to send)…"></textarea>
+      <button id="conv-new-send" class="conv-new-send pui-promptbox__iconbtn" type="submit"
+        data-i18n-title="conv.send" data-i18n-aria-label="conv.send" title="Send" aria-label="Send">
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4"
           stroke-linecap="round" stroke-linejoin="round"><path d="M12 19V5M5 12l7-7 7 7"/></svg>
       </button>
@@ -65,40 +81,47 @@
     <details class="conv-options">
       <summary class="conv-options-summary">
         <span class="conv-options-caret" aria-hidden="true">▸</span>
-        <span class="conv-options-label">Options</span>
+        <span class="conv-options-label" data-i18n="conv.options">Options</span>
       </summary>
       <div class="conv-agent-bar">
       <button id="conv-agent-toggle" class="conv-agent-toggle" type="button"
         aria-expanded="false" aria-controls="conv-agent-panel">
         <span class="conv-agent-caret" aria-hidden="true">▸</span>
-        <span class="conv-agent-toggle-label">Type d'agent :</span>
+        <span class="conv-agent-toggle-label" data-i18n="conv.agent_type">Agent type:</span>
         <span id="conv-agent-value" class="conv-agent-toggle-value">…</span>
       </button>
       <div id="conv-agent-panel" class="conv-agent-panel" role="radiogroup"
-        aria-label="Type d'agent" hidden></div>
+        data-i18n-aria-label="conv.agent_type_group" aria-label="Agent type" hidden></div>
       <button id="conv-project-toggle" class="conv-agent-toggle" type="button"
         aria-expanded="false" aria-controls="conv-project-panel">
         <span class="conv-agent-caret" aria-hidden="true">▸</span>
-        <span class="conv-agent-toggle-label">Projet :</span>
-        <span id="conv-project-value" class="conv-agent-toggle-value">à choisir</span>
+        <span class="conv-agent-toggle-label" data-i18n="conv.project">Project:</span>
+        {#- Pas de `data-i18n` sur les trois valeurs choisies (agent / projet / environnement) :
+            elles portent une DONNÉE que le JavaScript écrit (le nom du projet, la typologie
+            retenue). Une clé ici les ferait réécrire par `applyDom` au changement de langue,
+            effaçant le choix de l'utilisateur. Le composer les redessine lui-même. -#}
+        <span id="conv-project-value" class="conv-agent-toggle-value">pick one</span>
       </button>
       <div id="conv-project-panel" class="conv-agent-panel" role="radiogroup"
-        aria-label="Projet" hidden></div>
+        data-i18n-aria-label="conv.project_group" aria-label="Project" hidden></div>
       <div id="conv-project-suggestions" class="conv-project-suggestions" hidden></div>
+      {#- Ouvrir un projet sans passer par un agent : sans cette ligne, un serveur neuf n'a
+          aucun projet et la page est un cul-de-sac. Peuplée par composer/project.js. -#}
+      <div id="conv-projects-admin" class="conv-projects-admin"></div>
       <button id="conv-isolation-toggle" class="conv-agent-toggle" type="button"
         aria-expanded="false" aria-controls="conv-isolation-panel">
         <span class="conv-agent-caret" aria-hidden="true">▸</span>
-        <span class="conv-agent-toggle-label">Environnement :</span>
+        <span class="conv-agent-toggle-label" data-i18n="conv.environment">Environment:</span>
         <span id="conv-isolation-value" class="conv-agent-toggle-value">shared</span>
       </button>
       <div id="conv-isolation-panel" class="conv-agent-panel" role="radiogroup"
-        aria-label="Environnement" hidden></div>
+        data-i18n-aria-label="conv.environment_group" aria-label="Environment" hidden></div>
       </div>
     </details>
     <div id="conv-new-error" class="conv-new-error"></div>
     <div id="conv-tabs" class="conv-tabs"></div>
     <div id="conv-panels" class="conv-panels">
-      <p class="muted conv-empty">Sélectionne une conversation à gauche, ou lance-en une nouvelle ci-dessus.</p>
+      <p class="muted conv-empty" data-i18n="conv.empty">Pick a conversation on the left, or start a new one above.</p>
     </div>
   </section>
 </div>

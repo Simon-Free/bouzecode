@@ -13,6 +13,11 @@ $ErrorActionPreference = "Stop"
 $repo = $PSScriptRoot
 Set-Location $repo
 
+# Load .env first: -Push reaches the remote, which behind a corporate proxy
+# needs the variables declared there.
+. (Join-Path $PSScriptRoot "load_dotenv.ps1")
+Import-DotEnv -Path (Join-Path $repo ".env") -Label "bouzecode-publish"
+
 $pyproject = Join-Path $repo "pyproject.toml"
 $content = Get-Content $pyproject -Raw
 if ($content -notmatch '(?m)^version\s*=\s*"([^"]+)"') {

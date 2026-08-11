@@ -4,12 +4,13 @@
 import { node } from "../dom.js";
 import { openTabs } from "../state.js";
 import { PHASE_BADGE } from "../badges.js";
-import { pairToolBlocks } from "./subagents.js";
+import { pairToolBlocks } from "./tool_blocks.js";
 import { renderQuestion } from "./question.js";
 import { renderMeta } from "./meta.js";
 import { pollPartial } from "./streaming.js";
 import { maybeEnableRecap } from "../recap/view.js";
 import { formatEventTime, formatEventTimeTooltip } from "../../time_format.js";
+import { t, applyDom } from "../../i18n/index.js";
 
 // Hydrate les marqueurs temporels rendus VIDES par le backend : chaque
 // <span class="event-time" data-iso="…"> (marqueur inline sous-agent) ou
@@ -58,14 +59,22 @@ function clearEmptyState(entry) {
 // vers ces libellés restait `/api/agents/tree`, poll à 8 s derrière un cache de 10 s.
 // Mesuré le 2026-08-03 : phase connue du serveur à 8,6 s, affichée à 11,9 s. Même source,
 // même vocabulaire, six fois plus vite.
+// Les libellés de phase sont écrits en minuscule (ils servent aussi de pastille, au fil
+// d'une phrase) : en tête de placeholder ils prennent une capitale.
+function capitalize(text) {
+  return text.charAt(0).toUpperCase() + text.slice(1);
+}
+
 function waitingMessage(state, phase) {
+  // PHASE_BADGE porte des CLÉS i18n, pas des libellés : le vocabulaire des phases est
+  // partagé avec la sidebar et les chips (i18n/*/state.js), jamais réécrit ici.
   const known = PHASE_BADGE[phase];
-  if (known) return known[0].charAt(0).toUpperCase() + known[0].slice(1);
-  if (state === "starting") return "Démarrage de l'agent…";
+  if (known) return capitalize(t(known[0]));
+  if (state === "starting") return t("panel.waiting_starting");
   if (state === "running" || state === "awaiting_input" || state === "awaiting_plan_validation") {
-    return "En attente de contenu…";
+    return t("panel.waiting_content");
   }
-  return "Aucun contenu (session vide ou introuvable).";
+  return t("panel.waiting_empty");
 }
 
 // Ce qu'on écrit dans le corps d'un onglet de LANCEMENT, où il n'y a par construction aucune
@@ -76,16 +85,27 @@ function waitingMessage(state, phase) {
 // cinquante-cinquième seconde : l'utilisateur attendait sans savoir pourquoi, ni si ça avançait.
 // Même canal que pour un agent déjà né (`/blocks`, 1,5 s) et MÊMES MOTS que la sidebar et l'API
 // (launch_phase.LABELS) — aucun libellé n'est réécrit ici, sinon les surfaces divergeraient.
+// Phases de lancement servies en CLÉ par le serveur (`status.phase`) : les mots vivent
+// dans i18n/*/state.js. Une phase absente de cette liste retombe sur le `phase_label`
+// du serveur — jamais une clé crue à l'écran.
+const LAUNCH_PHASES = new Set([
+  "provisioning_worktree", "syncing_venv", "spawning",
+  "reisolating", "venv_ready", "venv_failed",
+]);
+
 async function launchingMessage(key) {
   const resp = await fetch(`/api/sessions/${key}/blocks`).catch(() => null);
-  if (!resp || !resp.ok) return "Préparation de la conversation…";
+  if (!resp || !resp.ok) return t("panel.preparing_conversation");
   const data = await resp.json().catch(() => ({}));
-  const label = (data.status && data.status.phase_label) || "";
-  if (!label) return "Préparation de la conversation…";
+  const status = data.status || {};
+  const phase = status.phase || "";
+  const label = LAUNCH_PHASES.has(phase) ? t("phase." + phase) : (status.phase_label || "");
+  if (!label) return capitalize(t("phase.launching_fallback"));
   // `phase_detail` porte la base du worktree puis, en cas de reprise, « essai 2/3 échoué… » :
-  // c'est ce qui distingue un provisionnement lent d'un serveur bloqué.
-  const detail = (data.status && data.status.phase_detail) ? ` — ${data.status.phase_detail}` : "";
-  return label.charAt(0).toUpperCase() + label.slice(1) + "…" + detail;
+  // c'est ce qui distingue un provisionnement lent d'un serveur bloqué. Texte LIBRE du
+  // serveur (compteurs, nom de branche) : il n'y a pas de clé à traduire côté client.
+  const detail = status.phase_detail ? ` — ${status.phase_detail}` : "";
+  return capitalize(label) + "…" + detail;
 }
 
 export async function poll(key) {
@@ -98,7 +118,7 @@ export async function poll(key) {
   // vraie session n'existe pas encore → /api/sessions/optimistic:.../blocks = 404.
   // reconcileOptimistic()/retargetTab() rebranchera l'onglet sur la vraie key au spawn.
   if (key.startsWith("optimistic:")) {
-    setEmptyState(entry, "Préparation de la conversation…");
+    setEmptyState(entry, t("panel.preparing_conversation"));
     clearTimeout(entry.poller);
     entry.poller = setTimeout(() => poll(key), 1500);
     return;
@@ -139,6 +159,12 @@ export async function poll(key) {
       // backend ne cuit plus l'heure UTC. On la formate ici en heure locale via
       // le helper unique → même heure que la sidebar pour le même started_at.
       hydrateEventTimes(entry.conv);
+      // Même geste pour la LANGUE : le chrome de ces blocs (« réponse finale »,
+      // « résultat X — N car. ») arrive du serveur avec sa clé et son texte anglais.
+      // Un utilisateur en français doit le lire en français dès l'insertion, sans
+      // attendre une bascule. Les clés restent dans le DOM, donc l'opération est
+      // idempotente et une bascule ultérieure les réécrira aussi.
+      if (data.blocks.length) applyDom(entry.conv);
       if (data.blocks.length) {
         entry.nextIndex = data.total;
         pairToolBlocks(entry.conv);

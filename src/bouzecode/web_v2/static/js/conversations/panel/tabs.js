@@ -10,6 +10,7 @@ import { pollPartial } from "./streaming.js";
 import { buildSessionMenu } from "./meta.js";
 import { setView } from "../recap/view.js";
 import { createRelaunchControl } from "../../conv_relaunch.js";
+import { t } from "../../i18n/index.js";
 
 // --- Onglets internes -------------------------------------------------------
 
@@ -130,15 +131,15 @@ export function openTab(key, title, titleFull) {
   // qui ne fait que replaceChildren du CONTENU de status puis ré-append le switch).
   const viewSwitch = document.createElement("div");
   viewSwitch.className = "conv-view-switch";
-  const segConv = node(viewSwitch, "button", "conv-view-btn active", "Conversation");
+  const segConv = node(viewSwitch, "button", "conv-view-btn active", t("panel.view_conversation"));
   segConv.type = "button";
   segConv.dataset.view = "conv";
-  const segRecap = node(viewSwitch, "button", "conv-view-btn", "Recap");
+  const segRecap = node(viewSwitch, "button", "conv-view-btn", t("panel.view_recap"));
   segRecap.type = "button";
   segRecap.dataset.view = "recap";
   // Recap grisé tant que la session n'est pas terminée (dégrisé par maybeEnableRecap).
   segRecap.disabled = true;
-  segRecap.title = "disponible a la fin de la session";
+  segRecap.title = t("panel.recap_disabled_tip");
   segConv.addEventListener("click", () => setView(key, "conv"));
   segRecap.addEventListener("click", () => { if (!segRecap.disabled) setView(key, "recap"); });
 
@@ -149,8 +150,10 @@ export function openTab(key, title, titleFull) {
 
   const conv = node(paneConv, "div", "conv-messages");
 
-  // Rail des sous-agents (collapsible) : conteneur peuplé par renderSubagents
-  // (entry.sub). Créé ici pour que `sub` existe avant la construction de `entry`.
+  // Conteneur du rail de sous-agents (entry.sub). Le rail lui-même a été retiré de
+  // l'interface — plus personne ne le peuple — mais `entry` référence toujours `sub` :
+  // sans cette ligne, openTab levait `ReferenceError: sub is not defined` et le panneau
+  // ne se montait pas du tout (régression gardée par conversations.subrail.test.js).
   const sub = node(paneConv, "div", "conv-sub-rail");
 
   // Marqueurs inline de lancement/complétion de sous-agents (bloc .subagent-event
@@ -175,9 +178,9 @@ export function openTab(key, title, titleFull) {
   const input = node(footer, "textarea", "conv-input-box");
   input.id = "conv-input-" + key;
   input.name = "conv-input";
-  input.placeholder = "Message / précision… (Entrée pour envoyer, Ctrl+C pour interrompre)";
+  input.placeholder = t("panel.input_placeholder");
   input.rows = 2;
-  const send = node(footer, "button", "conv-input-send", "Envoyer");
+  const send = node(footer, "button", "conv-input-send", t("panel.send"));
   const inputError = node(footer, "div", "conv-input-error");
 
   input.addEventListener("keydown", (e) => {
@@ -194,7 +197,7 @@ export function openTab(key, title, titleFull) {
   const relaunch = createRelaunchControl({
     fetch: (url, init) => fetch(url, init),
     confirm: (message) => window.confirm(message),
-    onLaunched: (newKey) => openTab(newKey, "Relance"),
+    onLaunched: (newKey) => openTab(newKey, t("panel.relaunch_tab")),
   });
 
   const entry = { tab, panel, conv, status, sub, metaMenu, key, input, inputError, question, questionText, questionPlan, questionOptions, paneConv, paneRecap, recapBody, viewSwitch, segConv, segRecap, relaunch, activeView: "conv", convScrollTop: 0, recapLoaded: false, nextIndex: 0, lastState: "cli", questionSignature: "", poller: null, partialPoller: null, partialActive: true, polling: false };

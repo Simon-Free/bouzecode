@@ -15,7 +15,7 @@ async function loadAgentCatalog() {
   try {
     data = await (await fetch("/api/agents/catalog")).json();
   } catch (e) {
-    catalogBanner("Catalogue indisponible : " + e, false);
+    catalogBanner(window.i18n.t("builder.cat_unavailable", { error: e }), false);
     return;
   }
   renderCatalogList("cat-installed", data.installed || [], false);
@@ -30,7 +30,7 @@ function renderCatalogList(containerId, items, installable) {
   if (!items.length) {
     const p = document.createElement("p");
     p.className = "muted";
-    p.textContent = "(aucun)";
+    p.textContent = window.i18n.t("builder.none");
     box.appendChild(p);
     return;
   }
@@ -56,20 +56,20 @@ function catalogRow(agent, installable) {
   row.appendChild(meta);
   if (installable) {
     const btn = document.createElement("button");
-    btn.textContent = "Installer";
+    btn.textContent = window.i18n.t("builder.install");
     btn.onclick = () => installAgent(agent.name, btn);
     row.appendChild(btn);
   } else {
     const badge = document.createElement("span");
     badge.className = "cat-badge";
-    badge.textContent = "Installé";
+    badge.textContent = window.i18n.t("builder.installed_badge");
     row.appendChild(badge);
   }
   return row;
 }
 
 async function installAgent(name, btn) {
-  if (btn) { btn.disabled = true; btn.textContent = "Installation…"; }
+  if (btn) { btn.disabled = true; btn.textContent = window.i18n.t("builder.installing"); }
   let res;
   try {
     res = await (await fetch("/api/agents/install", {
@@ -78,25 +78,25 @@ async function installAgent(name, btn) {
       body: JSON.stringify({ name }),
     })).json();
   } catch (e) {
-    catalogBanner("Échec installation : " + e, false);
-    if (btn) { btn.disabled = false; btn.textContent = "Installer"; }
+    catalogBanner(window.i18n.t("builder.install_failed", { error: e }), false);
+    if (btn) { btn.disabled = false; btn.textContent = window.i18n.t("builder.install"); }
     return;
   }
-  if (res.ok) catalogBanner(`Agent « ${name} » installé.`, true);
-  else catalogBanner(`Erreurs : ${(res.errors || []).join(" ; ")}`, false);
+  if (res.ok) catalogBanner(window.i18n.t("builder.agent_installed", { name }), true);
+  else catalogBanner(window.i18n.t("builder.errors", { errors: (res.errors || []).join(" ; ") }), false);
   await loadAgentCatalog();
   await loadAgents();
 }
 
 async function refreshAgentCatalog(btn) {
-  if (btn) { btn.disabled = true; btn.textContent = "Rafraîchissement…"; }
+  if (btn) { btn.disabled = true; btn.textContent = window.i18n.t("builder.refreshing"); }
   try {
     await fetch("/api/agents/catalog/refresh", { method: "POST" });
-    catalogBanner("Catalogue rafraîchi.", true);
+    catalogBanner(window.i18n.t("builder.catalog_refreshed"), true);
   } catch (e) {
-    catalogBanner("Échec rafraîchissement : " + e, false);
+    catalogBanner(window.i18n.t("builder.refresh_failed", { error: e }), false);
   }
-  if (btn) { btn.disabled = false; btn.textContent = "Rafraîchir le catalogue"; }
+  if (btn) { btn.disabled = false; btn.textContent = window.i18n.t("builder.refresh_catalog"); }
   await loadAgentCatalog();
 }
 
@@ -111,7 +111,10 @@ async function importAgent(yamlText) {
   let data = await resp.json();
   if (data.requires_confirmation) {
     const sources = (data.git_sources || []).join("\n");
-    if (!confirm(`${data.message}\n\n${sources}`)) { catalogBanner("Import annulé.", false); return null; }
+    if (!confirm(`${data.message}\n\n${sources}`)) {
+      catalogBanner(window.i18n.t("builder.import_cancelled"), false);
+      return null;
+    }
     resp = await fetch("/api/agents/import", {
       method: "POST", headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ yaml: yamlText, confirm_git: true }),
@@ -119,8 +122,10 @@ async function importAgent(yamlText) {
     data = await resp.json();
   }
   if (data.error) { catalogBanner(data.error, false); return null; }
-  const errs = (data.errors || []).length ? ` (erreurs: ${data.errors.join("; ")})` : "";
-  catalogBanner(`Agent « ${data.name} » importé${errs}.`);
+  const errs = (data.errors || []).length
+    ? ` (${window.i18n.t("builder.import_errors", { errors: data.errors.join("; ") })})`
+    : "";
+  catalogBanner(window.i18n.t("builder.agent_imported", { name: data.name, errs }));
   await loadAgents();
   return data;
 }

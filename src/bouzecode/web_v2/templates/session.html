@@ -4,36 +4,43 @@
   <a href="/sessions" class="back">← sessions</a>
   <span id="s-badge" class="badge pui-dot">…</span>
   <span id="s-meta" class="muted"></span>
-  <button id="kill-btn" class="danger" hidden>Tuer l'agent</button>
+  <button id="kill-btn" class="danger" data-i18n="session.kill" hidden>Kill agent</button>
 </header>
 <h1 id="s-title" class="session-title pui-gradient-text"></h1>
 
+{#- L'étiquette d'un onglet vit dans son propre <span> : `applyDom` réécrit le textContent de
+    l'élément porteur de `data-i18n`, ce qui effacerait le compteur #diff-count s'il partageait
+    le bouton avec le libellé. -#}
 <div class="tabs">
   <button class="tab active" data-tab="conv">Conversation</button>
-  <button class="tab" data-tab="diffs">Fichiers modifiés <span id="diff-count"></span></button>
-  <button class="tab" data-tab="turns">Tours (analyse)</button>
-  <button class="tab" data-tab="costs">Coûts</button>
+  <button class="tab" data-tab="diffs"><span data-i18n="session.tab_diffs">Changed files</span>
+    <span id="diff-count"></span></button>
+  <button class="tab" data-tab="turns" data-i18n="session.tab_turns">Turns (analysis)</button>
+  <button class="tab" data-tab="costs" data-i18n="session.tab_costs">Costs</button>
 </div>
 
 <div id="tab-conv">
   <div id="conv"></div>
   <div id="interrupted-banner" hidden>
-    <span id="interrupted-text">⚠ Cet agent a été interrompu (crash/redémarrage) avant d'avoir terminé.</span>
-    <button id="interrupted-resume" class="pui-btn">Reprendre</button>
+    <span id="interrupted-text" data-i18n="session.interrupted">⚠ This agent was interrupted
+      (crash/restart) before it finished.</span>
+    <button id="interrupted-resume" class="pui-btn" data-i18n="session.resume">Resume</button>
   </div>
   <div id="question-panel" hidden>
     <div id="question-text"></div>
     <div id="question-options"></div>
   </div>
   <div id="composer" class="pui-promptbox" hidden>
-    <textarea id="composer-text" rows="2" placeholder="Répondre / relancer la session…"></textarea>
-    <button id="composer-send" class="composer-send pui-btn" aria-label="Envoyer" title="Envoyer">↑</button>
+    <textarea id="composer-text" rows="2" data-i18n-placeholder="session.composer_placeholder"
+      placeholder="Reply / relaunch the session…"></textarea>
+    <button id="composer-send" class="composer-send pui-btn" data-i18n-aria-label="session.send"
+      data-i18n-title="session.send" aria-label="Send" title="Send">↑</button>
   </div>
 </div>
 
-<div id="tab-diffs" hidden><p class="muted">Chargement…</p></div>
-<div id="tab-turns" hidden><p class="muted">Chargement…</p></div>
-<div id="tab-costs" hidden><p class="muted">Chargement…</p></div>
+<div id="tab-diffs" hidden><p class="muted" data-i18n="session.loading">Loading…</p></div>
+<div id="tab-turns" hidden><p class="muted" data-i18n="session.loading">Loading…</p></div>
+<div id="tab-costs" hidden><p class="muted" data-i18n="session.loading">Loading…</p></div>
 {% endblock %}
 
 {% block scripts %}

@@ -109,21 +109,21 @@ describe("conversations.js — countdown 'Annuler 3/2/1' du bouton Archiver", ()
     const fetchMock = await loadModule(treeWithChild());
     const btn = archiveBtn("agent/root-a");
     expect(btn).not.toBeNull();
-    expect(btn.textContent).toContain("Archiver");
+    expect(btn.textContent).toContain("Archive");
 
     btn.click();
     // Immédiatement : décompte affiché, AUCUN fetch archive.
-    expect(btn.textContent).toBe("Annuler 3");
+    expect(btn.textContent).toBe("Cancel 3");
     expect(archiveCalls(fetchMock)).toHaveLength(0);
 
-    // 1s → "Annuler 2", toujours aucun appel.
+    // 1s → "Cancel 2", toujours aucun appel.
     await vi.advanceTimersByTimeAsync(1000);
-    expect(btn.textContent).toBe("Annuler 2");
+    expect(btn.textContent).toBe("Cancel 2");
     expect(archiveCalls(fetchMock)).toHaveLength(0);
 
-    // 2s → "Annuler 1", toujours aucun appel.
+    // 2s → "Cancel 1", toujours aucun appel.
     await vi.advanceTimersByTimeAsync(1000);
-    expect(btn.textContent).toBe("Annuler 1");
+    expect(btn.textContent).toBe("Cancel 1");
     expect(archiveCalls(fetchMock)).toHaveLength(0);
 
     // 3s → fin du décompte : UN SEUL appel batch avec l'agent + son descendant.
@@ -141,13 +141,13 @@ describe("conversations.js — countdown 'Annuler 3/2/1' du bouton Archiver", ()
     expect(btn).not.toBeNull();
 
     btn.click();
-    expect(btn.textContent).toBe("Annuler 3");
+    expect(btn.textContent).toBe("Cancel 3");
 
     // On avance 1s, puis on re-clique = ANNULER.
     await vi.advanceTimersByTimeAsync(1000);
-    expect(btn.textContent).toBe("Annuler 2");
+    expect(btn.textContent).toBe("Cancel 2");
     btn.click(); // annulation
-    expect(btn.textContent).toBe("Archiver"); // état normal restauré
+    expect(btn.textContent).toBe("Archive"); // état normal restauré
 
     // Même en laissant filer bien au-delà des 3s, AUCUN appel n'est émis.
     await vi.advanceTimersByTimeAsync(5000);
@@ -165,19 +165,19 @@ describe("conversations.js — countdown 'Annuler 3/2/1' du bouton Archiver", ()
     // Lance les deux countdowns.
     btnA.click();
     btnB.click();
-    expect(btnA.textContent).toBe("Annuler 3");
-    expect(btnB.textContent).toBe("Annuler 3");
+    expect(btnA.textContent).toBe("Cancel 3");
+    expect(btnB.textContent).toBe("Cancel 3");
 
     // 1s : les deux décomptent indépendamment.
     await vi.advanceTimersByTimeAsync(1000);
-    expect(btnA.textContent).toBe("Annuler 2");
-    expect(btnB.textContent).toBe("Annuler 2");
+    expect(btnA.textContent).toBe("Cancel 2");
+    expect(btnB.textContent).toBe("Cancel 2");
     expect(archiveCalls(fetchMock)).toHaveLength(0);
 
     // On ANNULE A ; B doit continuer son décompte intact.
     btnA.click();
-    expect(btnA.textContent).toBe("Archiver");
-    expect(btnB.textContent).toBe("Annuler 2"); // B non affecté
+    expect(btnA.textContent).toBe("Archive");
+    expect(btnB.textContent).toBe("Cancel 2"); // B non affecté
 
     // On laisse filer jusqu'à la fin du décompte de B (2s restantes).
     await vi.advanceTimersByTimeAsync(2000);
@@ -212,10 +212,10 @@ describe("conversations.js — countdown 'Annuler 3/2/1' du bouton Archiver", ()
     expect(flatItem).not.toBeNull();
     const btn = flatItem.querySelector(".conv-archive-btn");
     expect(btn).not.toBeNull();
-    expect(btn.textContent).toContain("Archiver");
+    expect(btn.textContent).toContain("Archive");
 
     btn.click();
-    expect(btn.textContent).toBe("Annuler 3");
+    expect(btn.textContent).toBe("Cancel 3");
     expect(archiveCalls(fetchMock)).toHaveLength(0);
 
     await vi.advanceTimersByTimeAsync(3000);
