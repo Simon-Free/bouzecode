@@ -30,6 +30,12 @@ _MAX_HISTORY = 200
 _pt_history = InMemoryHistory()
 _session: PromptSession | None = None
 
+# Secondary prompts (AskUserQuestion choices, slash-command menus, permission
+# prompts) get their own session so one-key answers ("y", "1") stay out of the
+# main REPL history.
+_answer_history = InMemoryHistory()
+_answer_session: PromptSession | None = None
+
 # Maps the single-line placeholder shown in the buffer -> the real pasted text.
 # Reset at the start of every read; consumed when the input is submitted.
 _pending: dict[str, str] = {}
@@ -107,17 +113,28 @@ class _BadgeProcessor(Processor):
         return Transformation(fragments)
 
 
+def _new_session(history: InMemoryHistory) -> PromptSession:
+    return PromptSession(
+        history=history,
+        multiline=False,
+        key_bindings=_bindings,
+        input_processors=[_BadgeProcessor()],
+        style=_style,
+    )
+
+
 def _get_session() -> PromptSession:
     global _session
     if _session is None:
-        _session = PromptSession(
-            history=_pt_history,
-            multiline=False,
-            key_bindings=_bindings,
-            input_processors=[_BadgeProcessor()],
-            style=_style,
-        )
+        _session = _new_session(_pt_history)
     return _session
+
+
+def _get_answer_session() -> PromptSession:
+    global _answer_session
+    if _answer_session is None:
+        _answer_session = _new_session(_answer_history)
+    return _answer_session
 
 
 def add_history(text: str):
@@ -139,6 +156,11 @@ def expand_paste_blocks(text: str) -> str:
     return text
 
 
+def _read_with_badges(prompt: str, session: PromptSession) -> str:
+    _pending.clear()
+    return expand_paste_blocks(session.prompt(ANSI(prompt)))
+
+
 def read_input_with_paste_blocks(prompt: str) -> str:
     """Read input with multi-line support and collapsible paste badges.
 
@@ -149,8 +171,16 @@ def read_input_with_paste_blocks(prompt: str) -> str:
     """
     if not sys.stdin.isatty():
         return input(prompt)
+    return _read_with_badges(prompt, _get_session())
 
-    _pending.clear()
-    session = _get_session()
-    result = session.prompt(ANSI(prompt))
-    return expand_paste_blocks(result)
+
+def read_answer_with_paste_blocks(prompt: str) -> str:
+    """Same paste badges, for prompts raised outside the main REPL loop.
+
+    AskUserQuestion choices, slash-command menus and permission prompts used to
+    fall back to built-in ``input()``, where a pasted block is submitted line by
+    line: every newline inside the paste is read as a separate answer.
+    """
+    if not sys.stdin.isatty():
+        return input(prompt)
+    return _read_with_badges(prompt, _get_answer_session())
