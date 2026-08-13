@@ -23,8 +23,12 @@ Harness and fixtures:
 - `__init__.py` explains the `__init__.py`-chain requirement and the test that enforces it.
 - `conftest.py` — loads `.env`; autouse `_llm_network_guard` (gates `stream_anthropic`
   behind `require_api_key()`), `_repo_working_tree_untouched`, `_isolate_global_state`
-  (restores the cwd plus the process-global registries `tool_registry._registry` /
-  `_disabled`, `paths._extra_dirs` and `agents_map.serve._SELF_AUTHORED`),
+  (restores the cwd plus the process-globals `tool_registry._registry` / `_disabled`,
+  `paths._extra_dirs`, `agents_map.serve._SELF_AUTHORED` and the write-throttle state
+  `partial_stream._last_write_at` / `_last_len` / `_seq`, which any test running an
+  agent turn leaves armed for the rest of the worker — those three are also POSED at
+  their idle value on setup, since the test trees under `src/` share the worker and are
+  not covered by this fixture),
   `_disable_web_ipc`; the `agent_cwd` fixture; per-folder marker tagging.
 - `repo_tree_guard.py` — `tracked_root_files`, `watched_paths`, `snapshot`, `revert`:
   detects and undoes any write a test makes to this checkout.

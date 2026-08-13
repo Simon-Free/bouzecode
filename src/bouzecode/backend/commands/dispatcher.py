@@ -113,7 +113,7 @@ _CMD_META: dict[str, tuple[str, list[str]]] = {
                                                             ["stop", "status"]),
     "worker":      ("Auto-implement the pending tasks of a todo file",
                                                             ["--path", "--tasks", "--workers"]),
-    "ssj":         ("Developer power menu (brainstorm, worker, debate, review\u2026)", []),
+    "ssj":         ("Developer power menu (worker, debate, review, promote\u2026)", []),
     "image":       ("Send the clipboard image to the model", []),
     "exit":        ("Exit bouz\u00e9code",                      []),
     "quit":        ("Exit (alias for /exit)",             []),
@@ -127,7 +127,7 @@ _CMD_META: dict[str, tuple[str, list[str]]] = {
 
 _REPL_SENTINELS = ("__voice__", "__image__", "__worker__",
                    "__ssj_cmd__", "__ssj_query__", "__ssj_debate__",
-                   "__ssj_passthrough__", "__plan__")
+                   "__ssj_passthrough__", "__ssj_promote_worker__", "__plan__")
 
 
 def handle_slash(line: str, state, config) -> Union[bool, tuple]:

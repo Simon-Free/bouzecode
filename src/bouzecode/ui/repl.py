@@ -3,7 +3,7 @@
 
 Owns the interactive read-eval-print loop, run_query turn handler, and the
 sentinel-dispatch state machine that processes commands whose execution must
-flow back through the REPL (voice, image, brainstorm, SSJ menu, etc.).
+flow back through the REPL (voice, image, plan, worker, SSJ menu, etc.).
 """
 from __future__ import annotations
 

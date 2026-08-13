@@ -1064,20 +1064,34 @@ def _session_process_running(session_path: str) -> bool:
 session_process_running = _session_process_running
 
 
-def reap_session_processes(session_path: str) -> int:
-    """Terminate every python process whose command line references `session_path`.
+_REAP_WAIT_S = 3.0
+
+
+def reap_session_processes(session_path: str, timeout: float = _REAP_WAIT_S) -> int:
+    """Terminate every python process whose command line references `session_path` and WAIT
+    for them to be gone. Returns how many were CONFIRMED dead, not how many were asked to die.
 
     A double-spawn leaves an untracked TWIN process (same ``--session-file``) that
     `kill_agent` — which knows only the last tracked pid — cannot reach; it keeps looping
     and burning tokens after the ticket merged. Called on integration to reap the twin.
     Matching on the (unique per agent) session-file path never touches an unrelated
-    process. Returns the number of processes terminated."""
-    killed = 0
+    process.
+
+    `terminate()` ne fait que DEMANDER : il rend la main pendant que le process finit de
+    mourir. Sans l'attente ci-dessous, cette fonction n'offrait à son appelant AUCUN moyen
+    de distinguer « demande acceptée » de « jumeau mort », et le compte rendu disait la
+    première chose sous le nom de la seconde. `integration._reap_ticket_agents` s'appuie
+    dessus pour déclarer le ticket intégré. L'attente est plafonnée et ne coûte RIEN dans
+    le cas courant : sans jumeau vivant, `victimes` est vide et on rend la main aussitôt."""
+    victimes = []
     for proc in _procs_for_session(session_path):
         if proc.is_running() and not signal_termination(proc):
             continue  # refus de l'OS sur CE process : les jumeaux suivants y ont droit
-        killed += 1
-    return killed
+        victimes.append(proc)
+    if not victimes:
+        return 0
+    morts, _survivants = psutil.wait_procs(victimes, timeout=timeout)
+    return len(morts)
 
 
 def signal_termination(proc, agent: "Agent | None" = None) -> bool:

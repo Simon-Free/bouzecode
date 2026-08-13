@@ -73,7 +73,8 @@ def cmd_worker(args: str, state, config) -> bool:
     if not todo_path.exists():
         err(f"No todo file found at {todo_path}.")
         if not todo_path_override:
-            info("Run /brainstorm first, or specify a path with --path /your/todo.txt")
+            info("Create the file with '- [ ] task' lines, or point elsewhere "
+                 "with --path /your/todo.txt")
         return True
 
     content = todo_path.read_text(encoding="utf-8", errors="replace")

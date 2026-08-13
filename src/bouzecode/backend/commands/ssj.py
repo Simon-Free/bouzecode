@@ -21,21 +21,44 @@ from bouzecode.backend.tools.interaction import ask_input_interactive
 _SSJ_MENU = (
     clr("\n╭─ SSJ Developer Mode ", "dim") + clr("⚡", "yellow") + clr(" ─────────────────────────", "dim")
     + "\n│"
-    + "\n│  " + clr(" 1.", "bold") + " 💡  Brainstorm — Multi-persona AI debate"
-    + "\n│  " + clr(" 2.", "bold") + " 📋  Show TODO — View todo_list.txt"
-    + "\n│  " + clr(" 3.", "bold") + " 👷  Worker — Auto-implement pending tasks"
-    + "\n│  " + clr(" 4.", "bold") + " 🧠  Debate — Expert debate on a file"
-    + "\n│  " + clr(" 5.", "bold") + " ✨  Propose — AI improvement for a file"
-    + "\n│  " + clr(" 6.", "bold") + " 🔎  Review — Quick file analysis"
-    + "\n│  " + clr(" 7.", "bold") + " 📘  Readme — Auto-generate README.md"
-    + "\n│  " + clr(" 8.", "bold") + " 💬  Commit — AI-suggested commit message"
-    + "\n│  " + clr(" 9.", "bold") + " 🧪  Scan — Analyze git diff"
-    + "\n│  " + clr("10.", "bold") + " 📝  Promote — Idea to tasks"
-    + "\n│  " + clr("11.", "bold") + " 🎬  Video — AI video content factory"
+    + "\n│  " + clr(" 1.", "bold") + " 📋  Show TODO — View todo_list.txt"
+    + "\n│  " + clr(" 2.", "bold") + " 👷  Worker — Auto-implement pending tasks"
+    + "\n│  " + clr(" 3.", "bold") + " 🧠  Debate — Expert debate on a file"
+    + "\n│  " + clr(" 4.", "bold") + " ✨  Propose — AI improvement for a file"
+    + "\n│  " + clr(" 5.", "bold") + " 🔎  Review — Quick file analysis"
+    + "\n│  " + clr(" 6.", "bold") + " 📘  Readme — Auto-generate README.md"
+    + "\n│  " + clr(" 7.", "bold") + " 💬  Commit — AI-suggested commit message"
+    + "\n│  " + clr(" 8.", "bold") + " 🧪  Scan — Analyze git diff"
+    + "\n│  " + clr(" 9.", "bold") + " 📝  Promote — Notes to tasks"
+    + "\n│  " + clr("10.", "bold") + " 🎬  Video — AI video content factory"
     + "\n│  " + clr(" 0.", "bold") + " 🚪  Exit SSJ Mode  (or type q)"
     + "\n│"
     + "\n" + clr("╰──────────────────────────────────────────────", "dim")
 )
+
+# Where the menu keeps its notes and its task list. Both are plain files on disk: the
+# entries below read and write them, no command owns the directory.
+_NOTES_DIR = Path("brainstorm_outputs")
+_TODO_FILE = _NOTES_DIR / "todo_list.txt"
+
+
+def _promote_prompt(source_md, todo_path) -> str:
+    """Prompt turning a notes file into a `- [ ] task` checklist written at `todo_path`."""
+    return (f"Read the notes file {source_md} and extract all actionable ideas. "
+            f"Convert each idea into a task with checkbox format (- [ ] task description). "
+            f"Write them to {todo_path} using the Write tool. Prioritize by impact.")
+
+
+def _worker_args(todo_path, task_num: str, workers: str) -> str:
+    """Assemble the `/worker` flag string from the menu's three answers."""
+    parts = []
+    if todo_path:
+        parts.append(f"--path {todo_path}")
+    if task_num:
+        parts.append(f"--tasks {task_num}")
+    if workers and workers.isdigit() and int(workers) >= 1:
+        parts.append(f"--workers {workers}")
+    return " ".join(parts)
 
 
 def _pick_file(config, prompt_text="  Select file #: ", exts=None):
@@ -61,24 +84,30 @@ def _pick_file(config, prompt_text="  Select file #: ", exts=None):
 
 
 def _handle_worker_choice(config):
-    """Choice 3: Worker — collect path/task/worker args and return sentinel."""
-    _default_todo = Path("brainstorm_outputs") / "todo_list.txt"
+    """Menu entry 2: Worker — collect path/task/worker answers and return a sentinel.
+
+    Two sentinels can come out. The plain one runs `/worker`. `__ssj_promote_worker__`
+    covers the user pointing at a NOTES file instead of a task list: the list must be
+    written first, so the sentinel carries the promote prompt AND the `/worker` arguments
+    to use once it exists — a READY-MADE payload like every neighbouring sentinel, which
+    is what lets `ui/repl_sentinels` act on it without knowing this menu."""
+    _default_todo = _TODO_FILE
     if _default_todo.exists():
         _lines = _default_todo.read_text(encoding="utf-8", errors="replace").splitlines()
         _pend = sum(1 for l in _lines if l.strip().startswith("- [ ]"))
         _done = sum(1 for l in _lines if l.strip().startswith("- [x]"))
-        print(clr(f"\n  📋 Default todo: brainstorm_outputs/todo_list.txt  "
+        print(clr(f"\n  📋 Default todo: {_default_todo}  "
                   f"({_done} done / {_pend} pending)", "cyan"))
     else:
-        print(clr("\n  ℹ  No brainstorm_outputs/todo_list.txt yet. "
-                  "You can specify a path or generate one from a brainstorm file.", "dim"))
+        print(clr(f"\n  ℹ  No {_default_todo} yet. "
+                  "You can specify a path or generate one from a notes file.", "dim"))
     print(clr("  ──────────────────────────────────────────────────────", "dim"))
     print(clr("  Note: todo file must contain tasks in '- [ ] task' format.", "dim"))
     todo_input = ask_input_interactive(clr("  Path to todo file (Enter for default): ", "cyan"), config).strip()
 
     _original_md = None
     if todo_input.endswith(".md") and "brainstorm_" in todo_input:
-        warn("That looks like a brainstorm output file, not a todo list.")
+        warn("That looks like a notes file, not a todo list.")
         _suggested = str(Path(todo_input).parent / "todo_list.txt")
         print(clr(f"  Suggested todo path: {_suggested}", "yellow"))
         _fix = ask_input_interactive(clr("  Use that path instead? [Y/n]: ", "cyan"), config).strip().lower()
@@ -97,15 +126,11 @@ def _handle_worker_choice(config):
                 clr(f"  Generate todo_list.txt from {Path(_original_md).name} first, then run Worker? [Y/n]: ", "cyan"),
                 config).strip().lower()
             if _gen in ("", "y"):
-                return ("__ssj_promote_worker__", _original_md, str(_resolved), task_num, workers)
-    arg_parts = []
-    if todo_input:
-        arg_parts.append(f"--path {todo_input}")
-    if task_num:
-        arg_parts.append(f"--tasks {task_num}")
-    if workers and workers.isdigit() and int(workers) >= 1:
-        arg_parts.append(f"--workers {workers}")
-    return ("__ssj_cmd__", "worker", " ".join(arg_parts))
+                return ("__ssj_promote_worker__",
+                        _promote_prompt(_original_md, _resolved),
+                        _worker_args(_resolved, task_num, workers))
+    return ("__ssj_cmd__", "worker", _worker_args(todo_input, task_num, workers))
+
 
 def cmd_ssj(args: str, state, config) -> bool:
     """SSJ Developer Mode — Interactive power menu for project workflows.
@@ -126,10 +151,7 @@ def cmd_ssj(args: str, state, config) -> bool:
             ok("Exiting SSJ Mode.")
             break
         elif choice == "1":
-            topic = ask_input_interactive(clr("  Topic (Enter for general): ", "cyan"), config).strip()
-            return ("__ssj_cmd__", "brainstorm", topic)
-        elif choice == "2":
-            todo_path = Path("brainstorm_outputs") / "todo_list.txt"
+            todo_path = _TODO_FILE
             if todo_path.exists():
                 content = todo_path.read_text(encoding="utf-8", errors="replace")
                 lines = content.splitlines()
@@ -143,14 +165,14 @@ def cmd_ssj(args: str, state, config) -> bool:
                 for num, (_, ln) in enumerate(pending_lines, 1):
                     print(f"  {num:3d}. ○ {ln.strip()[5:].strip()}")
                 print(clr("  " + "─" * 46, "dim"))
-                print(clr("  Tip: use Worker (3) with pending task #s e.g. 1,4,6", "dim"))
+                print(clr("  Tip: use Worker (2) with pending task #s e.g. 1,4,6", "dim"))
             else:
-                err("No todo_list.txt found. Run Brainstorm (1) first.")
+                err(f"No {todo_path} found. Use Promote (9) to turn notes into tasks.")
             print(_SSJ_MENU)
             continue
-        elif choice == "3":
+        elif choice == "2":
             return _handle_worker_choice(config)
-        elif choice == "4":
+        elif choice == "3":
             filepath = _pick_file(config, "  File to debate #: ")
             if not filepath:
                 continue
@@ -165,13 +187,13 @@ def cmd_ssj(args: str, state, config) -> bool:
             _debate_out = str(_fp.parent / f"{_fp.stem}_debate_{time.strftime('%H%M%S')}.md")
             info(f"Debate result will be saved to: {_debate_out}")
             return ("__ssj_debate__", filepath, _nagents, _rounds, _debate_out)
-        elif choice in ("5", "6", "7"):
+        elif choice in ("4", "5", "6"):
             _prompts = {
-                "5": ("  File to improve #: ", None,
+                "4": ("  File to improve #: ", None,
                       "Read {f} and propose specific, concrete improvements. For each improvement: explain the problem, show the fix, and apply it with Edit if the user approves. Focus on bugs, performance, readability, and security. Be concise."),
-                "6": ("  File to review #: ", None,
+                "5": ("  File to review #: ", None,
                       "Read {f} and provide a thorough code review. Rate it 1-10 on: readability, maintainability, performance, security. List specific issues with line numbers. Do NOT modify the file, review only."),
-                "7": ("  Generate README for file #: ", {".py", ".js", ".ts", ".go", ".rs"},
+                "6": ("  Generate README for file #: ", {".py", ".js", ".ts", ".go", ".rs"},
                       "Read ONLY the file {f}. Based on that single file, generate a professional README.md. Include: project description, features, installation, usage with examples, and contributing guidelines. Use the Write tool to create README.md. Do NOT read other files unless the user explicitly asks."),
             }
             prompt_text, exts, tpl = _prompts[choice]
@@ -179,20 +201,19 @@ def cmd_ssj(args: str, state, config) -> bool:
             if not filepath:
                 continue
             return ("__ssj_query__", tpl.format(f=filepath))
-        elif choice == "8":
+        elif choice == "7":
             return ("__ssj_query__", "Run 'git diff --cached' and 'git diff' using Bash, analyze ALL changes, and suggest a concise, descriptive commit message following conventional commits format. Show the suggested message and ask for confirmation before committing.")
-        elif choice == "9":
+        elif choice == "8":
             return ("__ssj_query__", "Run 'git status' and 'git diff' using Bash. Analyze the current state of the repository. Summarize: what files changed, what was added/removed, potential issues in the changes, and suggest next steps.")
-        elif choice == "10":
-            brainstorm_dir = Path("brainstorm_outputs")
-            if not brainstorm_dir.exists() or not list(brainstorm_dir.glob("*.md")):
-                err("No brainstorm outputs found. Run Brainstorm (1) first.")
+        elif choice == "9":
+            notes = sorted(_NOTES_DIR.glob("*.md")) if _NOTES_DIR.exists() else []
+            if not notes:
+                err(f"No notes found. Put a .md file in {_NOTES_DIR}/ first.")
                 continue
-            latest = sorted(brainstorm_dir.glob("*.md"))[-1]
-            return ("__ssj_query__", f"Read the brainstorm file {latest} and extract all actionable ideas. Convert each idea into a task with checkbox format (- [ ] task description). Write them to brainstorm_outputs/todo_list.txt using the Write tool. Prioritize by impact.")
-        elif choice == "11":
+            return ("__ssj_query__", _promote_prompt(notes[-1], _TODO_FILE))
+        elif choice == "10":
             return ("__ssj_cmd__", "video", "")
         else:
-            err("Invalid option. Pick 0-11.")
+            err("Invalid option. Pick 0-10.")
 
     return True

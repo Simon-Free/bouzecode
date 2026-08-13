@@ -28,6 +28,10 @@ def _load_env_file(env_path: Path) -> None:
 _BOUZECODE_ROOT = Path(__file__).resolve().parent.parent
 _ENV_FILE = _BOUZECODE_ROOT / ".env"
 
+# « Ce module-global n'existe pas » — distinct de `None`, qui est une valeur légitime
+# à restaurer (cf. `_isolate_global_state._snap_global`).
+_ABSENT = object()
+
 # Web tests (Playwright) are set aside by marker, but pytest still IMPORTS their
 # modules at collection — without playwright installed every file errors out.
 import importlib.util
@@ -159,12 +163,23 @@ def _isolate_global_state():
     _orig_cwd = os.getcwd()
     snapshots = []
 
-    def _snap_collection(modpath, attr):
+    def _snap_global(modpath, attr, reset_to=_ABSENT):
+        """Snapshot one module-global and restore it after the test.
+
+        Containers are restored IN PLACE (another module may hold a reference to the
+        very same object); anything else — a counter, a timestamp — is rebound with
+        `setattr`, which is the only thing that works for an immutable value.
+
+        `reset_to` additionally puts the global at a known idle value for the test about
+        to run. Restoring alone is not enough when the idle value IS known: `testpaths`
+        also holds test trees under `src/`, which this fixture does NOT cover and which
+        share the xdist worker — « remettre ce que j'ai trouvé » y restaure fidèlement la
+        saleté d'un autre arbre."""
         try:
             mod = __import__(modpath, fromlist=[attr.lstrip("_")])
         except Exception:
             return
-        live = getattr(mod, attr, None)
+        live = getattr(mod, attr, _ABSENT)
         if isinstance(live, dict):
             saved = dict(live)
             snapshots.append(lambda: (live.clear(), live.update(saved)))
@@ -174,17 +189,31 @@ def _isolate_global_state():
         elif isinstance(live, list):
             saved = list(live)
             snapshots.append(lambda: live.__setitem__(slice(None), saved))
+        elif live is not _ABSENT:
+            snapshots.append(lambda: setattr(mod, attr, live))
+        if reset_to is not _ABSENT and live is not _ABSENT:
+            setattr(mod, attr, reset_to)
 
-    _snap_collection("bouzecode.backend.core.tool_registry", "_registry")
-    _snap_collection("bouzecode.backend.core.tool_registry", "_disabled")
-    _snap_collection("bouzecode.backend.core.paths", "_extra_dirs")
+    _snap_global("bouzecode.backend.core.tool_registry", "_registry")
+    _snap_global("bouzecode.backend.core.tool_registry", "_disabled")
+    _snap_global("bouzecode.backend.core.paths", "_extra_dirs")
     # Le jeu des dossiers « écrits par cet agent » vit AUSSI longtemps que le process, et le
     # hook d'édition (context_manager.readme_stale) l'alimente à chaque Write d'un fichier de
     # code : tout test e2e qui écrit du code y dépose son dossier pour le reste du worker. Un
     # test ultérieur portant sur le même dossier se verrait alors servir « you edited this
     # folder yourself » au lieu d'une régénération. Les `_SELF_AUTHORED.clear()` semés à la
     # main dans tests/backend/agents_map/ étaient le pansement ; ceci est la plaie.
-    _snap_collection("bouzecode.backend.tools.agents_map.serve", "_SELF_AUTHORED")
+    _snap_global("bouzecode.backend.tools.agents_map.serve", "_SELF_AUTHORED")
+    # Quatrième fuite de la même famille. `partial_stream` limite le débit d'écriture du
+    # flux de tokens avec trois globals de PROCESS (dernier instant d'écriture, dernière
+    # longueur, numéro de séquence), et la boucle d'agent appelle `write_partial` : tout
+    # test qui traverse un tour laisse la limitation ARMÉE et le compteur de séquence
+    # avancé pour tout le reste du worker. Le pansement était une fixture locale au seul
+    # `tests/web_v2/test_partial_stream.py` — les autres tests, eux, n'étaient pas couverts.
+    # L'état de repos de la limitation est CONNU (jamais écrit, rien accumulé, séquence à
+    # zéro) : on le repose, plutôt que de se contenter de rendre ce qu'on a trouvé.
+    for _global, _repos in (("_last_write_at", 0.0), ("_last_len", 0), ("_seq", 0)):
+        _snap_global("bouzecode.backend.agent.partial_stream", _global, reset_to=_repos)
     yield
     os.chdir(_orig_cwd)
     for restore in snapshots:

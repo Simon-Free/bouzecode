@@ -31,7 +31,7 @@ main(argv)                                          [cli.py]
       │         └─ returns True | sentinel tuple | SkillDef
       │
       ├─ process_sentinels(sentinel)                [repl_sentinels.py]
-      │    └─ dispatches voice, image, brainstorm, SSJ, etc.
+      │    └─ dispatches voice, image, plan, worker, SSJ, etc.
       │
       └─ run_query(user_message, state, config)     [repl.py]
            │
@@ -126,7 +126,7 @@ setup_readline()                                    [commands/readline_setup.py]
 | `session/` | Session management: /save, /load, /history |
 | `extensions/` | Plugin/skill commands: /skill, /mcp, /agent |
 | `info/` | Informational: /status, /tokens, /cost |
-| `misc/` | Utilities: /voice, /image, /paste, /brainstorm |
+| `misc/` | Utilities: /voice, /image, /paste |
 
 ---
 

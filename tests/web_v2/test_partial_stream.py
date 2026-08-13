@@ -7,6 +7,11 @@ Three concerns, all with fixtures DERIVED FROM THE REAL producer:
 The .partial.json content is never hand-invented: it is produced by the real
 ``partial_stream.write_partial`` and read back, so the test exercises the true
 contract shared between runner and web_v2.
+
+The throttle tests DRIVE the clock instead of racing it (see ``clock`` below). The
+module's write state is process-wide; it is restored by ``_isolate_global_state`` in
+``tests/conftest.py``, not by a fixture local to this file — the agent loop calls
+``write_partial`` too, so the leak was never this file's alone.
 """
 import json
 
@@ -15,13 +20,30 @@ import pytest
 from bouzecode.backend.agent import partial_stream as ps
 
 
-@pytest.fixture(autouse=True)
-def _reset_partial_globals():
-    """partial_stream keeps process-wide write state — reset before each test."""
-    ps._last_write_at = 0.0
-    ps._last_len = 0
-    ps._seq = 0
-    yield
+class _HandCrankedClock:
+    """A monotonic clock the test moves itself, one ``advance`` at a time."""
+
+    def __init__(self, start: float = 1_000.0):
+        self.now = start
+
+    def __call__(self) -> float:
+        return self.now
+
+    def advance(self, seconds: float) -> None:
+        self.now += seconds
+
+
+@pytest.fixture
+def clock(monkeypatch):
+    """Replace the throttle's clock so elapsed time is stated, never hoped for.
+
+    `write_partial` decides on `_clock() - _last_write_at`. A test that writes twice
+    in a row and *expects* to still be inside the 120 ms window measures the machine,
+    not the throttle: under load two consecutive statements can straddle the boundary,
+    the second write lands, and the test blames a defect that does not exist."""
+    fake = _HandCrankedClock()
+    monkeypatch.setattr(ps, "_clock", fake)
+    return fake
 
 
 # ---------------------------------------------------------------------------
@@ -63,7 +85,7 @@ def test_write_partial_falls_back_to_session_file(tmp_path):
     assert data == {"turn": 2, "seq": 1, "phase": "text", "text": "live tokens", "thinking": ""}
 
 
-def test_write_partial_throttles_rapid_small_writes(tmp_path):
+def test_write_partial_throttles_rapid_small_writes(tmp_path, clock):
     session = tmp_path / "session_120000_abcd.json"
     config = {"_session_path": str(session)}
     partial = session.with_suffix(".partial.json")
@@ -72,13 +94,33 @@ def test_write_partial_throttles_rapid_small_writes(tmp_path):
     ps.write_partial(config, turn=1, text="ab", force=True)
     seq_after_first = json.loads(partial.read_text(encoding="utf-8"))["seq"]
 
-    # Immediate small growth (< _MIN_CHARS) within _MIN_INTERVAL_S -> throttled skip.
+    # Small growth (< _MIN_CHARS) still inside _MIN_INTERVAL_S -> throttled skip.
+    clock.advance(ps._MIN_INTERVAL_S / 2)
     ps.write_partial(config, turn=1, text="abc")
     seq_after_second = json.loads(partial.read_text(encoding="utf-8"))["seq"]
     assert seq_after_second == seq_after_first, "small rapid write should be throttled"
 
 
-def test_write_partial_flushes_when_enough_chars_accumulated(tmp_path):
+def test_write_partial_resumes_once_the_interval_elapsed(tmp_path, clock):
+    """The complement of the test above: the throttle DELAYS a write, it never drops it.
+
+    Without this, widening the window would pass the throttling test — the two
+    together pin the boundary from both sides."""
+    session = tmp_path / "session_120000_abcd.json"
+    config = {"_session_path": str(session)}
+    partial = session.with_suffix(".partial.json")
+
+    ps.write_partial(config, turn=1, text="ab", force=True)
+    seq_after_first = json.loads(partial.read_text(encoding="utf-8"))["seq"]
+
+    clock.advance(ps._MIN_INTERVAL_S)
+    ps.write_partial(config, turn=1, text="abc")
+    payload = json.loads(partial.read_text(encoding="utf-8"))
+    assert payload["seq"] > seq_after_first
+    assert payload["text"] == "abc"
+
+
+def test_write_partial_flushes_when_enough_chars_accumulated(tmp_path, clock):
     session = tmp_path / "session_120000_abcd.json"
     config = {"_session_path": str(session)}
     partial = session.with_suffix(".partial.json")
@@ -86,7 +128,8 @@ def test_write_partial_flushes_when_enough_chars_accumulated(tmp_path):
     ps.write_partial(config, turn=1, text="ab", force=True)
     seq1 = json.loads(partial.read_text(encoding="utf-8"))["seq"]
 
-    # >= _MIN_CHARS new chars bypasses the time throttle even without force.
+    # The clock does NOT move: only the char bypass can let this write through, so
+    # the test cannot pass by accident on a machine that spent 120 ms getting here.
     big = "ab" + "x" * (ps._MIN_CHARS + 1)
     ps.write_partial(config, turn=1, text=big)
     payload = json.loads(partial.read_text(encoding="utf-8"))
@@ -106,6 +149,27 @@ def test_clear_partial_removes_file_and_resets_state(tmp_path):
     assert not partial.exists()
     assert ps._last_write_at == 0.0
     assert ps._last_len == 0
+
+
+def test_a_write_arms_the_process_wide_throttle(tmp_path):
+    """Deliberately leaves the module's globals dirty, as any agent turn does.
+
+    Paired with the test below: `write_partial` is called by the agent loop, so EVERY
+    test crossing a turn leaves the throttle armed and the sequence counter advanced for
+    the rest of the worker. Nothing here is exotic — that is exactly the leak."""
+    session = tmp_path / "session_120000_abcd.json"
+    ps.write_partial({"_session_path": str(session)}, turn=1, text="dirty", force=True)
+
+    assert ps._seq == 1 and ps._last_len == 5 and ps._last_write_at != 0.0
+
+
+def test_the_next_test_starts_from_a_clean_throttle():
+    """`_isolate_global_state` (tests/conftest.py) puts the three globals back at rest.
+
+    This used to be the job of a fixture local to this one file, which left every OTHER
+    test in the suite exposed. The idle state is POSED at setup, not merely restored at
+    teardown, so this holds whichever test — from whichever tree — ran before."""
+    assert (ps._last_write_at, ps._last_len, ps._seq) == (0.0, 0, 0)
 
 
 def test_clear_partial_silent_when_absent(tmp_path):

@@ -1,9 +1,14 @@
 # [desc] Processes sentinel tuples from slash commands to drive REPL state transitions and follow-ups. [/desc]
 """Sentinel-dispatch state machine for the REPL loop.
 
-When a slash command returns a sentinel tuple (voice, image, brainstorm, SSJ,
+When a slash command returns a sentinel tuple (voice, image, plan, worker, SSJ,
 debate, etc.), this module processes it — often re-entering handle_slash to
 loop back to the SSJ menu or chain follow-up prompts.
+
+Every sentinel handled here must ALSO appear in `commands.dispatcher._REPL_SENTINELS`,
+or `handle_slash` swallows the tuple and answers a bare `True`; and every sentinel listed
+there must have a branch below, or it falls through to the skill unpacking at the end,
+which expects a pair.
 """
 from __future__ import annotations
 
@@ -19,8 +24,10 @@ from bouzecode.backend.commands import handle_slash
 
 def _spin_and_query(phrase: str, prompt: str, run_query) -> None:
     """Show spinner with phrase, stop it on first model output, run query."""
-    with ui.spinner._spinner_lock:
-        ui.spinner._spinner_phrase = phrase
+    # `spinner`, not `ui.spinner`: there is no name `ui` in this module, so the debate
+    # entry of the SSJ menu died on a NameError at its very first statement.
+    with spinner._spinner_lock:
+        spinner._spinner_phrase = phrase
     _start_tool_spinner()
 
     class _DebateSpinnerWrapper:
@@ -109,6 +116,17 @@ def process_sentinel_result(result, state, config, run_query, track_ctrl_c) -> N
                 result = inner
                 continue
             return
+        if key == "__ssj_promote_worker__":
+            # Worker was aimed at a todo list that does not exist yet: write it from the
+            # notes file first, THEN run the worker on it. Chaining through `__ssj_cmd__`
+            # (rather than dispatching `/worker` here) is what puts the user back at the
+            # SSJ menu afterwards, exactly like menu entry 2 taken on an existing list.
+            _, promote_prompt, worker_args = result
+            if not _safe_run(promote_prompt, run_query, track_ctrl_c):
+                result = handle_slash("/ssj", state, config)  # interrompu : pas de worker
+                continue
+            result = ("__ssj_cmd__", "worker", worker_args)
+            continue
         if key == "__ssj_cmd__":
             _, cmd_name, cmd_args = result
             inner = handle_slash(f"/{cmd_name} {cmd_args}".strip(), state, config)

@@ -1,6 +1,10 @@
 """Test réel (aucun mock) : reap_session_processes tue le JUMEAU d'un double-spawn — un
 vrai process python dont la command line référence le même --session-file, que kill_agent
-(un seul pid tracké) ne peut pas atteindre."""
+(un seul pid tracké) ne peut pas atteindre.
+
+Le contrat vérifié n'est pas « une terminaison a été demandée » mais « le jumeau est
+mort » : la fonction attend ses victimes (plafonné) avant de rendre son compte, si bien
+qu'aucun test n'a à inventer de délai après l'appel."""
 import subprocess
 import sys
 import time
@@ -30,8 +34,12 @@ def test_reap_kills_process_on_matching_session_file(tmp_path):
         killed = runner.reap_session_processes(marker)
         assert killed >= 1
 
-        assert proc.wait(timeout=5) is not None   # il meurt
+        # Rien à espérer ici, et surtout aucune attente à improviser : `reap_session_processes`
+        # ne compte QUE les process constatés morts, donc il a déjà attendu. La vérification
+        # immédiate est exactement ce qui doit tenir — si elle échoue, c'est que le produit
+        # rend la main sur une simple demande de terminaison, ce qui est le défaut à attraper.
         assert not _visible_with(marker)
+        assert proc.wait(timeout=5) is not None   # il meurt
     finally:
         if proc.poll() is None:
             proc.kill()
