@@ -6,7 +6,7 @@ Built-in agent tools (Read, Write, Edit, Bash, Grep, Glob, WebFetch, etc.), thei
 ## Usage
 - `schemas.py` — `TOOL_SCHEMAS` (list of dicts)
 - `state.py` — `_track_read`, `_stale_edit_warning`, `_tg_thread_local`, `_is_in_tg_turn`, `clear_file_state`
-- `interaction.py` — `_ask_user_question`, `ask_input_interactive`, `drain_pending_questions`, `_sleeptimer`
+- `interaction.py` — `_ask_user_question`, `ask_input_interactive` (prompts through `bouzecode.ui.paste_input.read_answer_with_paste_blocks`, so a pasted block is answered whole instead of one line per newline), `drain_pending_questions`, `_sleeptimer`
 - `plan_mode.py` — plan-mode tool gating
 - `registration.py` — `_register_builtins()`, `execute_tool()`
 - `__init__.py` re-exports the public surface

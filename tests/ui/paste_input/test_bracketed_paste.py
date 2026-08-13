@@ -111,6 +111,20 @@ class TestBracketedPaste:
         assert _feed_and_read("hello\r") == "hello"
 
 
+def _read_answer(ask_input_interactive, monkeypatch, input_text: str) -> str:
+    """Drive one of the two ask_input_interactive implementations over a pipe."""
+    _pending.clear()
+    monkeypatch.setattr("sys.stdin.isatty", lambda: True)
+
+    def make_reader(pipe_input):
+        monkeypatch.setattr(
+            paste_input, "_answer_session", _piped_session(pipe_input),
+        )
+        return lambda: ask_input_interactive("Your choice: ", {})
+
+    return _run_with_piped_input(make_reader, input_text)
+
+
 class TestSecondaryPromptPaste:
     """Prompts raised outside the main REPL loop (AskUserQuestion choices,
     slash-command menus, permission prompts) get the same paste badges. They
@@ -120,16 +134,7 @@ class TestSecondaryPromptPaste:
     def _read_answer(self, monkeypatch, input_text: str) -> str:
         from bouzecode.backend.tools.interaction import ask_input_interactive
 
-        _pending.clear()
-        monkeypatch.setattr("sys.stdin.isatty", lambda: True)
-
-        def make_reader(pipe_input):
-            monkeypatch.setattr(
-                paste_input, "_answer_session", _piped_session(pipe_input),
-            )
-            return lambda: ask_input_interactive("Your choice: ", {})
-
-        return _run_with_piped_input(make_reader, input_text)
+        return _read_answer(ask_input_interactive, monkeypatch, input_text)
 
     def test_multiline_paste_answered_in_one_submission(self, monkeypatch):
         """A 4-line paste comes back whole, not as its first line."""
@@ -148,3 +153,11 @@ class TestSecondaryPromptPaste:
         paste_input._pt_history.append_string("previous repl input")
         self._read_answer(monkeypatch, "y\r")
         assert "y" not in paste_input._pt_history.get_strings()
+
+
+# The repo-root tools/interaction.py carries a second copy of
+# ask_input_interactive, reached by the /video, /video-wizard and /voice shims
+# under src/bouzecode/backend/commands/oss_shims/. It got the same fix, but is
+# deliberately left uncovered here: importing the flat `tools` package inside
+# the shared test process re-runs tool registration and corrupts the global
+# registries other tests assert on.

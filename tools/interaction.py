@@ -148,8 +148,9 @@ def ask_input_interactive(prompt: str, config: dict, menu_text: str = None) -> s
         config.pop("_tg_input_event", None)
         return text
     else:
+        from bouzecode.ui.paste_input import read_answer_with_paste_blocks
         try:
-            return input(prompt)
+            return read_answer_with_paste_blocks(prompt)
         except (KeyboardInterrupt, EOFError):
             print()
             return ""
