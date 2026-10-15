@@ -1,0 +1,144 @@
+/* [desc] Fil d'une conversation (page Agents ET tiroir de l'assistant du Bureau) : les tours
+   consécutifs du modèle forment UN groupe séparé par de fines lignes, outils et réflexion
+   repliés en lignes discrètes. Chargé APRÈS agents.css / bureau.css : il l'emporte à
+   spécificité égale. Tokens de ds.css uniquement (thème clair par défaut, sombre en option). [/desc] */
+
+/* Fil */
+
+/* --- groupe des tours du modèle ------------------------------------------------------ */
+.turn-group {
+  margin: var(--space-2) 0;
+  padding: var(--space-2) var(--space-3);
+  background: var(--bubble-assistant);
+  border: 1px solid var(--border);
+  border-radius: 12px 12px 12px 4px;
+  color: var(--text);
+  overflow-wrap: anywhere;
+}
+.turn-group:empty { display: none; }
+.bz-assist__fil .turn-group { margin: 0; }
+
+/* Les blocs rendus par le serveur perdent leur habit de bulle : c'est le groupe qui l'a. */
+:is(.conv-messages, .bz-assist__fil) .turn-group > .block {
+  margin: 0; padding: 0; max-width: none;
+  border: 0; border-radius: 0; background: none; box-shadow: none;
+}
+:is(.conv-messages, .bz-assist__fil) .turn-group > .block.assistant { position: relative; }
+.turn-group > .block p { margin: 3px 0; }
+.turn-group > .block > :first-child { margin-top: 0; }
+
+/* Fine ligne entre deux tours du modèle (et avant le tour en cours de production). */
+.turn-group > hr.turn-sep {
+  border: 0; border-top: 1px solid var(--border);
+  margin: var(--space-2) 0;
+}
+.turn-group > .streaming-turn:not(:first-child) {
+  margin-top: var(--space-2); padding-top: var(--space-2);
+  border-top: 1px solid var(--border);
+}
+
+/* Tour coupé par « Interrompre » (message éphémère, retiré à la reprise). */
+.block.assistant .turn-interrupted {
+  margin: var(--space-2) 0 0; font-size: var(--fs-sm); font-weight: 600; color: var(--text-2);
+}
+
+/* Lien « ? » (contexte du tour) : présent, mais seulement au survol ou au focus. */
+.turn-group .turn-context-help {
+  top: 0; right: 0; width: 18px; height: 18px; line-height: 16px; font-size: 11px;
+  opacity: 0; background: var(--bubble-assistant);
+}
+.turn-group > .block.assistant:hover .turn-context-help,
+.turn-group .turn-context-help:focus-visible { opacity: .8; }
+
+/* --- réflexion : une ligne grise, dépliable ----------------------------------------- */
+.turn-group details.thinking { margin: 0 0 2px; border: 0; background: none; }
+.turn-group details.thinking > summary {
+  list-style: none; cursor: pointer; display: inline-block;
+  font: italic var(--fs-xs) / 1.6 var(--font-sans); color: var(--text-3);
+}
+.turn-group details.thinking > summary::-webkit-details-marker { display: none; }
+.turn-group details.thinking > summary::before { content: "▸ "; font-style: normal; }
+.turn-group details.thinking[open] > summary::before { content: "▾ "; }
+.turn-group details.thinking > em {
+  display: block; margin: 2px 0 6px; padding-left: var(--space-3);
+  border-left: 1px solid var(--border); color: var(--text-2); font-size: var(--fs-sm);
+}
+
+/* --- méthodologie : le delta de note du tour, déplié, même ligne grise que la réflexion - */
+.turn-group details.methodology { margin: 2px 0; border: 0; background: none; }
+.turn-group details.methodology > summary {
+  list-style: none; cursor: pointer; display: inline-block;
+  font: var(--fs-xs) / 1.6 var(--font-sans); color: var(--text-3);
+}
+.turn-group details.methodology > summary::-webkit-details-marker { display: none; }
+.turn-group details.methodology > summary::before { content: "▸ "; }
+.turn-group details.methodology[open] > summary::before { content: "▾ "; }
+.turn-group details.methodology > .methodology-body {
+  margin: 2px 0 6px; padding-left: var(--space-3);
+  border-left: 2px solid var(--border); color: var(--text-2); font-size: var(--fs-sm);
+}
+
+/* --- outils : une ligne « ▸ 3 outils · Read, Bash », sans cadres ---------------------- */
+.turn-group details.tools-group { margin: 2px 0 0; border: 0; border-radius: 0; background: none; }
+.turn-group details.tools-group > summary {
+  list-style: none; cursor: pointer; display: inline-block; padding: 1px 0;
+  font-size: var(--fs-xs); color: var(--text-3); border: 0; user-select: none;
+}
+.turn-group details.tools-group > summary::-webkit-details-marker { display: none; }
+.turn-group details.tools-group > summary::before { content: "▸ "; }
+.turn-group details.tools-group[open] > summary { color: var(--text-2); border: 0; }
+.turn-group details.tools-group[open] > summary::before { content: "▾ "; }
+.turn-group details.tools-group > *:not(summary) { margin: 0 0 0 var(--space-3); }
+
+/* Un appel d'outil / un résultat : une ligne discrète, dépliable ; aucun cadre ni halo. */
+.turn-group details.tc,
+.turn-group details.tr {
+  margin: 1px 0; border: 0; border-radius: 0; background: none; box-shadow: none;
+}
+.turn-group details.tc > summary,
+.turn-group details.tr > summary {
+  display: flex; gap: 6px; align-items: baseline; padding: 1px 0;
+  font-size: var(--fs-xs); color: var(--text-3); cursor: pointer;
+}
+.turn-group details.tc .pui-dot,
+.turn-group details.tr .pui-dot { display: none; }
+.turn-group .tc-kind { font-size: var(--fs-xs); text-transform: none; color: var(--text-3); margin: 0; }
+.turn-group .tc-name { color: var(--text-2); font-weight: 600; }
+.turn-group .tc-hint { color: var(--text-3); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0; }
+.turn-group details.tr.error > summary { color: var(--danger); }
+.turn-group details.tc > *:not(summary),
+.turn-group details.tr > *:not(summary) { margin: 2px 0 4px var(--space-3); }
+.turn-group details.tc.subagent { border: 0; }
+.turn-group pre.code { border: 0; background: var(--surface-2); max-height: 320px; }
+
+/* --- réponse finale : seul bloc mis en valeur, en fin de groupe ----------------------- */
+:is(.conv-messages, .bz-assist__fil) .turn-group > .block.final-answer,
+:is(.conv-messages, .bz-assist__fil) .turn-group > .block.final-answer-refused {
+  margin-top: var(--space-2); padding: 6px var(--space-3);
+  border-left: 3px solid var(--ok); border-radius: var(--radius-sm); background: var(--ok-bg);
+}
+:is(.conv-messages, .bz-assist__fil) .turn-group > .block.final-answer-refused {
+  border-left-color: var(--danger); background: var(--danger-bg);
+}
+.turn-group > .block.final-answer .role,
+.turn-group > .block.final-answer-refused .role {
+  font-size: var(--fs-xs); font-weight: 700; letter-spacing: .04em; margin-bottom: 2px;
+}
+.turn-group > .block.final-answer .role { color: var(--ok); }
+.turn-group > .block.final-answer-refused .role { color: var(--danger); }
+
+/* --- notices système / enforcement / sous-agents : lignes discrètes ------------------- */
+:is(.conv-messages, .bz-assist__fil) .turn-group > .block.notice,
+:is(.conv-messages, .bz-assist__fil) .turn-group > .block.enforcement {
+  margin: 2px 0; font-size: var(--fs-xs); color: var(--text-3);
+}
+.turn-group > .block.notice .role { display: inline; margin: 0 6px 0 0; font-size: var(--fs-xs); }
+.turn-group > .block.notice p { display: inline; margin: 0; }
+:is(.conv-messages, .bz-assist__fil) .turn-group > .subagent-event { margin: 4px 0; }
+
+/* --- tour en cours de production ------------------------------------------------------ */
+.turn-group .streaming-thinking { margin: 0 0 2px; padding: 0; border: 0; }
+.turn-group .streaming-thinking .st-head { font-size: var(--fs-xs); color: var(--text-3); }
+.turn-group .streaming-thinking .st-body { font-size: var(--fs-sm); color: var(--text-2); }
+.turn-group .streaming-tool { font-size: var(--fs-xs); color: var(--text-3); margin: 2px 0; }
+.turn-group .streaming-block { margin: 2px 0; }

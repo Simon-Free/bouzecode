@@ -1,112 +1,133 @@
-// Recherche plein-texte dans les conversations (GET /api/search), rendue au-dessus
-// de la sidebar. Portée « Ouverts » ou « Tous » ; un résultat ouvre l'onglet ciblé.
+// [desc] Recherche de la liste des agents : filtre instantané sur les agents chargés, et recherche plein texte dans les conversations (Entrée ou pause de frappe) avec état « Recherche… », « Aucun résultat » et effacement. [/desc]
 
-import { node } from "./dom.js";
-import { t } from "../i18n/index.js";
-import { openTab } from "./panel/tabs.js";
+import { api, h } from "../lib/ui.js";
+import { emit } from "./store.js";
+import { setFilter } from "./list.js";
 
-// Bandeau des agents interrompus par le dernier arrêt serveur (snapshot figé au boot,
-// exposé par GET /api/interrupted). NE relance RIEN automatiquement : l'utilisateur clique.
-async function fetchJson(url, opts) {
-  try {
-    const resp = await fetch(url, opts);
-    if (!resp.ok) return null;
-    return await resp.json();
-  } catch (_) {
-    return null; // best-effort : ne bloque jamais l'affichage.
-  }
-}
+const FULLTEXT_DELAY = 600;
+const MIN_FULLTEXT = 3;
 
-let searchScope = "open";
+let input = null;
+let clearBtn = null;
+let results = null;
+let timer = null;
+let seq = 0;
 
-export function wireSearch() {
-  const list = document.getElementById("conv-list");
-  if (!list || !list.parentNode) return;
-  const box = document.createElement("div");
-  box.className = "conv-search";
-  const input = document.createElement("input");
-  input.type = "search";
-  input.id = "conv-search-input";
-  input.className = "conv-search-input";
-  // Le bandeau est monté UNE fois et ne repasse jamais par un render : on laisse les
-  // clés dans le DOM pour qu'`applyDom` retraduise ses libellés à la bascule de langue.
-  input.placeholder = t("sidebar.search_placeholder");
-  input.setAttribute("data-i18n-placeholder", "sidebar.search_placeholder");
-  box.appendChild(input);
-  const toggles = node(box, "div", "conv-search-scope");
-  const SCOPES = [["open", "sidebar.search_scope_open"], ["all", "sidebar.search_scope_all"]];
-  for (const [scope, key] of SCOPES) {
-    const btn = node(toggles, "button", "conv-search-toggle", t(key));
-    btn.setAttribute("data-i18n", key);
-    btn.type = "button";
-    btn.dataset.scope = scope;
-    if (scope === searchScope) btn.classList.add("active");
-    btn.addEventListener("click", () => {
-      searchScope = scope;
-      for (const b of toggles.querySelectorAll(".conv-search-toggle")) {
-        b.classList.toggle("active", b.dataset.scope === scope);
-      }
-      if (input.value.trim()) runSearch(input);
-    });
-  }
-  const results = node(box, "div", "conv-search-results");
-  results.id = "conv-search-results";
-  input.addEventListener("keydown", (e) => {
-    if (e.key === "Enter") { e.preventDefault(); runSearch(input); }
-  });
-  list.parentNode.insertBefore(box, list);
-}
-
-async function runSearch(input) {
-  const results = document.getElementById("conv-search-results");
-  if (!results) return;
-  results.textContent = "";
-  const q = input.value.trim();
-  if (!q) return;
-  const words = q.toLowerCase().split(/\s+/).filter(Boolean);
-  let data;
-  try {
-    const resp = await fetch(
-      `/api/search?q=${encodeURIComponent(q)}&scope=${searchScope}`);
-    if (!resp.ok) throw new Error("http");
-    data = await resp.json();
-  } catch (_) {
-    node(results, "p", "muted", t("sidebar.search_error"));
-    return;
-  }
-  const rows = (data && data.results) || [];
-  if (!rows.length) {
-    node(results, "p", "muted", t("sidebar.search_empty"));
-    return;
-  }
-  for (const r of rows) {
-    const item = node(results, "div", "conv-search-item");
-    node(item, "div", "conv-search-title", r.ticket_title || r.agent_id);
-    for (const m of r.matches || []) {
-      const line = node(item, "div", "conv-search-match");
-      node(line, "span", "conv-search-role",
-        t(m.role === "user" ? "sidebar.search_role_user" : "sidebar.search_role_agent"));
-      renderSnippet(node(line, "span", "conv-search-snippet"), m.snippet, words);
-    }
-    item.addEventListener("click", () => {
-      openTab(r.key, r.ticket_title || r.agent_id);
-    });
-  }
-}
-
-function renderSnippet(el, snippet, words) {
+function renderSnippet(snippet, words) {
   const text = snippet || "";
   const low = text.toLowerCase();
   let idx = -1;
-  let hitLen = 0;
+  let len = 0;
   for (const w of words) {
     const p = low.indexOf(w);
-    if (p !== -1 && (idx === -1 || p < idx)) { idx = p; hitLen = w.length; }
+    if (p !== -1 && (idx === -1 || p < idx)) { idx = p; len = w.length; }
   }
-  if (idx === -1) { el.textContent = text; return; }
-  if (idx > 0) el.appendChild(document.createTextNode(text.slice(0, idx)));
-  const mark = document.createElement("mark");
-  mark.textContent = text.slice(idx, idx + hitLen);
-  el.appendChild(mark);
-  el.appendChild(document.createTextNode(text.slice(idx + hitLen)));
+  if (idx === -1) return [text];
+  return [text.slice(0, idx), h("mark", {}, text.slice(idx, idx + len)), text.slice(idx + len)];
+}
+
+function hideResults() {
+  results.hidden = true;
+  results.replaceChildren();
+}
+
+function stateLine(...children) {
+  return h("p", { class: "ag-search-results__state", role: "status" }, ...children);
+}
+
+function showSearching(q) {
+  results.hidden = false;
+  results.setAttribute("aria-busy", "true");
+  results.replaceChildren(stateLine(h("span", { class: "spinner spinner--sm", "aria-hidden": "true" }),
+    ` Recherche de « ${q} » dans les conversations…`));
+}
+
+function showSearchError(q, err) {
+  const retry = h("button", { type: "button", class: "btn btn--sm" }, "Réessayer");
+  retry.addEventListener("click", () => fullText(q));
+  results.replaceChildren(h("div", { class: "error-state error-state--inline", role: "alert" },
+    h("span", {}, `Recherche impossible : ${err.message}`), retry));
+}
+
+function hit(r, words) {
+  const match = (r.matches || [])[0];
+  const b = h("button", { type: "button", class: "ag-search-hit" },
+    h("span", { class: "ag-search-hit__title" }, r.ticket_title || r.agent_id || r.key),
+    match ? h("span", { class: "ag-search-hit__snippet" },
+      h("span", { class: "ag-search-hit__role" }, match.role === "user" ? "toi : " : "agent : "),
+      ...renderSnippet(match.snippet, words)) : null);
+  b.addEventListener("click", () => emit("open", { key: r.key, title: r.ticket_title }));
+  return b;
+}
+
+function showHits(q, rows) {
+  if (!rows.length) {
+    results.replaceChildren(stateLine(`Aucune conversation ne contient « ${q} ».`));
+    return;
+  }
+  const many = rows.length > 1;
+  const words = q.toLowerCase().split(/\s+/).filter(Boolean);
+  results.replaceChildren(
+    stateLine(`${rows.length} conversation${many ? "s" : ""} contien${many ? "nent" : "t"} « ${q} »`),
+    h("div", { class: "ag-search-results__list" }, ...rows.slice(0, 30).map((r) => hit(r, words))));
+}
+
+async function fullText(q) {
+  const my = ++seq;
+  showSearching(q);
+  let rows;
+  try {
+    const data = await api("GET", `/api/search?q=${encodeURIComponent(q)}&scope=all`, undefined, { timeout: 30000 });
+    rows = (data && data.results) || [];
+  } catch (err) {
+    if (my !== seq) return;
+    results.removeAttribute("aria-busy");
+    showSearchError(q, err);
+    return;
+  }
+  if (my !== seq) return;
+  results.removeAttribute("aria-busy");
+  showHits(q, rows);
+}
+
+function onInput() {
+  const q = input.value.trim();
+  clearBtn.hidden = !input.value;
+  setFilter(q);
+  clearTimeout(timer);
+  seq++;
+  if (q.length >= MIN_FULLTEXT) timer = setTimeout(() => fullText(q), FULLTEXT_DELAY);
+  else hideResults();
+}
+
+export function clearSearch() {
+  input.value = "";
+  onInput();
+}
+
+export function wireSearch() {
+  input = document.getElementById("ag-filter");
+  clearBtn = document.getElementById("ag-filter-clear");
+  results = document.getElementById("ag-search-results");
+  if (!input || !clearBtn || !results) return;
+  input.addEventListener("input", onInput);
+  input.addEventListener("keydown", (e) => {
+    if (e.key === "Enter") {
+      e.preventDefault();
+      clearTimeout(timer);
+      const q = input.value.trim();
+      if (q) fullText(q);
+    } else if (e.key === "Escape") {
+      if (input.value) { e.preventDefault(); clearSearch(); } else input.blur();
+    }
+  });
+  clearBtn.addEventListener("click", () => { clearSearch(); input.focus(); });
+  // « / » place le focus dans la recherche (hors champ de saisie).
+  document.addEventListener("keydown", (e) => {
+    if (e.key !== "/" || e.ctrlKey || e.metaKey || e.altKey) return;
+    const t = e.target;
+    if (t && (t.isContentEditable || /^(INPUT|TEXTAREA|SELECT)$/.test(t.tagName))) return;
+    e.preventDefault();
+    input.focus();
+  });
 }

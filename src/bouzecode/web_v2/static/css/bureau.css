@@ -1,0 +1,305 @@
+/* [desc] Styles de la page Bureau (SPEC §4) — uniquement des tokens de ds.css, aucun littéral de couleur. [/desc] */
+
+main { max-width: none; }
+.bz-page { max-width: 1120px; margin: 0 auto; padding: var(--space-4) var(--space-4) 112px; }
+body.bz-drawer-open .bz-page { margin-right: min(480px, 44vw); margin-left: max(var(--space-4), calc((100vw - min(480px, 44vw) - 1120px) / 2)); }
+
+.bz-muted { color: var(--text-3); }
+.bz-h2 { border: 0; padding: 0; font-size: var(--fs-lg); font-weight: 650; margin: 0; display: inline-flex; align-items: center; gap: var(--space-2); }
+.bz-h3 { font-size: var(--fs-sm); font-weight: 650; color: var(--text-2); margin: var(--space-3) 0 var(--space-2); text-transform: uppercase; letter-spacing: .04em; }
+
+/* ---------------------------------------------------------------- en-tête */
+.bz-head { display: flex; align-items: center; gap: var(--space-3); flex-wrap: wrap; margin-bottom: var(--space-4); }
+.bz-title { font-size: var(--fs-xl); margin: 0; flex: 1; border: 0; padding: 0; }
+.bz-head__tools { display: flex; gap: var(--space-2); align-items: center; flex-wrap: wrap; min-width: 0; max-width: 100%; }
+.bz-search { width: min(320px, 100%); min-width: 0; flex: 1 1 200px; }
+
+/* ---------------------------------------------------------------- détail d'un point qui attend */
+.bz-card__raison { margin: 0; color: var(--danger); font-size: var(--fs-sm); }
+.bz-card__brief { margin: 0; color: var(--text-2); font-size: var(--fs-sm); white-space: pre-line; }
+.bz-plan { padding: 0; }
+.bz-plan > summary { cursor: pointer; font-size: var(--fs-sm); font-weight: 600; color: var(--text-2); }
+.bz-plan[open] > summary { margin-bottom: var(--space-2); }
+.bz-md { max-height: 360px; overflow: auto; font-size: var(--fs-sm); color: var(--text); }
+.bz-md > :first-child { margin-top: 0; }
+.bz-md p, .bz-md ul, .bz-md ol { margin: 0 0 var(--space-2); }
+.bz-md ul, .bz-md ol { padding-left: 20px; }
+.bz-md__titre { margin: var(--space-3) 0 var(--space-1); font-size: var(--fs-md); }
+.bz-md code { font-family: var(--font-mono); font-size: .92em; background: var(--surface-3); padding: 0 3px; border-radius: 3px; }
+.bz-md__code { margin: 0 0 var(--space-2); padding: var(--space-2); background: var(--surface-3); border-radius: var(--radius-sm); overflow: auto; white-space: pre; }
+.bz-md__code code { background: none; padding: 0; }
+
+/* Question d'agent */
+.bz-q { display: flex; flex-direction: column; gap: var(--space-2); }
+.bz-q__texte { margin: 0; font-weight: 600; white-space: pre-line; }
+.bz-q__options { display: flex; flex-wrap: wrap; gap: var(--space-2); }
+.bz-q__libre-row { display: flex; gap: var(--space-2); align-items: flex-end; }
+.bz-q__libre { flex: 1; min-height: 40px; }
+.bz-q__ok { margin: 0; color: var(--text-2); }
+.bz-q__echo { color: var(--text); }
+
+/* Récap */
+.bz-recap { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: var(--space-2) var(--space-4); }
+.bz-recap__titre { font-size: var(--fs-xs); font-weight: 700; color: var(--text-3); text-transform: uppercase; letter-spacing: .05em; }
+.bz-recap ul { margin: 4px 0 0; padding-left: 18px; font-size: var(--fs-sm); }
+.bz-recap__resume { margin: 0; font-size: var(--fs-sm); color: var(--text-2); }
+/* Ce qu'est devenu un point laissé : la tâche qui le porte, ou « Créer la tâche ». */
+.bz-recap__point { margin-bottom: 2px; }
+.bz-suite { display: block; font-size: var(--fs-xs); color: var(--text-2); }
+.bz-suite--aucune { color: var(--text-3); }
+.bz-suite__creer { margin-left: var(--space-1); }
+
+/* ---------------------------------------------------------------- liste et sections (mode Statut) */
+.bz-list { display: flex; flex-direction: column; gap: var(--space-5); min-height: 60px; }
+.bz-sec { display: flex; flex-direction: column; }
+.bz-sec__titre { border: 0; margin: 0 0 var(--space-1); padding: 0; font-size: var(--fs-sm); font-weight: 650; color: var(--text-2);
+  text-transform: uppercase; letter-spacing: .05em; display: flex; align-items: center; gap: var(--space-2); }
+.bz-sec__bascule { border: 0; background: none; color: inherit; font: inherit; text-transform: inherit; letter-spacing: inherit;
+  padding: 2px 4px; margin-left: -4px; cursor: pointer; border-radius: var(--radius-sm); }
+.bz-sec__bascule:hover { color: var(--text); }
+.bz-sec__corps { display: flex; flex-direction: column; }
+.bz-sec__vide { margin: var(--space-1) 0 0; font-size: var(--fs-sm); }
+
+/* ---------------------------------------------------------------- mode de tri */
+.bz-mode { display: inline-flex; align-items: center; gap: var(--space-2); }
+.bz-mode__label { font-size: var(--fs-sm); color: var(--text-3); }
+
+/* ---------------------------------------------------------------- chantiers (mode Chantier) */
+.bz-ch { border: 1px solid transparent; border-radius: var(--radius); display: flex; flex-direction: column; }
+.bz-ch__head { display: flex; align-items: center; gap: var(--space-2); flex-wrap: wrap; padding: var(--space-1) 0; border-bottom: 1px solid var(--border); }
+.bz-ch__titre { border: 0; background: none; color: var(--text); font: inherit; font-size: var(--fs-lg); font-weight: 650;
+  display: inline-flex; align-items: center; gap: var(--space-2); padding: 2px 4px; cursor: pointer; border-radius: var(--radius-sm); }
+.bz-ch__titre--static { cursor: default; color: var(--text-2); }
+.bz-ch__aide { margin: var(--space-1) 0 0; font-size: var(--fs-xs); }
+.bz-ch__caret { color: var(--text-3); font-size: 11px; width: 12px; }
+.bz-ch__depots { display: inline-flex; gap: 4px; flex-wrap: wrap; }
+.bz-ch__comptes { color: var(--text-3); font-size: var(--fs-sm); margin-left: auto; }
+.bz-ch__rename { font-size: var(--fs-lg); font-weight: 650; max-width: 420px; }
+.bz-ch__desc { padding: var(--space-3); margin: var(--space-2) 0; border: 1px solid var(--border); border-radius: var(--radius); background: var(--surface-1); display: flex; flex-direction: column; gap: var(--space-2); }
+.bz-ch__corps { display: flex; flex-direction: column; }
+.bz-ch__vide { margin: var(--space-2) 0 0 26px; font-size: var(--fs-sm); }
+/* Poignée de déplacement : un BOUTON (clic / Entrée = « Déplacer vers… », glisser = geste direct).
+   touch-action: none — au doigt, glisser depuis la poignée déplace, glisser ailleurs fait défiler. */
+.bz-grip { cursor: grab; color: var(--text-3); background: none; border: 0; font: inherit; line-height: 1; padding: 6px 4px;
+  border-radius: var(--radius-sm); user-select: none; touch-action: none; }
+.bz-grip:hover { color: var(--text); background: var(--overlay); }
+.bz-grip:focus-visible { outline: none; box-shadow: var(--focus-ring); opacity: 1 !important; }
+.bz-grip[aria-busy="true"] { cursor: progress; }
+
+.bz-add { margin: var(--space-2) 0 0 22px; }
+.bz-add__input { min-height: 34px; resize: none; background: transparent; border-style: dashed; }
+.bz-add__input:focus { background: var(--surface-1); border-style: solid; }
+
+.bz-new-chantier { margin-top: var(--space-5); max-width: 520px; }
+.bz-new-chantier .input { font-size: var(--fs-lg); font-weight: 600; background: transparent; border-style: dashed; }
+
+/* ---------------------------------------------------------------- tâches (lignes légères) */
+/* Repliée, une ligne = état en un mot (texte coloré, sans pastille), titre, UNE ligne secondaire.
+   Une seule séparation fine entre lignes ; pas de cadres imbriqués. */
+.bz-task { border-bottom: 1px solid var(--border); }
+.bz-task.is-dragging { opacity: .5; }
+.bz-task__row { position: relative; display: flex; align-items: center; gap: var(--space-3); padding: 10px 8px 10px 22px; cursor: pointer; min-height: 48px; }
+.bz-task__row > .bz-grip { position: absolute; left: 4px; top: 50%; transform: translateY(-50%); }
+.bz-task__row:hover { background: var(--overlay); }
+.bz-task.is-attention > .bz-task__row { background: color-mix(in srgb, var(--warn-bg) 55%, transparent); }
+.bz-task.is-attention > .bz-task__row:hover { background: var(--warn-bg); }
+.bz-task__badge { flex: none; width: 124px; white-space: nowrap; }
+.bz-task__badge .badge { background: none; padding: 0; font-weight: 600; font-size: var(--fs-sm); white-space: normal; text-align: left; }
+.bz-task__txt { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 2px; }
+.bz-task__titre { font: inherit; font-weight: 550; color: var(--text); background: none; border: 0; padding: 0; text-align: left; cursor: pointer;
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 100%; border-radius: var(--radius-sm); }
+.bz-task__meta { font-size: var(--fs-sm); color: var(--text-3); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.bz-task__transmis { font-size: var(--fs-xs); color: var(--text-3); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.bz-task__transmis[data-lecture="en_attente"] { color: var(--info); }
+.bz-task__transmis[data-lecture="non_lue"] { color: var(--danger); }
+.bz-task__chantier { flex: none; max-width: 28%; margin-right: var(--space-2); font-size: var(--fs-xs); color: var(--text-3); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+/* L'action principale se pose par-dessus l'étiquette de chantier, au survol / focus : les colonnes restent alignées. */
+.bz-task__action { position: absolute; right: 8px; top: 50%; transform: translateY(-50%); opacity: 0; pointer-events: none;
+  transition: opacity var(--dur-fast) var(--ease); }
+.bz-task__row:hover .bz-task__action, .bz-task__row:focus-within .bz-task__action, .bz-task__action:has([aria-busy="true"]) { pointer-events: auto; }
+.bz-task__row:hover .bz-task__chantier, .bz-task__row:focus-within .bz-task__chantier { visibility: hidden; }
+.bz-task__row:hover .bz-task__action, .bz-task__row:focus-within .bz-task__action, .bz-task__action:has([aria-busy="true"]) { opacity: 1; }
+/* Dépliée, les gestes sont dans le détail : l'action de la ligne disparaît (un seul « Lancer » visible). */
+.bz-task.is-open > .bz-task__row .bz-task__action { display: none; }
+@media (hover: none) { .bz-task__action { opacity: 1; pointer-events: auto; position: static; transform: none; } }
+/* Poignée discrète : transparente hors survol / focus (mais toujours saisissable) ; toujours visible au doigt. */
+.bz-task__row > .bz-grip, .bz-ch__head > .bz-grip { opacity: 0; }
+.bz-task__row:hover > .bz-grip, .bz-task__row:focus-within > .bz-grip, .bz-ch__head:hover > .bz-grip,
+.bz-ch__head:focus-within > .bz-grip { opacity: 1; }
+/* Visible, elle reste lisible : à .8 d'opacité, --text-3 tombait sous 4,5:1 (3,4 en jour). */
+@media (hover: none) { .bz-task__row > .bz-grip, .bz-ch__head > .bz-grip { opacity: 1; } }
+
+/* ---------------------------------------------------------------- ce qui t'attend (bande d'action) */
+/* Toujours visible, repliée ou non : l'action attendue est SUR la carte (SPEC §4.2). */
+.bz-task__attente { display: flex; flex-direction: column; gap: var(--space-2);
+  padding: 0 var(--space-3) var(--space-3) calc(124px + var(--space-3) + 22px);
+  background: color-mix(in srgb, var(--warn-bg) 55%, transparent); }
+.bz-task[data-motif="livraison"] > .bz-task__row, .bz-task[data-motif="livraison"] > .bz-task__attente { background: color-mix(in srgb, var(--ok) 7%, transparent); }
+.bz-task[data-motif="plante"] > .bz-task__row, .bz-task[data-motif="plante"] > .bz-task__attente,
+.bz-task[data-motif="lancement"] > .bz-task__row, .bz-task[data-motif="lancement"] > .bz-task__attente,
+.bz-task[data-motif="introuvable"] > .bz-task__row, .bz-task[data-motif="introuvable"] > .bz-task__attente,
+.bz-task[data-motif="verif_ko"] > .bz-task__row, .bz-task[data-motif="verif_ko"] > .bz-task__attente { background: color-mix(in srgb, var(--danger) 7%, transparent); }
+.bz-task[data-motif="arrete"] > .bz-task__row, .bz-task[data-motif="arrete"] > .bz-task__attente { background: var(--overlay); }
+.bz-attente__gestes:empty { display: none; }
+.bz-task__attente .bz-consigne { max-width: 640px; }
+
+/* Groupes de « À traiter » : ce qu'il faut faire, en titre. */
+.bz-cat { display: flex; flex-direction: column; margin-top: var(--space-3); }
+.bz-cat:first-child { margin-top: var(--space-1); }
+.bz-cat__titre { margin: 0; font-size: var(--fs-md); font-weight: 650; color: var(--text); display: flex; align-items: center; gap: var(--space-2); }
+.bz-cat__aide { margin: 2px 0 var(--space-2); font-size: var(--fs-sm); color: var(--text-3); }
+
+/* ---------------------------------------------------------------- glisser-déposer (glisser.js) */
+body.bz-dragging, body.bz-dragging * { cursor: grabbing !important; user-select: none; }
+.bz-task.is-dragging, .bz-ch.is-dragging { opacity: .45; }
+/* Cibles compactes (mode Chantier) : seuls les en-têtes restent, chacun une cible. */
+.bz-compact .bz-ch:not(.is-peek) > .bz-ch__corps, .bz-compact .bz-ch > .bz-add, .bz-compact .bz-ch > .bz-arch,
+.bz-compact .bz-ch > .bz-ch__desc, .bz-compact .bz-sec[data-sec="hors"], .bz-compact .bz-sec[data-sec="chantiers-archives"],
+.bz-compact #chantier-nouveau { display: none; }
+.bz-compact .bz-list { gap: var(--space-1); }
+.bz-compact .bz-ch[data-drop] { border: 1px dashed var(--border-strong); border-radius: var(--radius); }
+.bz-compact .bz-ch[data-drop] > .bz-ch__head { border-bottom: 0; padding: var(--space-2) var(--space-2); }
+.bz-ch.is-peek > .bz-ch__corps { max-height: 240px; overflow: hidden; opacity: .8; padding-bottom: var(--space-2); }
+.bz-ch.is-drop-target { border: 2px solid var(--accent-text) !important; background: color-mix(in srgb, var(--accent) 10%, transparent); }
+.bz-ch.is-drop-target > .bz-ch__head::after { content: "Déposer ici"; font-size: var(--fs-sm); font-weight: 600; color: var(--accent-text); }
+/* Indicateur d'insertion d'un chantier : un trait épais avant ou après la cible. */
+.bz-ch.is-insert-before, .bz-ch.is-insert-after { position: relative; }
+.bz-ch.is-insert-before::before, .bz-ch.is-insert-after::after { content: ""; position: absolute; left: 0; right: 0; height: 4px;
+  border-radius: 2px; background: var(--accent); pointer-events: none; }
+.bz-ch.is-insert-before::before { top: -6px; }
+.bz-ch.is-insert-after::after { bottom: -6px; }
+/* Ce qui suit le pointeur. */
+.bz-ghost { position: fixed; left: 0; top: 0; z-index: 120; pointer-events: none; display: flex; flex-direction: column; gap: 2px;
+  max-width: 320px; padding: var(--space-2) var(--space-3); border-radius: var(--radius); background: var(--surface-1);
+  border: 1px solid var(--border-strong); box-shadow: var(--shadow-2); font-size: var(--fs-sm); }
+.bz-ghost__quoi { font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.bz-ghost__vers { color: var(--text-3); }
+.bz-ghost[data-cible="true"] { border-color: var(--accent-text); }
+.bz-ghost[data-cible="true"] .bz-ghost__vers { color: var(--accent-text); font-weight: 600; }
+/* Plateau de cibles du mode Statut. */
+.bz-plateau { position: fixed; right: var(--space-5); top: calc(var(--nav-h) + var(--space-5)); z-index: 110; width: min(300px, 80vw);
+  display: flex; flex-direction: column; gap: var(--space-2); padding: var(--space-3); border-radius: var(--radius);
+  background: var(--surface-1); border: 1px solid var(--border-strong); box-shadow: var(--shadow-2); }
+.bz-plateau__titre { margin: 0; font-size: var(--fs-sm); font-weight: 650; color: var(--text-2); }
+.bz-plateau__liste { display: flex; flex-direction: column; gap: var(--space-1); max-height: 60vh; overflow: auto; }
+.bz-plateau__cible { padding: var(--space-2) var(--space-3); border: 1px dashed var(--border-strong); border-radius: var(--radius-sm); }
+.bz-plateau__cible[data-actuel="true"] { color: var(--text-3); }
+.bz-plateau__cible.is-drop-target { border: 2px solid var(--accent-text); background: color-mix(in srgb, var(--accent) 10%, transparent); font-weight: 600; }
+/* Pendant l'enregistrement d'un déplacement : la tâche / le chantier le dit. */
+.bz-task.is-saving > .bz-task__row::after, .bz-ch.is-saving > .bz-ch__head::after { content: "Déplacement…"; display: inline-flex; align-items: center;
+  font-size: var(--fs-sm); color: var(--text-3); margin-left: var(--space-2); }
+.bz-task.is-saving > .bz-task__row > .bz-grip, .bz-ch.is-saving > .bz-ch__head > .bz-grip { opacity: 1; animation: ds-pulse 1s var(--ease) infinite; }
+@media (prefers-reduced-motion: reduce) { .bz-task.is-saving > .bz-task__row > .bz-grip, .bz-ch.is-saving > .bz-ch__head > .bz-grip { animation: none; } }
+
+.bz-task__body { padding: var(--space-2) var(--space-3) var(--space-5) calc(124px + var(--space-3) + 22px);
+  display: flex; flex-direction: column; gap: var(--space-4); }
+.bz-ed { display: flex; flex-direction: column; gap: var(--space-2); }
+.bz-ed__tete { display: flex; align-items: baseline; justify-content: space-between; gap: var(--space-2); }
+.bz-ed__etat { font-size: var(--fs-xs); color: var(--text-3); min-height: 1em; }
+.bz-ed__etat[data-erreur="true"] { color: var(--danger); }
+.bz-task__plus { margin-left: auto; }
+.bz-deplacer__choix { justify-content: flex-start; width: 100%; }
+.bz-ed__brief { min-height: 130px; font-family: var(--font-sans); }
+.bz-ed__reglages { display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: var(--space-3); }
+.bz-task__actions:empty, .bz-task__question:empty { display: none; }
+.bz-consigne { display: flex; flex-direction: column; gap: var(--space-2); }
+
+.bz-passages { display: flex; flex-direction: column; }
+.bz-passage { border-top: 1px solid var(--border); padding: var(--space-3) 0; display: flex; flex-direction: column; gap: var(--space-2); }
+.bz-passage__head { display: flex; align-items: center; gap: var(--space-2); flex-wrap: wrap; font-size: var(--fs-sm); }
+.bz-passage__head .badge { background: none; padding: 0; }
+.bz-passage__num { color: var(--text-3); font-variant-numeric: tabular-nums; }
+.bz-passage__retour, .bz-passage__act { margin: 0; font-size: var(--fs-sm); color: var(--text-2); }
+.bz-passages__vide { margin: 0; font-size: var(--fs-sm); }
+
+/* Archives repliées en bas d'un chantier */
+.bz-arch { margin: var(--space-1) 0 0; }
+.bz-arch__corps { display: flex; flex-direction: column; opacity: .85; }
+
+/* ---------------------------------------------------------------- dialogue de lancement */
+dialog.bz-launch { width: min(680px, calc(100vw - 32px)); }
+.bz-launch__tache { margin: 0 0 var(--space-3); color: var(--text-2); font-weight: 600; }
+.bz-launch__grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: var(--space-3); margin: var(--space-3) 0; }
+.bz-launch__modes { border: 0; padding: 0; margin: var(--space-3) 0 0; display: flex; flex-direction: column; gap: var(--space-2); }
+.bz-radio { display: flex; gap: var(--space-2); align-items: flex-start; font-size: var(--fs-sm); cursor: pointer; }
+.bz-radio input { margin-top: 3px; }
+.bz-radio em { color: var(--text-3); }
+.bz-check { display: flex; gap: var(--space-2); align-items: flex-start; font-size: var(--fs-sm); cursor: pointer; }
+.bz-check input { margin-top: 3px; }
+.bz-check input:disabled + span { color: var(--text-3); cursor: not-allowed; }
+.bz-launch__exec [data-role="rundeck"] { margin-left: var(--space-4); display: flex; flex-direction: column; gap: var(--space-2); }
+.bz-launch__exec [hidden] { display: none; }
+.bz-launch__fichiers { max-height: 180px; overflow-y: auto; display: flex; flex-direction: column; gap: var(--space-1); margin-top: var(--space-2); overflow-wrap: anywhere; }
+.bz-passage__distant { display: flex; flex-direction: column; gap: var(--space-1); }
+.bz-launch__apercu summary, .bz-launch__plus summary { cursor: pointer; font-size: var(--fs-sm); color: var(--text-2); }
+.bz-launch__prompt { max-height: 260px; overflow: auto; white-space: pre-wrap; font-size: var(--fs-xs); background: var(--surface-2);
+  border: 1px solid var(--border); border-radius: var(--radius-sm); padding: var(--space-2); margin: var(--space-2) 0 0; }
+.bz-launch__erreur { margin: var(--space-2) 0 0; }
+
+.bz-depots { display: flex; flex-direction: column; gap: var(--space-2); margin-top: var(--space-3); max-height: 50vh; overflow: auto; }
+.bz-depots__item { display: flex; gap: var(--space-2); align-items: center; cursor: pointer; }
+.bz-depots__etat { margin-left: auto; font-size: var(--fs-xs); }
+
+/* ---------------------------------------------------------------- assistant : bouton flottant + tiroir */
+.bz-fab { position: fixed; right: var(--space-5); bottom: calc(var(--space-5) + env(safe-area-inset-bottom, 0px)); z-index: 40;
+  width: 56px; height: 56px; border-radius: 50%; border: 0; background: var(--accent); color: var(--on-accent);
+  display: inline-flex; align-items: center; justify-content: center; cursor: pointer; box-shadow: var(--shadow-2);
+  transition: transform var(--dur-fast) var(--ease); }
+.bz-fab:hover { transform: translateY(-1px); }
+.bz-fab:focus-visible { outline: none; box-shadow: var(--focus-ring), var(--shadow-2); }
+.bz-fab__pastille { position: absolute; top: 6px; right: 6px; width: 12px; height: 12px; border-radius: 50%;
+  background: var(--warn); box-shadow: 0 0 0 2px var(--bg); }
+body.bz-drawer-open .bz-fab { display: none; }
+@media (prefers-reduced-motion: reduce) { .bz-fab { transition: none; } .bz-fab:hover { transform: none; } }
+
+.bz-drawer { width: min(480px, 100vw); }
+/* Tiroir ouvert : les toasts (« Assistant interrompu »…) ne recouvrent plus le champ ni Envoyer,
+   ancrés en bas à droite exactement là où le tiroir a son formulaire. À côté du tiroir sur grand
+   écran ; sous son en-tête quand il prend toute la largeur. */
+body.bz-drawer-open .toast-stack { right: calc(min(480px, 100vw) + var(--space-4)); }
+@media (max-width: 720px) {
+  body.bz-drawer-open .toast-stack { right: var(--space-4); bottom: auto; top: 72px; flex-direction: column; }
+}
+.bz-assist__hist { flex: 1; min-width: 120px; max-width: 220px; }
+.bz-assist__ctx { padding: var(--space-3) var(--space-4); border-bottom: 1px solid var(--border); display: flex; flex-direction: column; gap: var(--space-2); }
+.bz-assist__fil { display: flex; flex-direction: column; gap: var(--space-2); }
+.bz-assist__intro { color: var(--text-3); font-size: var(--fs-sm); margin: 0; }
+.bz-assist__status { margin: 0 0 var(--space-2); min-height: 1.2em; font-size: var(--fs-sm); color: var(--text-3); }
+.bz-assist__form { display: flex; gap: var(--space-2); align-items: flex-end; }
+.bz-assist__form textarea { flex: 1; min-height: 44px; resize: vertical; }
+.bz-assist__boutons { display: flex; flex-direction: column; gap: var(--space-1); align-items: stretch; }
+.bz-assist__projets { display: flex; flex-wrap: wrap; gap: var(--space-2); align-items: center; padding: var(--space-2); border: 1px dashed var(--border-strong); border-radius: var(--radius); }
+.bz-assist__projets p { flex-basis: 100%; margin: 0; font-size: var(--fs-sm); }
+.bz-assist__q { border: 1px solid var(--warn); border-radius: var(--radius); padding: var(--space-2) var(--space-3); background: var(--warn-bg); }
+.bz-echo { align-self: flex-end; max-width: 85%; background: var(--surface-3); border-radius: var(--radius) var(--radius) 2px var(--radius);
+  padding: var(--space-2) var(--space-3); display: flex; flex-direction: column; gap: 2px; }
+.bz-echo__txt { white-space: pre-wrap; }
+.bz-echo__etat { font-size: var(--fs-xs); color: var(--text-3); display: inline-flex; align-items: center; gap: var(--space-1); }
+.bz-echo--ko { border: 1px solid var(--danger); }
+.bz-echo--ko .bz-echo__etat { color: var(--danger); }
+
+@media (max-width: 720px) {
+  body.bz-drawer-open .bz-page { margin: 0 auto; }
+  .bz-task__body, .bz-task__attente { padding-left: var(--space-3); }
+  .bz-task__badge { width: auto; }
+  .bz-task__chantier { display: none; }
+  .bz-mode__label { display: none; }
+  .bz-add { margin-left: 0; }
+  /* Téléphone : le titre a la place (deux lignes au plus, plutôt qu'une douzaine de caractères) ;
+     l'action de la ligne repliée vit dans le détail — une colonne de « Lancer » sur chaque ligne
+     mangeait la largeur et finissait sous la bulle de l'assistant. */
+  .bz-task__titre { white-space: normal; overflow-wrap: anywhere; display: -webkit-box; -webkit-box-orient: vertical;
+    -webkit-line-clamp: 2; line-clamp: 2; }
+  .bz-task:not(.is-open) > .bz-task__row .bz-task__action:not(:has([aria-busy="true"])) { display: none; }
+  .bz-task__row { gap: var(--space-2); }
+  .bz-fab { right: var(--space-3); bottom: calc(var(--space-3) + env(safe-area-inset-bottom, 0px)); width: 48px; height: 48px; }
+  .bz-page { padding-bottom: 96px; }
+}
+
+/* Pourquoi une tâche a été classée (faite ailleurs, doublon, caduque) et ses classements rouverts. */
+.bz-classements:empty { display: none; }
+.bz-classements { margin: var(--space-2) 0; }
+.bz-classements__titre { margin: 0 0 var(--space-1); font-size: var(--fs-sm); font-weight: 600; color: var(--text-2); }
+.bz-classements__liste { margin: 0; padding-left: var(--space-4); font-size: var(--fs-sm); color: var(--text-2); }
+.bz-classement[data-rouvert="true"] { color: var(--text-3); }
+.bz-classer .field { margin-top: var(--space-3); }
