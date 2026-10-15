@@ -3,6 +3,7 @@
 import difflib
 
 from ...tools.state import get_file_snapshots
+from .long_lines import compacter_diff
 
 
 def _get_diff(file_path: str | None = None) -> str:
@@ -17,7 +18,7 @@ def _get_diff(file_path: str | None = None) -> str:
         before = (snap.get("before") or "").splitlines(keepends=True)
         after = (snap.get("after") or "").splitlines(keepends=True)
         diff = difflib.unified_diff(before, after, fromfile=f"a/{path}", tofile=f"b/{path}")
-        diff_text = "".join(diff)
+        diff_text = compacter_diff("".join(diff))
         if diff_text:
             parts.append(diff_text)
         elif snap.get("is_new"):

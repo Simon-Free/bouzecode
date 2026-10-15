@@ -2,7 +2,11 @@
 # 
 # Strips heavy Methodology/turn-protocol sections from the system prompt for lean typologies like the manager. [/desc]
 
-_LEAN_DROP_SECTIONS = ("# Pourquoi cette forme", "# Discipline Methodology", "# Avant de penser")
+# "# Mémoire de travail" regroupe depuis le 2026-09-24 les trois anciennes sections
+# (« Pourquoi cette forme », « Discipline Methodology », « Avant de penser ») ; leurs titres
+# restent listés pour un gabarit personnalisé qui les porterait encore.
+_LEAN_DROP_SECTIONS = ("# Mémoire de travail", "# Pourquoi cette forme",
+                       "# Discipline Methodology", "# Avant de penser")
 
 
 def apply_lean_turn_protocol(text: str) -> str:

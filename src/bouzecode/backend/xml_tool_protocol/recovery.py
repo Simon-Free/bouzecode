@@ -180,11 +180,33 @@ def _open_tool_label(state: TailState) -> str:
     return f'<tool_use name="{state.tool_name}"{id_part}>'
 
 
+# Built by concatenation on purpose. This literal is ALSO the stop sequence sent to
+# the API (see parser.TOOL_CALLS_STOP): an agent editing this very file cannot type
+# it in clear in its own stream without the provider cutting the generation right
+# there. Kept local rather than imported to avoid a cycle (parser imports recovery).
+WRAPPER_CLOSE = "</" + "tool_calls>"
+
+
 def describe_unclosed_tail(text: str) -> str:
     """Diagnostic naming the tool and, when known, the param left open."""
     _, _, state = _scan(text, repair=False)
     label = _open_tool_label(state)
     param = state.open_params[-1] if state.open_params else None
+    # The ONE malformation the model cannot deduce from the generic message: a param
+    # body containing the batch wrapper's closing tag. That tag is the API stop
+    # sequence, so the provider truncated the completion exactly there — the param
+    # never closed AND every later tool call of the batch (FinalAnswer included)
+    # never existed. Without naming that cause the model repeats it turn after turn
+    # until the loop closes on final_answer_never_called / empty_completion.
+    hint = ""
+    if WRAPPER_CLOSE in text:
+        hint = (
+            " CAUSE: this body contains the batch wrapper closing tag, which is sent"
+            " to the API as a STOP SEQUENCE - generation was cut exactly there, which"
+            " is why the param never closed and why every following tool call of the"
+            " batch is missing. NEVER write that tag inside a param body: wrap the"
+            " body in CDATA, or refer to the tag in prose without writing it."
+        )
     if param is None:
         partial = _PARTIAL_PARAM_RE.search(text)
         param = partial.group(1) if partial else None
@@ -192,9 +214,9 @@ def describe_unclosed_tail(text: str) -> str:
         return (
             f'unclosed {label}: <param name="{param}"> is never closed — the stream '
             f'ended inside it. Re-emit ONLY this tool call, closing the param with '
-            f'</param> (not with \'">\').'
+            f'</param> (not with \'">\').' + hint
         )
     return (
         f"unclosed {label} block at end of stream: </tool_use> is missing. "
-        f"Re-emit ONLY this tool call."
+        f"Re-emit ONLY this tool call." + hint
     )

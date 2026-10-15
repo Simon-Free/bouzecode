@@ -36,6 +36,10 @@ def merge_profiles(profiles: list[AgentProfile]) -> AgentProfile:
     # merged onto a base profile must still enforce the recap gate).
     require_recap = any(p.require_recap for p in profiles)
 
+    # require_taches: lifted only if EVERY merged profile lifts it (a coder fragment
+    # merged onto the assistant keeps the close declarations mandatory).
+    require_taches = all(getattr(p, "require_taches", True) for p in profiles)
+
     return AgentProfile(
         name="+".join(p.name for p in profiles if p.name) or "merged",
         skills=skills,
@@ -46,6 +50,7 @@ def merge_profiles(profiles: list[AgentProfile]) -> AgentProfile:
         system_prompt_extra=system_prompt_extra,
         plan_mode=plan_mode,
         require_recap=require_recap,
+        require_taches=require_taches,
     )
 
 

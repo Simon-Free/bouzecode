@@ -10,8 +10,11 @@ from dataclasses import dataclass
 MAX_CYCLE_SIZE = 8
 MIN_REPEATS = 3
 
-# Keys to include in turn signature (skip large content fields like 'content', 'new_source')
-SIGNATURE_KEYS = ("name", "file_path", "command", "pattern", "url", "symbol", "query", "old_string")
+# Keys to include in turn signature (skip large content fields like 'content', 'new_source').
+# queries/code/sql : sans eux, trois execute_sql différents se réduisaient au nom d'outil —
+# les 65 « Loop detected » de Focus en 30 jours étaient tous des faux positifs (2026-09-29).
+SIGNATURE_KEYS = ("name", "file_path", "command", "pattern", "url", "symbol", "query",
+                  "old_string", "queries", "code", "sql")
 
 
 def _turn_signature(tool_calls: list[dict]) -> str:
@@ -23,10 +26,9 @@ def _turn_signature(tool_calls: list[dict]) -> str:
         if isinstance(inputs, dict):
             for key in SIGNATURE_KEYS:
                 if key != "name" and key in inputs:
-                    val = inputs[key]
-                    if isinstance(val, str) and len(val) > 200:
-                        val = val[:200]
-                    sig[key] = val
+                    # Valeur ENTIÈRE : le tout est haché ensuite, tronquer à 200 caractères
+                    # confondait deux requêtes au même début.
+                    sig[key] = inputs[key]
         parts.append(json.dumps(sig, sort_keys=True))
     combined = "|".join(parts)
     return hashlib.md5(combined.encode()).hexdigest()

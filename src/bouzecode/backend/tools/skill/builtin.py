@@ -17,11 +17,13 @@ Review the current git state and create a well-structured commit.
    - Summarize the nature of the change (feature, bug fix, refactor, docs, etc.)
    - Write a concise commit title (≤72 chars) focusing on *why*, not just *what*.
    - If multiple logical changes exist, ask the user whether to split them.
-3. Create the commit:
+3. Create the commit: write the message (title, blank line, body) to a temp file with
+   Write(temp=True), then:
    ```
-   git commit -m "<title>"
+   git commit -F <that path>
    ```
-   If additional context is needed, add a body separated by a blank line.
+   Never `git commit -m "..."` with `$` or backticks on Windows: PowerShell silently
+   replaces `$x` by an empty string and `` `t `` by a TAB, and the commit message is wrong.
 4. Print the commit hash and summary when done.
 
 **Rules:**
@@ -65,17 +67,17 @@ Review the code or pull request and provide structured feedback.
 User context: $ARGUMENTS
 """
 
-# ── python-coding (équipement du profil coder) ──────────────────────
+# ── demo-coding (équipement du profil coder) ──────────────────────
 
-_PYTHON_CODING_PROMPT = """\
-Règles de l'agent codeur Python. Tu travailles dans un worktree isolé avec un venv
-dédié (base = branche `develop`).
+_DEMO_CODING_PROMPT = """\
+Règles de l'agent codeur Python pour l'environnement demo. Tu travailles dans un
+worktree isolé avec un venv dédié (base = branche `develop`).
 
 ## Environnement (uv — JAMAIS Poetry)
-- Gestionnaire de paquets : `uv`.
+- Gestionnaire de paquets : `uv` (binaire `C:\\Users\\user01\\PycharmProjects\\demo\\bin\\uv.exe`).
 - Un `.venv` par sous-projet. Exécute via `uv run --directory <sous-projet> ...`.
-- JAMAIS Poetry. JAMAIS `pip install -e` d'un package interne au dépôt → publier
-  d'abord sur l'index de paquets, puis installer depuis cet index.
+- JAMAIS Poetry. JAMAIS `pip install -e` d'un package demo → publier d'abord avec
+  `bash_scripts/ensure_publish_and_update.sh`.
 - INTERDIT `python -c "..."` (bloqué par un hook) → écris un script `temp_*.py`,
   exécute-le, supprime-le (3 appels chaînés).
 - PowerShell : double quotes, `$env:VAR` inline. Pas de `&&`, utilise `;`.
@@ -84,10 +86,12 @@ dédié (base = branche `develop`).
 ## Lancer les tests
 - ⚠️ Dans ton worktree, le `.venv` (créé par `uv sync`) n'a PAS forcément `pytest`.
   Commande FIABLE (ajoute pytest à la volée, marche toujours), depuis la racine du
-  sous-projet : `uv run --with pytest pytest -n auto -q <chemins de test>`.
+  sous-projet : `uv run --with pytest --with pytest-xdist pytest -n 4 -q <chemins de test>`.
   N'essaie PAS `python -m pytest` en boucle si pytest n'est pas installé — utilise
   directement `uv run --with pytest`.
-- L'outil `RunPythonTest` peut aussi convenir s'il est disponible.
+- L'outil `RunPythonTest` peut aussi convenir s'il est disponible : `targets` = les tests
+  liés au code modifié, sans `targets` les tests impactés ; jamais la suite complète (nightly).
+- Jamais `-n auto` : la machine est partagée (un worker par cœur a déjà saturé la mémoire).
 - Si une option pytest de la config manque (ex: --reruns) : `--override-ini="addopts="`.
 - Playwright (réservé aux parcours UI critiques, lourd) :
   `uv run --with pytest pytest tests/playwright -q`.
@@ -123,7 +127,7 @@ dédié (base = branche `develop`).
 # ── fast-testing (philosophie de test : user-centric + vitesse) ─────────────
 
 _FAST_TESTING_PROMPT = """\
-Philosophie de test pour bouzecode : des tests **user-centric et haut
+Philosophie de test pour bouzecode/demo : des tests **user-centric et haut
 niveau**, SOUS CONTRAINTE DE VITESSE. La suite est jouée tout le temps (à chaque
 change) — un test lent est une dette qui finit désactivée. Vitesse ET réalisme,
 pas l'un OU l'autre.
@@ -139,7 +143,8 @@ pas l'un OU l'autre.
 ## 2. Vitesse maximale — la suite tourne en permanence
 - Optimise chaque test pour la vitesse : pas d'I/O réseau, pas de sleep, pas de
   DB lourde quand un fake en mémoire suffit, timeouts courts.
-- Préfère `-n auto` (parallélisme) et des fixtures partagées peu coûteuses.
+- Parallélisme plafonné (`-n 4`, jamais `-n auto` : machine partagée) et des fixtures
+  partagées peu coûteuses. Ne relance que les tests liés à ton changement.
 - Un test qui dépasse quelques centaines de ms doit se justifier.
 
 ## 3. Décourage Playwright quand c'est testable autrement
@@ -194,14 +199,44 @@ User context: $ARGUMENTS
 
 
 def _register_builtins() -> None:
+    from .builtin_deploy_prompts import AZURE_DEPLOY_PROMPT, DATABRICKS_DEPLOY_PROMPT
+
     register_builtin_skill(SkillDef(
-        name="python-coding",
-        description="Règles de l'agent codeur Python (uv, tests user-centric sans mock, refacto, livraison)",
+        name="databricks-deploy",
+        description="Règles génériques de déploiement/exécution/monitoring de jobs d'ingestion sur un workspace Databricks demo (CLI dbk, schéma default, dbfs, scope demo, publier avant, monitoring SDK)",
         triggers=[],
         tools=[],
-        prompt=_PYTHON_CODING_PROMPT,
+        prompt=DATABRICKS_DEPLOY_PROMPT,
         file_path="<builtin>",
-        when_to_use="Équipement automatique du profil coder. Couvre l'environnement Python (uv), comment lancer/écrire les tests, les règles de refacto et la livraison.",
+        when_to_use="Équipement automatique du profil databricks-deployer. Couvre le déploiement, l'exécution et le monitoring de jobs Databricks (CLI dbk, hive metastore, dbfs, secrets scope demo, publication du paquet avant déploiement, monitoring WorkspaceClient).",
+        argument_hint="",
+        arguments=[],
+        user_invocable=False,
+        context="inline",
+        source="builtin",
+    ))
+    register_builtin_skill(SkillDef(
+        name="azure-deploy",
+        description="Règles de déploiement de la web app Azure demo_application (deploy.py, publier les paquets avant, wwwroot read-only, az CLI bundlé, BROWSER_PATH charts, deploy_build jetable)",
+        triggers=[],
+        tools=[],
+        prompt=AZURE_DEPLOY_PROMPT,
+        file_path="<builtin>",
+        when_to_use="Équipement automatique du profil azure-deployer. Couvre le déploiement de la web app Azure (deploy.py, publication des paquets avant, run-from-package wwwroot read-only, bundle CA TLS/PGCLIENTENCODING, az CLI bundlé, BROWSER_PATH pour les charts, deploy_build jetable).",
+        argument_hint="",
+        arguments=[],
+        user_invocable=False,
+        context="inline",
+        source="builtin",
+    ))
+    register_builtin_skill(SkillDef(
+        name="demo-coding",
+        description="Règles de l'agent codeur Python demo (uv, tests user-centric sans mock, refacto, livraison)",
+        triggers=[],
+        tools=[],
+        prompt=_DEMO_CODING_PROMPT,
+        file_path="<builtin>",
+        when_to_use="Équipement automatique du profil coder. Couvre l'environnement demo (uv), comment lancer/écrire les tests, les règles de refacto et la livraison.",
         argument_hint="",
         arguments=[],
         user_invocable=False,
@@ -210,7 +245,7 @@ def _register_builtins() -> None:
     ))
     register_builtin_skill(SkillDef(
         name="fast-testing",
-        description="Philosophie de test bouzecode : tests user-centric haut niveau SOUS CONTRAINTE DE VITESSE (suite jouée en permanence) — décourage Playwright si testable via API/Jinja, mocke les LLM, fakes purs, vitesse maximale",
+        description="Philosophie de test bouzecode/demo : tests user-centric haut niveau SOUS CONTRAINTE DE VITESSE (suite jouée en permanence) — décourage Playwright si testable via API/Jinja, mocke les LLM, fakes purs, vitesse maximale",
         triggers=["/fast-testing"],
         tools=[],
         prompt=_FAST_TESTING_PROMPT,

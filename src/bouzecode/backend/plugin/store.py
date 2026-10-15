@@ -1,27 +1,30 @@
-# [desc] Plugin store: install via pip, register in plugins.json, enable/disable/list. [/desc]
+# [desc] Plugin store: install via pip (Artifactory), register in plugins.json, enable/disable/list. [/desc]
 """Plugin store: install/list/enable/disable + plugins.json persistence.
 
 Plugins are pip packages. ``install_plugin`` runs ``pip install <package>``
-(resolving from the ambient package index), then locates the installed
+(resolving from the ambient index, i.e. Artifactory), then locates the installed
 package's import root to read its shipped ``plugin.json`` and records an entry in
 the scope's ``plugins.json``.
 """
 from __future__ import annotations
 
+from bouzecode.paths import project_dir as bouzecode_project_dir
 import importlib.util
 import json
 import subprocess
 import sys
+import threading
 from pathlib import Path
 
 from bouzecode.backend.core import config
+from bouzecode.backend.core.server_profile import server_profile_active, server_profile_refusal
 from .types import PluginEntry, PluginManifest, PluginScope, sanitize_plugin_name
 
 
 def _cfg_path(scope: PluginScope) -> Path:
     # Read config.CONFIG_DIR dynamically (not a captured value) so tests that
     # monkeypatch it, and any runtime override, are honoured.
-    base = config.CONFIG_DIR if scope == PluginScope.USER else Path.cwd() / ".bouzecode"
+    base = config.CONFIG_DIR if scope == PluginScope.USER else bouzecode_project_dir(Path.cwd())
     return base / "plugins.json"
 
 
@@ -39,16 +42,46 @@ def _write_cfg(path: Path, data: dict) -> None:
 # ── List / get ───────────────────────────────────────────────────────────────
 
 def list_plugins(scope: PluginScope | None = None) -> list[PluginEntry]:
-    """Return installed plugins (optionally filtered by scope)."""
+    """Return installed plugins (optionally filtered by scope).
+
+    Profil serveur : le ``plugins.json`` PROJET (``./.bouzecode``, inscriptible
+    par l'agent) est ignoré ; seuls les plugins installés par l'administrateur comptent.
+    """
     entries: list[PluginEntry] = []
     scopes = [PluginScope.USER, PluginScope.PROJECT] if scope is None else [scope]
+    if server_profile_active():
+        scopes = [sc for sc in scopes if sc != PluginScope.PROJECT]
     for sc in scopes:
         cfg = _read_cfg(_cfg_path(sc))
         for data in cfg.get("plugins", {}).values():
             entry = PluginEntry.from_dict(data)
+            entry.import_root = _current_import_root(entry)
             entry.manifest = PluginManifest.from_import_root(entry.import_root)
             entries.append(entry)
     return entries
+
+
+_REPORTED_UNRESOLVED: set[str] = set()
+
+
+def _current_import_root(entry: PluginEntry) -> Path:
+    """The recorded import root, or the package re-resolved in the CURRENT environment.
+
+    ``plugins.json`` stores an absolute path into one workstation's ``.venv``: copied
+    elsewhere, or after a venv rebuild, it points nowhere and the plugin used to vanish
+    in silence. The distribution name is portable, so it is looked up again; when even
+    that fails, the plugin is reported once on stderr and stays inert.
+    """
+    if entry.import_root.exists():
+        return entry.import_root
+    resolved = _import_root_of(entry.package) if entry.package else None
+    if resolved is not None:
+        return resolved
+    if entry.name not in _REPORTED_UNRESOLVED:
+        _REPORTED_UNRESOLVED.add(entry.name)
+        print(f"[plugin] '{entry.name}' inactif : import_root {entry.import_root} absent et "
+              f"paquet '{entry.package}' introuvable dans cet environnement", file=sys.stderr)
+    return entry.import_root
 
 
 def get_plugin(name: str, scope: PluginScope | None = None) -> PluginEntry | None:
@@ -108,8 +141,8 @@ def _clone_and_install(source: str) -> tuple[bool, str]:
 def _top_level_modules(package: str) -> list[str]:
     """Top-level import names a distribution provides (from its metadata).
 
-    The pip distribution name (``my-sql-plugin``) is often not the import
-    name (``my_sql``), so we read the installed distribution's record of
+    The pip distribution name (``demo-pbi-plugin``) is often not the import
+    name (``demo_pbi``), so we read the installed distribution's record of
     top-level packages rather than guessing from the dist name.
     """
     import importlib.metadata as md
@@ -131,6 +164,13 @@ def _top_level_modules(package: str) -> list[str]:
     return names
 
 
+# ``importlib.invalidate_caches()`` is not thread-safe: PathFinder iterates a
+# snapshot of ``sys.path_importer_cache`` and ``del``s every ``None`` entry (e.g.
+# a ``python312.zip`` listed in sys.path but absent on disk). Two concurrent
+# callers (parallel SkillResearch calls) delete the same key twice -> KeyError.
+_IMPORT_CACHE_LOCK = threading.Lock()
+
+
 def _import_root_of(package: str) -> Path | None:
     """Resolve the on-disk import root of an installed plugin package.
 
@@ -139,7 +179,8 @@ def _import_root_of(package: str) -> Path | None:
     """
     # A freshly pip-installed package is invisible to a long-running process
     # until the import-system caches are refreshed.
-    importlib.invalidate_caches()
+    with _IMPORT_CACHE_LOCK:
+        importlib.invalidate_caches()
     candidates = _top_level_modules(package) or [package.replace("-", "_")]
     roots: list[Path] = []
     for module_name in candidates:
@@ -164,11 +205,15 @@ def install_plugin(
 
     ``package`` is the pip distribution name (also the registry key). ``source``
     selects where to install from:
-      - None / pip name  → pip install <package> (via the ambient package index)
+      - None / pip name  → pip install <package> (Artifactory via ambient index)
       - git URL / git+…  → git clone into the plugins cache, then pip install it
       - local directory  → pip install <dir>
     A plugin's own ``dependencies`` are pulled by pip → self-contained.
+
+    Refusé en profil serveur : ni pip, ni git clone depuis le process hébergé.
     """
+    if server_profile_active():
+        return False, server_profile_refusal(f"L'installation du plugin '{package}'")
     if source and _is_git_source(source):
         ok, msg = _clone_and_install(source)
     elif source and Path(source).is_dir():

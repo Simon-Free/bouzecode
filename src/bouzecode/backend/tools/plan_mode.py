@@ -10,6 +10,18 @@ class PlanRejected(Exception):
         self.feedback = feedback
 
 
+def chemin_du_plan(config: dict) -> Path:
+    """`<dossier de l'agent>/.nano_claude/plans/<nom>.md`, un nom PAR agent.
+
+    Un sous-agent du TUI n'a pas de `_session_id` (clés privées non héritées) : il prenait
+    `default.md`, comme le principal et tous ses frères, qui s'écrasaient le même plan.
+    Il est nommé par son id (`_tui_moi`) ; le principal garde son id de session."""
+    from ..core.harness_dir import dossier_harnais
+    sous_agent = config.get("_tui_moi")
+    nom = f"sous-agent-{sous_agent}" if sous_agent else config.get("_session_id", "default")
+    return dossier_harnais("plans") / f"{nom}.md"
+
+
 def _persist_plan(content: str, config: dict, plan_path: Path) -> None:
     """Persist plan to _all_plans, IPC, and methodology. Call ONLY after validation."""
     all_plans = config.setdefault("_all_plans", [])
@@ -27,10 +39,7 @@ def _enter_plan_mode(params: dict, config: dict) -> str:
     if config.get("permission_mode") == "plan":
         return "Already in plan mode. Write your plan to the plan file, then call ExitPlanMode."
 
-    session_id = config.get("_session_id", "default")
-    plans_dir = Path.cwd() / ".nano_claude" / "plans"
-    plans_dir.mkdir(parents=True, exist_ok=True)
-    plan_path = plans_dir / f"{session_id}.md"
+    plan_path = chemin_du_plan(config)
 
     task_desc = params.get("task_description", "")
     if not plan_path.exists() or plan_path.stat().st_size == 0:
@@ -59,10 +68,7 @@ def _write_plan(params: dict, config: dict) -> str:
     if not content.strip():
         return "Error: plan content is empty."
     user_validation_required = params.get("user_validation_required", False)
-    session_id = config.get("_session_id", "default")
-    plans_dir = Path.cwd() / ".nano_claude" / "plans"
-    plans_dir.mkdir(parents=True, exist_ok=True)
-    plan_path = plans_dir / f"{session_id}.md"
+    plan_path = chemin_du_plan(config)
     plan_path.write_text(content, encoding="utf-8")
     config["_plan_content"] = content
     config.setdefault("_plan_file", str(plan_path))
@@ -72,13 +78,6 @@ def _write_plan(params: dict, config: dict) -> str:
     if config.get("_plan_mode_disabled"):
         _persist_plan(content, config, plan_path)
         return f"Plan saved to {plan_path}"
-
-    # Auto-validate the plan (skip when the user validates it manually below).
-    if not user_validation_required:
-        from .plan_auto_validator import validate_plan_auto
-        approved, feedback = validate_plan_auto(content, config)
-        if not approved:
-            raise PlanRejected(feedback=f"[Auto-validator] {feedback}")
 
     if user_validation_required:
         from .interaction import is_web_ipc_active

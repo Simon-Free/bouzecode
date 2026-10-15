@@ -3,7 +3,7 @@
 
 Called from SubAgentManager._apply_profile. Each requirement is either a pip
 name (str) or a dict ``{name, source}`` where ``source`` is a git URL, a local
-dir, or omitted (pip / package index). Installs missing plugins (scope user), enables
+dir, or omitted (pip/Artifactory). Installs missing plugins (scope user), enables
 them, and returns the tool names they contribute for the agent's allowed-tools.
 """
 from __future__ import annotations
@@ -13,6 +13,7 @@ from ..plugin import (
     register_plugin_tools, list_plugins,
 )
 from ..plugin.types import PluginScope
+from ..core.server_profile import server_profile_active, server_profile_refusal
 
 
 def _normalize(requirement) -> tuple[str, str | None]:
@@ -28,7 +29,7 @@ def ensure_plugins(requirements: list) -> tuple[list[str], list[str]]:
 
     Returns (tool_names, errors). ``tool_names`` are the tool names newly
     available; ``errors`` are human-readable messages for plugins that could not
-    be installed (e.g. package index or git unreachable) — surfaced, never swallowed.
+    be installed (e.g. Artifactory/git unreachable) — surfaced, never swallowed.
     """
     tool_names: list[str] = []
     errors: list[str] = []
@@ -39,6 +40,12 @@ def ensure_plugins(requirements: list) -> tuple[list[str], list[str]]:
             errors.append(f"Entrée requires_plugins invalide: {requirement!r}")
             continue
         entry = _find_by_package(package)
+        if server_profile_active() and (entry is None or not entry.enabled):
+            # ni installation ni activation depuis le process hébergé ; seuls les
+            # plugins déjà installés ET activés par l'administrateur (portée user) servent.
+            errors.append(server_profile_refusal(
+                f"Le plugin requis '{package}' (absent ou désactivé) : son installation"))
+            continue
         if entry is None:
             ok, msg = install_plugin(package, scope=PluginScope.USER, source=source)
             if not ok:

@@ -21,6 +21,7 @@ class SubAgentTask:
     name: str = ""
     worktree_path: str = ""
     worktree_branch: str = ""
+    result_file: str = ""  # enfant en fenêtre de terminal : son --result-file (et son .pid)
     model: str = ""
     agent_type: str = ""
     input_tokens: int = 0
@@ -72,8 +73,16 @@ def _remove_worktree(wt_path: str, branch: str, base_dir: str) -> None:
 
 
 def _agent_run(prompt, state, config, system_prompt, depth=0, cancel_check=None):
+    """Un run de sous-agent en process. À sa fin, le minuteur de compaction avant
+    expiration du cache tombe : un sous-agent fini n'attend aucun humain, et compacter
+    sa note serait payer un juge et un résumé pour une conversation peut-être close."""
     from .. import agent as _agent_mod
-    return _agent_mod.run(prompt, state, config, system_prompt, depth=depth, cancel_check=cancel_check)
+    from ..context_manager.compact_precache import desarmer_minuteur
+    try:
+        return (yield from _agent_mod.run(prompt, state, config, system_prompt,
+                                          depth=depth, cancel_check=cancel_check))
+    finally:
+        desarmer_minuteur(state)
 
 
 def _extract_final_text(messages):

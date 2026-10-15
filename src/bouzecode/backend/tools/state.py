@@ -1,6 +1,5 @@
-# [desc] Tracks file read/write state, caches content/mtimes, detects stale edits, and flags Telegram turns. [/desc]
-# [desc] Tracks file read/write state, caches content/mtimes, detects stale edits, and flags Telegram turns. [/desc]
-"""File state tracking and Telegram turn detection."""
+# [desc] Tracks file read/write state, caches content/mtimes, and detects stale edits. [/desc]
+"""File state tracking."""
 import os
 import threading
 from pathlib import Path
@@ -134,16 +133,27 @@ def list_read_files_with_basename(basename: str) -> list[str]:
     return sorted(p for p in _read_files if os.path.basename(p).lower() == needle)
 
 
+def get_cached_file_content(file_path: str) -> str | None:
+    """Return the last content READ for ``file_path``, or None if never read.
+
+    A file that was read successfully is remembered here even after it leaves
+    the disk (reaped %TEMP% file, cleaned worktree). Snippet resolution falls
+    back on this so a successful Read is never turned into a
+    ``file not found`` that pushes the model to re-type the content by hand.
+    """
+    norm = os.path.normpath(file_path)
+    cached = _file_content_cache.get(norm)
+    if cached is not None:
+        return cached
+    fallback = find_closest_read_file(file_path)
+    if fallback is None:
+        return None
+    return _file_content_cache.get(os.path.normpath(fallback))
+
+
 def clear_file_state() -> None:
     _read_files.clear()
     _file_mtime.clear()
     _file_content_cache.clear()
     _file_edit_snapshots.clear()
     cleanup_scratch()
-
-
-_tg_thread_local = threading.local()
-
-
-def _is_in_tg_turn(config: dict) -> bool:
-    return getattr(_tg_thread_local, "active", False) or bool(config.get("_in_telegram_turn", False))

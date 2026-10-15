@@ -1,7 +1,6 @@
 # [desc] Formats and prints tool invocation start/end status with ANSI colors, diffs, and duration info. [/desc]
 from .ansi import C, clr
-from .messages import msg
-from .rendering import _neutralize_tool_markup
+from .rendering import _neutralize_tool_markup, safe_print
 
 try:
     from rich.console import Console
@@ -99,11 +98,28 @@ def _print_final_answer(answer: str) -> None:
     answer = (answer or "").strip()
     print()
     if _RICH_CONSOLE is not None:
-        _RICH_CONSOLE.print(Rule(style="green"))
-        _RICH_CONSOLE.print(Markdown(_neutralize_tool_markup(answer)))
+        safe_print(Rule(style="green"))
+        safe_print(Markdown(_neutralize_tool_markup(answer)), answer)
     else:
         print(answer)
     print()
+
+
+_CLOTURE_LIVREE = "Session closing — final answer delivered:\n"
+_CLOTURE_REFUSEE = ("CLÔTURE", "Error")
+
+
+def _print_final_answer_outcome(result: str, answer: str) -> None:
+    """Clôture livrée : la réponse en Markdown (le texte livré, avec ses avertissements).
+    Clôture refusée par le harnais : UNE ligne grise — session B4 (2026-10-14), le rapport
+    complet d'une clôture refusée (enfants encore actifs) s'imprimait dans le fil principal."""
+    if result.startswith(_CLOTURE_LIVREE):
+        _print_final_answer(result[len(_CLOTURE_LIVREE):])
+    elif result.lstrip().startswith(_CLOTURE_REFUSEE):
+        motif = result.strip().splitlines()[0][:160]
+        print(clr(f"  ⏸ FinalAnswer non livrée — {motif}", "dim"), flush=True)
+    else:  # résultat inconnu (rejeu sans résultat) : la réponse telle qu'appelée
+        _print_final_answer(answer)
 
 
 def _print_tool_call_block(name: str, inputs: dict) -> None:
@@ -114,32 +130,52 @@ def _print_tool_call_block(name: str, inputs: dict) -> None:
 
 
 def print_tool_start(name: str, inputs: dict, verbose: bool):
-    _print_tool_call_block(name, inputs)
     if name == "FinalAnswer":
-        _print_final_answer(inputs.get("answer", ""))
-        return
+        return  # rendue à la FIN : une clôture refusée ne s'affiche pas (print_tool_end)
+    _print_tool_call_block(name, inputs)
     if name == "WritePlan":
         content = inputs.get("content", "")
         print()
-        print(clr(msg("tool.plan_heading"), "bold", "cyan"))
+        print(clr("  Plan :", "bold", "cyan"))
         print()
+        plain = "\n".join(f"    {line}" for line in content.splitlines())
         if _RICH_CONSOLE is not None:
-            _RICH_CONSOLE.print(Panel(Markdown(content), border_style="cyan", padding=(0, 2)))
+            safe_print(Panel(Markdown(content), border_style="cyan", padding=(0, 2)), plain)
         else:
-            for line in content.splitlines():
-                print(f"    {line}")
+            print(plain)
         print()
+    if name == "Methodology":
+        _print_methodology_delta(inputs.get("content", ""))
+
+
+def _print_methodology_delta(content: str) -> None:
+    """Affiche le delta ajouté à la note ce tour-ci, sous un intitulé, comme le plan
+    (la ligne d'appel ne montre que les 100 premiers caractères)."""
+    content = (content or "").strip()
+    if not content:
+        return
+    print(clr("  Méthodologie :", "bold", "magenta"))
+    plain = "\n".join(f"    {line}" for line in content.splitlines())
+    if _RICH_CONSOLE is not None:
+        safe_print(Panel(Markdown(_neutralize_tool_markup(content)), border_style="magenta",
+                         padding=(0, 2)), plain)
+    else:
+        print(plain)
 
 
 def print_tool_end(name: str, result: str, verbose: bool, duration: float = 0.0,
                     tool_id: str = "", inputs: dict | None = None):
     if name == "FinalAnswer":
-        # The answer was already rendered as Markdown by print_tool_start; the
-        # generic '\u2192 N lines' summary would just be noise after it.
+        _print_final_answer_outcome(result, (inputs or {}).get("answer", ""))
         return
     if name == "WritePlan":
         dur_str = f" [{_fmt_duration(duration)}]" if duration > 0 else ""
         print(clr(f"  \u2713 Plan saved{dur_str}", "dim", "green"), flush=True)
+        return
+    if name == "Methodology" and not _is_failure(name, result):
+        # Le delta a été affiché au démarrage : « → 1 lines (35 chars) » n'apprend rien.
+        dur_str = f" [{_fmt_duration(duration)}]" if duration > 0 else ""
+        print(clr(f"  ✓ Methodology noted{dur_str}", "dim", "green"), flush=True)
         return
     lines = result.count("\n") + 1
     size = len(result)

@@ -7,6 +7,8 @@ try:
 except ImportError:
     from bouzecode import clr, info, ok, warn, err
 
+from bouzecode.backend.agent.providers.registry import fresh_input_tokens
+
 
 def cmd_history(_args: str, state, config) -> bool:
     """Show conversation history (used internally by session_load)."""
@@ -23,6 +25,16 @@ def _fmt_duration(seconds: float) -> str:
     minutes = int(seconds // 60)
     remaining = seconds - minutes * 60
     return f"{minutes}m{remaining:.0f}s"
+
+
+def _cache_now(state) -> str:
+    """Prefixe en cache apres le DERNIER appel (lu + ecrit), pas un cumul ; "-" sans cache."""
+    import time as _time
+    from bouzecode.backend.agent.cache_courant import cache_courant
+    cache = cache_courant(state)
+    if cache is None:
+        return "-"
+    return f"{cache.tokens:,}" + (" (expiré)" if cache.expire(_time.time()) else "")
 
 
 def cmd_info(_args: str, state, config) -> bool:
@@ -65,10 +77,12 @@ def cmd_info(_args: str, state, config) -> bool:
     # Tokens
     print()
     print(clr("  \u2500\u2500 Tokens \u2500\u2500", "bold"))
-    print(f"  Input (cumulated):   {tokens_in:,}")
-    print(f"    cache read:        {cache_read:,}")
-    print(f"    cache write:       {cache_create:,}")
+    #  Composantes disjointes : `tokens_in` comprend l'ecriture de cache, pas la lecture.
+    print(f"  Input fresh:         {fresh_input_tokens(tokens_in, cache_create):,}")
+    print(f"  Cache read:          {cache_read:,}")
+    print(f"  Cache write:         {cache_create:,}")
     print(f"  Output:              {tokens_out:,}")
+    print(f"  Cache now:           {_cache_now(state)}")
     print(f"  Context fill:        ~{est_ctx:,} / {ctx_limit:,} ({ctx_pct:.0f}%)")
     print(f"  Est. cost:           \u20ac{cost:.4f}")
 
@@ -124,11 +138,12 @@ def cmd_cost(_args: str, state, config) -> bool:
                      state.total_cache_creation_tokens)
     cache_read = getattr(state, "total_cache_read_tokens", 0)
     cache_create = getattr(state, "total_cache_creation_tokens", 0)
-    cumulated_in = state.total_input_tokens
-    info(f"Input tokens (cumulated):  {cumulated_in:,}")
-    info(f"  cache read:              {cache_read:,}")
-    info(f"  cache write:             {cache_create:,}")
+    fresh_in = fresh_input_tokens(state.total_input_tokens, cache_create)
+    info(f"Input fresh:               {fresh_in:,}")
+    info(f"Cache read:                {cache_read:,}")
+    info(f"Cache write:               {cache_create:,}")
     info(f"Output tokens:             {state.total_output_tokens:,}")
+    info(f"Cache now:                 {_cache_now(state)}")
     info(f"Est. cost:                 \u20ac{cost:.4f} EUR")
     return True
 
@@ -187,9 +202,8 @@ def cmd_timing(_args: str, state, config) -> bool:
         row = (f"  {label:<32} {count:>6} {_fmt_duration(total):>10} "
                f"{pct:>7.1f}% {avg_ttft:>10} {avg_tps:>11}")
         print(row)
-    cumulated_in = in_tokens_sum
+    fresh_in = fresh_input_tokens(in_tokens_sum, cache_create_sum)
     print()
-    info(f"  Tokens: {in_tokens_sum:,} distinct in | {cumulated_in:,} cumulated in "
-         f"({cache_read_sum:,} cache read + {cache_create_sum:,} cache write) | "
-         f"{out_tokens_sum:,} out")
+    info(f"  Tokens: {fresh_in:,} fresh + {cache_read_sum:,} cache read + "
+         f"{cache_create_sum:,} cache write in | {out_tokens_sum:,} out")
     return True

@@ -1,18 +1,20 @@
 #!/usr/bin/env python3
-# [desc] CLI entry point and re-exports for bouzécode, a minimal Python implementation of Claude Code. [/desc]
+# [desc] CLI entry point and re-exports for bouzecode, a minimal Python implementation of Claude Code. [/desc]
 """
-bouzécode (based on cheetahclaws) — Minimal Python implementation of Claude Code.
+bouzecode (based on cheetahclaws) — Minimal Python implementation of Claude Code.
 
 Usage:
   python bouzecode.py [options] [prompt]
+  bouzecode tickets COMMANDE ...   tickets/agents sans serveur web (bouzecode tickets -h)
+  bouzecode projets lister|fichiers   projets enregistres, fichiers non suivis
 
 Options:
   -p, --print          Non-interactive: run prompt and exit (also --print-output)
   -m, --model MODEL    Override model
   --cwd PATH           Set working directory (default: launch directory)
-  --accept-all         Never ask permission (dangerous)
+  --accept-all         Never ask permission (default; /permissions auto to ask)
   --verbose            Show thinking + token counts
-  --loud               Think-out-loud mode (visible reasoning)
+  --loud               Thinking on, labelled "loud" (no effect on the system prompt)
   --version            Print version and exit
 
 Slash commands in REPL:
@@ -27,7 +29,7 @@ Slash commands in REPL:
   /cost       Show API cost this session
   /timing     Show time spent per tool and in LLM calls
   /verbose    Toggle verbose mode
-  /thinking   Cycle thinking: off / extended / loud
+  /thinking   Niveau de thinking : none / low / medium / high / xhigh / max
   /permissions [mode]  Set permission mode
   /cwd [path] Show or change working directory
   /skills           List available skills
@@ -58,6 +60,14 @@ import argparse
 import os
 import sys
 from pathlib import Path
+
+# Pre-scan sys.argv AVANT les imports de bouzecode.backend : `backend.tools` enregistre les
+# outils à l'import, et `register_chrome_devtools_tools` n'agit que si cette variable est déjà
+# posée. Placé après ces imports (jusqu'au 2026-10-06), le drapeau n'avait AUCUN effet sur le
+# process lancé : 0 outil mcp__chrome-devtools__* (session 9d81964e), mais 30 chez ses enfants.
+if "--enable-chrome-devtools" in sys.argv:
+    os.environ["BOUZECODE_ENABLE_CHROME_DEVTOOLS"] = "1"
+
 from .ansi import C, clr, info, ok, warn, err
 from .messages import msg
 from .rendering import (
@@ -70,21 +80,43 @@ from .tool_display import (
 )
 from bouzecode.backend.commands import (
     COMMANDS, handle_slash, setup_readline,
-    save_latest, _build_session_data, _tg_send,
+    save_latest, _build_session_data,
 )
 from bouzecode.backend.commands.misc import cmd_init, cmd_export, cmd_copy, cmd_diff
-from bouzecode.backend.tools import ask_input_interactive, _tg_thread_local, _is_in_tg_turn
+from bouzecode.backend.tools import ask_input_interactive
 
 
 if sys.platform == "win32":
     os.system("")  # Enable ANSI escape codes on Windows CMD
 
-# Pre-scan sys.argv before any import triggers MCP auto-init (tools → mcp.tools → background connect).
-# Env var is read in mcp/config.py at config-load time.
-if "--enable-chrome-devtools" in sys.argv:
-    os.environ["BOUZECODE_ENABLE_CHROME_DEVTOOLS"] = "1"
 
-VERSION = __import__("importlib.metadata", fromlist=["version"]).version("bouzecode")
+def _version() -> str:
+    """La version installée, ou un repli — JAMAIS une exception.
+
+    Cette ligne s'exécute à l'import du module, donc à CHAQUE démarrage d'agent.
+    Sans repli, une métadonnée absente ne dégrade pas l'affichage : elle tue le
+    process avant le premier tour.
+
+    Et l'absence est un état atteignable, pas une hypothèse. `bouzeui.ps1` lance
+    un `uv sync` qui DÉSINSTALLE le paquet avant de le réinstaller, et la
+    réinstallation échoue si `bouzecode.exe` est verrouillé par un agent CLI
+    en cours. Il reste alors un arbre de sources parfaitement importable, sans
+    `dist-info` — et `importlib.metadata.version` lève `PackageNotFoundError`.
+
+    Constaté le 2026-08-24 : quatre agents CLI tournaient depuis le matin et
+    tenaient l'exe ; tout ticket dispatché ensuite mourait au démarrage sur
+    `No package metadata was found for bouzecode`, avec pour seule trace une
+    stack d'import. Le symptôme ne nommait ni le verrou ni le `uv sync`.
+    """
+    from bouzecode.backend.core.version_paquet import version_paquet
+    # "bouzecode": legacy distribution name, still installed in venvs not yet
+    # reinstalled after the rename to bouzecode (running agents must not break).
+    # Métadonnées illisibles (TypeError, version None — Focus 2026-10-12) : version_paquet
+    # retombe sur le nom du dossier dist-info et ne lève jamais.
+    return version_paquet("bouzecode", "bouzecode") or "0.0.0+source"
+
+
+VERSION = _version()
 
 # Backward-compat re-exports — some tools/tests still `from bouzecode import X`.
 
@@ -119,7 +151,7 @@ def _switch_to_version(version: str) -> None:
     if not os.path.isfile(script):
         print(f"Error: self-update script not found: {script}", file=sys.stderr)
         sys.exit(1)
-    print(f"Switching to bouz\u00e9code {tag}...")
+    print(f"Switching to bouzecode {tag}...")
     subprocess.Popen(
         ["powershell.exe", "-ExecutionPolicy", "Bypass", "-File", script, "-Version", tag],
         creationflags=subprocess.CREATE_NEW_PROCESS_GROUP | subprocess.DETACHED_PROCESS,
@@ -134,50 +166,117 @@ def strip_unpaired_surrogates(raw: str) -> str:
     return recombined.encode("utf-8", "replace").decode("utf-8", "replace")
 
 
-def _ensure_ripgrep() -> None:
-    """Auto-install ripgrep if missing — downloads from GitHub releases."""
-    import subprocess, os, sys
-    # 1. Already on PATH?
+_RG_VERSION = "14.1.1"
+# Noms réels des archives publiées pour ripgrep 14.1.1 (pas de musl aarch64 : gnu).
+_RG_ASSETS = {
+    ("linux", "x86_64"): "x86_64-unknown-linux-musl.tar.gz",
+    ("linux", "aarch64"): "aarch64-unknown-linux-gnu.tar.gz",
+    ("darwin", "x86_64"): "x86_64-apple-darwin.tar.gz",
+    ("darwin", "aarch64"): "aarch64-apple-darwin.tar.gz",
+    ("windows", "x86_64"): "x86_64-pc-windows-msvc.zip",
+}
+_ARCH_ALIASES = {"amd64": "x86_64", "x64": "x86_64", "arm64": "aarch64"}
+
+
+def _rg_asset(system: str, machine: str) -> str | None:
+    """Nom de l'archive ripgrep adaptée à (système, architecture), ou None."""
+    arch = _ARCH_ALIASES.get(machine.lower(), machine.lower())
+    suffix = _RG_ASSETS.get((system.lower(), arch))
+    return f"ripgrep-{_RG_VERSION}-{suffix}" if suffix else None
+
+
+def _rg_binary_name(system: str) -> str:
+    return "rg.exe" if system.lower() == "windows" else "rg"
+
+
+def _rg_works(path: str) -> bool:
+    """Vrai si `path --version` répond avec le code retour 0."""
+    import subprocess
     try:
-        subprocess.run(["rg", "--version"], capture_output=True, check=True)
-        return
+        proc = subprocess.run([path, "--version"], capture_output=True, timeout=15)
+    except (OSError, subprocess.SubprocessError):
+        return False
+    return proc.returncode == 0
+
+
+def _download_file(url: str, dest: Path) -> None:
+    import urllib.request
+    with urllib.request.urlopen(url, timeout=30) as resp, open(dest, "wb") as out:
+        out.write(resp.read())
+
+
+def _zip_member(archive: Path, name: str) -> bytes | None:
+    import zipfile
+    with zipfile.ZipFile(archive) as zf:
+        member = next((m for m in zf.namelist() if Path(m).name == name), None)
+        return zf.read(member) if member else None
+
+
+def _tar_member(archive: Path, name: str) -> bytes | None:
+    import tarfile
+    with tarfile.open(archive, "r:gz") as tf:
+        member = next((m for m in tf.getmembers()
+                       if m.isfile() and Path(m.name).name == name), None)
+        return tf.extractfile(member).read() if member else None
+
+
+def _extract_rg(archive: Path, binary_name: str, dest: Path) -> bool:
+    """Copie le membre `binary_name` de l'archive (.zip ou .tar.gz) vers `dest`, exécutable."""
+    read = _zip_member if archive.name.endswith(".zip") else _tar_member
+    data = read(archive, binary_name)
+    if data is None:
+        return False
+    dest.write_bytes(data)
+    dest.chmod(0o755)
+    return True
+
+
+def _install_ripgrep(install_dir: Path, system: str, machine: str,
+                     download=_download_file) -> Path | None:
+    """Télécharge, extrait et vérifie rg dans `install_dir`. None en cas d'échec,
+    sans jamais lever (hors ligne, proxy, 404, archive invalide…)."""
+    import tempfile
+    asset = _rg_asset(system, machine)
+    if asset is None:
+        return None
+    target = install_dir / _rg_binary_name(system)
+    url = f"https://github.com/BurntSushi/ripgrep/releases/download/{_RG_VERSION}/{asset}"
+    try:
+        with tempfile.TemporaryDirectory() as tmp:
+            archive = Path(tmp) / asset
+            download(url, archive)
+            candidate = Path(tmp) / target.name
+            if not (_extract_rg(archive, target.name, candidate) and _rg_works(str(candidate))):
+                return None
+            install_dir.mkdir(parents=True, exist_ok=True)
+            os.replace(candidate, target)
     except Exception:
-        pass
-    # 2. Check ~/.local/bin (our install location)
-    local_bin = os.path.join(os.path.expanduser("~"), ".local", "bin")
-    rg_path = os.path.join(local_bin, "rg.exe")
-    if os.path.isfile(rg_path):
-        os.environ["PATH"] = local_bin + os.pathsep + os.environ.get("PATH", "")
+        return None
+    return target
+
+
+def _ensure_ripgrep(download=_download_file) -> None:
+    """Rend `rg` disponible sur le PATH (installé dans ~/.local/bin s'il manque).
+    En cas d'échec : un avertissement sur stderr, puis l'outil Grep retombe sur grep. Il
+    ne doit pas être muet : sur un poste corporate le téléchargement GitHub bute sur le proxy
+    NTLM, et Windows n'a pas de grep, donc Grep casse sans explication.
+    `BOUZECODE_RIPGREP_AUTO=0` désactive l'installation (posé par la suite de tests, dont les
+    sous-process lancent le vrai CLI avec le vrai HOME)."""
+    import platform, shutil
+    found = shutil.which("rg")
+    if (found and _rg_works(found)) or os.environ.get("BOUZECODE_RIPGREP_AUTO") == "0":
         return
-    # 3. Download from GitHub
-    print(f"\033[33m⚠ {msg('ripgrep.missing')}\033[0m", flush=True)
-    try:
-        import urllib.request, zipfile, tempfile
-        version = "14.1.1"
-        url = f"https://github.com/BurntSushi/ripgrep/releases/download/{version}/ripgrep-{version}-x86_64-pc-windows-msvc.zip"
-        os.makedirs(local_bin, exist_ok=True)
-        zip_path = os.path.join(tempfile.gettempdir(), "ripgrep.zip")
-        print(msg("ripgrep.downloading", version=version), flush=True)
-        urllib.request.urlretrieve(url, zip_path)
-        with zipfile.ZipFile(zip_path, "r") as zf:
-            for member in zf.namelist():
-                basename = os.path.basename(member)
-                if basename == "rg.exe":
-                    with zf.open(member) as src, open(rg_path, "wb") as dst:
-                        dst.write(src.read())
-                    break
-        os.remove(zip_path)
-        os.environ["PATH"] = local_bin + os.pathsep + os.environ.get("PATH", "")
-        # Verify
-        subprocess.run([rg_path, "--version"], capture_output=True, check=True)
-        print(f"\033[32m✓ {msg('ripgrep.installed')}\033[0m", flush=True)
-    except Exception as exc:
-        releases_url = "https://github.com/BurntSushi/ripgrep/releases"
-        print(
-            f"\033[31m✗ {msg('ripgrep.install_failed', error=exc)}\033[0m\n"
-            + msg("ripgrep.download_manually", url=releases_url),
-            flush=True,
-        )
+    system = platform.system()
+    install_dir = Path.home() / ".local" / "bin"
+    target = install_dir / _rg_binary_name(system)
+    if not (target.is_file() and _rg_works(str(target))):
+        target = _install_ripgrep(install_dir, system, platform.machine(), download)
+    if target is None:
+        print("[bouzecode] ripgrep (rg) introuvable et non téléchargeable depuis GitHub : "
+              "l'outil Grep retombe sur grep. Installer : pip install ripgrep "
+              "(Artifactory corporate), puis vérifier que `rg --version` répond.", file=sys.stderr)
+        return
+    os.environ["PATH"] = str(install_dir) + os.pathsep + os.environ.get("PATH", "")
 
 
 def _find_powershell_dir() -> str | None:
@@ -263,9 +362,8 @@ def _load_repo_dotenv() -> None:
 
     Targets the .env next to the *package source* (editable install), not the
     current project's cwd. Never overrides a variable already set, so the
-    launcher and any explicit environment keep priority. Maps
-    ANTHROPIC_AUTH_TOKEN onto ANTHROPIC_API_KEY when only the former is given,
-    as some gateways issue the credential under that name.
+    launcher and any explicit environment keep priority. Maps the corporate
+    ANTHROPIC_AUTH_TOKEN onto ANTHROPIC_API_KEY when only the former is given.
     """
     try:
         # .../<repo>/src/bouzecode/ui/cli.py -> parents[3] == <repo>
@@ -341,10 +439,14 @@ def apply_profile_recap(config: dict, profile_name: str) -> None:
     boucle par le gate puis FABRIQUAIT un faux récap de codeur pour pouvoir clôturer. Le
     run_kind arrive via l'env BOUZECODE_RUN_KIND (runner.py) ; seul `work` exige un récap."""
     import os
-    if (os.environ.get("BOUZECODE_RUN_KIND") or "work") != "work":
-        return
     from bouzecode.backend.profiles import resolve_agent_profile
     profile = resolve_agent_profile(profile_name)
+    #  `require_taches: false` (bureau-assistant) lève l'obligation des déclarations
+    #  taches_terminees/taches_restantes, quel que soit le run_kind.
+    if profile is not None:
+        config["require_taches"] = getattr(profile, "require_taches", True)
+    if (os.environ.get("BOUZECODE_RUN_KIND") or "work") != "work":
+        return
     if profile is not None and getattr(profile, "require_recap", False):
         config["require_recap"] = True
         config["recap_expects_object"] = True
@@ -383,6 +485,87 @@ def apply_profile_tools(profile_name: str) -> None:
             disable_tool(tool_name)
 
 
+def activer_chrome_devtools_si_demande(args: argparse.Namespace) -> int:
+    """Filet du pré-scan : si les outils ont été enregistrés avant que la variable ne soit
+    posée (import anticipé), les déclarer maintenant depuis le manifeste (idempotent)."""
+    if not args.enable_chrome_devtools:
+        return 0
+    os.environ["BOUZECODE_ENABLE_CHROME_DEVTOOLS"] = "1"
+    from bouzecode.backend.chrome_devtools.launcher import declarer_depuis_le_manifeste
+    return declarer_depuis_le_manifeste()
+
+
+def prompt_initial(args: argparse.Namespace) -> str | None:
+    """Le prompt de départ : `--prompt-file` (lu tel quel), sinon les mots positionnels."""
+    if args.prompt_file:
+        return Path(args.prompt_file).read_text(encoding="utf-8")
+    return " ".join(args.prompt) if args.prompt else None
+
+
+def build_parser() -> argparse.ArgumentParser:
+    """Options de la ligne de commande (extrait de `main` pour etre testable)."""
+    parser = argparse.ArgumentParser(
+        prog="bouzecode",
+        description="bouzecode (based on cheetahclaws) \u2014 minimal Python Claude Code implementation",
+        add_help=False,
+    )
+    parser.add_argument("prompt", nargs="*", help="Initial prompt (non-interactive)")
+    parser.add_argument("--cwd",
+                        default=os.environ.get("BOUZECODE_LAUNCH_CWD", os.getcwd()),
+                        help="Set working directory (default: launch directory)")
+    parser.add_argument("-p", "--print", "--print-output",
+                        dest="print_mode", action="store_true",
+                        help="Non-interactive mode: run prompt and exit")
+    parser.add_argument("--prompt-file",
+                        help="Read the initial prompt from this UTF-8 file (sub-agents in a "
+                             "terminal: a brief passed as an argument is cut by wt.exe at ';')")
+    parser.add_argument("-m", "--model", help="Override model")
+    parser.add_argument("--accept-all", action="store_true",
+                        help="Never ask permission (accept all operations)")
+    parser.add_argument("--verbose", action="store_true", help="Show thinking + token counts")
+    parser.add_argument("--thinking", nargs="?", const="medium",
+                        choices=("none", "low", "medium", "high", "xhigh", "max"),
+                        help="Niveau de thinking natif (défaut de l'option : medium)")
+    parser.add_argument("--loud", action="store_true", help="Thinking on, labelled \"loud\" (no effect on the system prompt)")
+    parser.add_argument("--plan-output", help="Save final response as markdown to this file path")
+    parser.add_argument("--session-file", help="Save session state (messages) after each tool round")
+    parser.add_argument("--resume-from", help="Resume from a saved session file (restore messages)")
+    parser.add_argument("--web-agent-dir", help="Run as a bouzeui web agent: IPC dir for state/followup/answer/cancel")
+    parser.add_argument("--resume-pending", action="store_true",
+                        help="Resume a paused turn (AskUserQuestion): load <session>.pending.json, inject the prompt as answer, finish remaining tool_calls")
+    parser.add_argument("--resume-auto", action="store_true",
+                        help="Resume a crashed session: complete unresolved tool_calls and call LLM, without injecting a 'Continue.' user message")
+    parser.add_argument("--resume-deferred", default="",
+                        help="Resume after a deferred check failed: load <session>.deferred.json, inject the error log as a SYSTEM message, and re-run a turn")
+    parser.add_argument("--extra-dir", action="append", default=[],
+                        help="Extra .bouzecode-structured directory for skills/MCP/plugins (repeatable, highest priority)")
+    parser.add_argument("--profile", default="",
+                        help="Agent profile name from .bouzecode/profiles/ applied to the top-level agent (bypasses task classification)")
+    parser.add_argument("--monitor", action="store_true",
+                        help="Shortcut for --profile monitor (supervisor/orchestrator mode)")
+    parser.add_argument("--assistant", action="store_true",
+                        help="Assistant du Bureau dans le terminal (= --profile bureau-assistant, "
+                             "identite tui:<id> pour suivre les taches lancees)")
+    parser.add_argument("--enable-chrome-devtools", action="store_true",
+                        help="Enable the chrome-devtools MCP server (disabled by default to save ~5k tokens)")
+    parser.add_argument("--result-file", help="Write the final answer to this file on exit, and the close reason to <file stem>.cloture.json. Only a FinalAnswer close is delivered (prose replies are nudged, then end as final_answer_never_called). Exit code: 0 FinalAnswer only, 3 model refusal, 4 end without delivery (incl. prose), 5 interrupted/unknown (see ui/cloture_cli.py)")
+    parser.add_argument("--version", nargs="?", const="__show__", default=None,
+                        metavar="X.Y.Z",
+                        help="Print version and list tags, or switch to a specific version")
+    parser.add_argument("-h", "--help", action="store_true", help="Show help")
+    return parser
+
+
+def profil_des_raccourcis(args) -> str:
+    """`--monitor` / `--assistant` sont des raccourcis de `--profile`. L'assistant recoit en
+    plus son identite de parent `tui:<id>` (cf. ui/assistant_tui.py)."""
+    if args.assistant:
+        from .assistant_tui import PROFIL, armer_identite
+        armer_identite()
+        return PROFIL
+    return "monitor" if args.monitor else args.profile
+
+
 def main() -> None:
     # Self-load the repo .env early so the API key / base_url are present before
     # any config load or API call, regardless of launch method.
@@ -398,49 +581,31 @@ def main() -> None:
             except (ValueError, OSError):
                 pass
 
-    parser = argparse.ArgumentParser(
-        prog="bouzecode",
-        description="bouz\u00e9code (based on cheetahclaws) \u2014 minimal Python Claude Code implementation",
-        add_help=False,
-    )
-    parser.add_argument("prompt", nargs="*", help="Initial prompt (non-interactive)")
-    parser.add_argument("--cwd",
-                        default=os.environ.get("BOUZECODE_LAUNCH_CWD", os.getcwd()),
-                        help="Set working directory (default: launch directory)")
-    parser.add_argument("-p", "--print", "--print-output",
-                        dest="print_mode", action="store_true",
-                        help="Non-interactive mode: run prompt and exit")
-    parser.add_argument("-m", "--model", help="Override model")
-    parser.add_argument("--accept-all", action="store_true",
-                        help="Never ask permission (accept all operations)")
-    parser.add_argument("--verbose", action="store_true", help="Show thinking + token counts")
-    parser.add_argument("--thinking", action="store_true", help="Enable extended thinking")
-    parser.add_argument("--loud", action="store_true", help="Think-out-loud mode (visible <thinking> tags)")
-    parser.add_argument("--plan-output", help="Save final response as markdown to this file path")
-    parser.add_argument("--session-file", help="Save session state (messages) after each tool round")
-    parser.add_argument("--resume-from", help="Resume from a saved session file (restore messages)")
-    parser.add_argument("--web-agent-dir", help="Run as a BouzéqUI web agent: IPC dir for state/followup/answer/cancel")
-    parser.add_argument("--resume-pending", action="store_true",
-                        help="Resume a paused turn (AskUserQuestion): load <session>.pending.json, inject the prompt as answer, finish remaining tool_calls")
-    parser.add_argument("--resume-auto", action="store_true",
-                        help="Resume a crashed session: complete unresolved tool_calls and call LLM, without injecting a 'Continue.' user message")
-    parser.add_argument("--resume-deferred", default="",
-                        help="Resume after a deferred check failed: load <session>.deferred.json, inject the error log as a SYSTEM message, and re-run a turn")
-    parser.add_argument("--extra-dir", action="append", default=[],
-                        help="Extra .bouzecode-structured directory for skills/MCP/plugins (repeatable, highest priority)")
-    parser.add_argument("--profile", default="",
-                        help="Agent profile name from .bouzecode/profiles/ applied to the top-level agent (bypasses task classification)")
-    parser.add_argument("--monitor", action="store_true",
-                        help="Shortcut for --profile monitor (supervisor/orchestrator mode)")
-    parser.add_argument("--enable-chrome-devtools", action="store_true",
-                        help="Enable the chrome-devtools MCP server (disabled by default to save ~5k tokens)")
-    parser.add_argument("--result-file", help="Write last assistant message to this file on exit (used by sub-agent terminal mode)")
-    parser.add_argument("--version", nargs="?", const="__show__", default=None,
-                        metavar="X.Y.Z",
-                        help="Print version and list tags, or switch to a specific version")
-    parser.add_argument("-h", "--help", action="store_true", help="Show help")
+    # `bouzecode tickets …` / `bouzecode projets …` : commandes sans serveur web (ui/tickets_cli),
+    # routées AVANT le parseur du REPL, qui prendrait le reste de la ligne pour un prompt.
+    from .tickets_cli import est_sous_commande
+    if est_sous_commande(sys.argv[1:]):
+        from bouzecode.backend.core.config import LOGS_DIR
+        from bouzecode.ui.cli_logging import setup_process_logging
+        from .tickets_cli import main as commandes_tickets
+        setup_process_logging(LOGS_DIR, "")
+        sys.exit(commandes_tickets(sys.argv[1:]))
+
+    parser = build_parser()
 
     args = parser.parse_args()
+    if args.result_file:
+        #  Au plus tôt : le parent (fenêtre de terminal) suit ce PID — signe de vie, mort,
+        #  arrêt. Écrit plus tard, un démarrage lent passerait pour un lancement raté.
+        from bouzecode.backend.multi_agent.surveillance_terminal import ecrire_pid
+        ecrire_pid(args.result_file)
+    activer_chrome_devtools_si_demande(args)
+
+    # Backend loggers go to a file owned by this process, never into the chat:
+    # <ipc>/backend.log for a web_v2 agent, ~/.bouzecode/logs/cli-<pid>.log otherwise.
+    from bouzecode.backend.core.config import LOGS_DIR
+    from bouzecode.ui.cli_logging import setup_process_logging
+    setup_process_logging(LOGS_DIR, args.web_agent_dir or "")
 
     # Apply --cwd before anything else (config loading, prompt building, etc.)
     os.chdir(args.cwd)
@@ -450,7 +615,7 @@ def main() -> None:
 
     if args.version is not None:
         if args.version == "__show__":
-            print(f"bouz\u00e9code v{VERSION}")
+            print(f"bouzecode v{VERSION}")
             _list_available_versions(VERSION)
             sys.exit(0)
         else:
@@ -460,7 +625,7 @@ def main() -> None:
         print(__doc__)
         sys.exit(0)
 
-    from bouzecode.backend.core.config import load_config
+    from bouzecode.backend.core.config import load_config, has_api_key
     from bouzecode.backend.agent.providers import detect_provider, PROVIDERS
     from bouzecode.backend.core.paths import register_extra_dirs
 
@@ -471,18 +636,18 @@ def main() -> None:
     # run() directly (not this entry), so it stays opt-in there.
     config["recover_memory"] = True
 
-    # Collect extra dirs: explicit --extra-dir + auto-detected .bouzecode/ in cwd
+    # Collect extra dirs: explicit --extra-dir + auto-detected .bouzecode/ (legacy .bouzecode/) in cwd
     extra_dirs = list(args.extra_dir)
-    if os.path.isdir(".bouzecode"):
-        extra_dirs.append(os.path.abspath(".bouzecode"))
+    for _project_dir_name in (".bouzecode", ".bouzecode"):
+        if os.path.isdir(_project_dir_name):
+            extra_dirs.append(os.path.abspath(_project_dir_name))
     if extra_dirs:
         register_extra_dirs(extra_dirs)
     # Extra dirs persisted via the UI / config.json (survive across runs)
     from bouzecode.backend.core.paths import register_persisted_extra_dirs
     register_persisted_extra_dirs()
 
-    if args.monitor:
-        args.profile = "monitor"
+    args.profile = profil_des_raccourcis(args)
     if args.profile:
         # Pre-empts task classification (loop.py only classifies when the key is absent).
         config["_task_classification_result"] = args.profile
@@ -500,11 +665,14 @@ def main() -> None:
         config["model"] = m
     if args.accept_all:
         config["permission_mode"] = "accept-all"
+    if args.print_mode:
+        config["_non_interactif"] = True  # AskUserQuestion ne bloque jamais (cf. interaction)
     if args.verbose:
         config["verbose"] = True
     if args.thinking:
         config["thinking"] = True
         config["thinking_mode"] = "extended"
+        config["thinking_level"] = args.thinking
     if args.loud:
         config["thinking"] = True
         config["thinking_mode"] = "loud"
@@ -517,10 +685,6 @@ def main() -> None:
     if args.web_agent_dir:
         config["_web_agent_dir"] = args.web_agent_dir
         os.environ["BOUZECODE_WEB_IPC_DIR"] = args.web_agent_dir
-        # Web-dispatched agents must close via an explicit FinalAnswer (nudge
-        # cap 4, then force-close) instead of the legacy meta-only/text close,
-        # which prematurely killed agents still reading via Snippet.
-        config["close_requires_final_answer"] = True
     if args.result_file:
         config["_result_file"] = args.result_file
     if args.resume_pending:
@@ -530,15 +694,11 @@ def main() -> None:
     if args.resume_deferred:
         config["_resume_deferred"] = args.resume_deferred
 
-    # Takes every provider into account: a user with only OPENROUTER_KEY used to
-    # be told "No API key found", which is false — what is missing is a model
-    # that OpenRouter serves.
-    from bouzecode.backend.agent.providers.missing_key import startup_key_warning
-    _key_warning = startup_key_warning(config["model"], config)
-    if _key_warning:
-        warn(_key_warning)
+    if not has_api_key(config):
+        from bouzecode.backend.core.config import missing_key_hint
+        warn(missing_key_hint(config))
 
-    initial = " ".join(args.prompt) if args.prompt else None
+    initial = prompt_initial(args)
     # --resume-deferred (like --resume-auto) carries no positional prompt: the prompt is
     # synthesized in repl from the failed check's error log. Without this exemption the
     # web runner's deferred-failure respawn (`-p --resume-deferred <err>`) died here on
@@ -548,14 +708,9 @@ def main() -> None:
         sys.exit(1)
 
     from .repl import repl
-    from bouzecode.backend.agent.providers.missing_key import MissingApiKeyError
-    try:
-        repl(config, initial_prompt=initial)
-    except MissingApiKeyError as exc:
-        # A configuration error, not a crash: print the diagnosis, skip the
-        # 25-line traceback that used to bury it.
-        print(str(exc), file=sys.stderr)
-        sys.exit(2)
+    code_de_sortie = repl(config, initial_prompt=initial)
+    if code_de_sortie:  # refus (3), fin sans livraison (4), mort en vol (5) : cf. cloture_cli
+        sys.exit(code_de_sortie)
 
 
 if __name__ == "__main__":

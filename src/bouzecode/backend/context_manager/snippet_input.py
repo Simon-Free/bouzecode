@@ -11,8 +11,8 @@ The red line: tolerate only what can be checked without guessing.
 - absent ``ranges`` -> save the WHOLE thing, whatever its size. Saving a superset
   of the intent is verifiable; it can never write something false into memory.
   A size limit used to refuse here above 60 lines, which made "keep all of it"
-  impossible to express for a reference document — the exact thing an agent
-  needs when its instructions point at a 1 200-line reference schema.
+  impossible to express for a reference document — the exact thing the Focus
+  instructions demand for the 1 210-line DEMODB schema.
 - a dead ``tool_id`` -> refuse. Inventing a range over some *other* result would
   put falsehoods in the working memory, which is worse than an error.
 

@@ -24,7 +24,11 @@ def resolve_missing_path(file_path: str) -> tuple[str | None, list[str]]:
     from ..state import find_closest_read_file
 
     known = find_closest_read_file(file_path)
-    if known:
+    #  Read lit le DISQUE : un fichier lu avant puis supprimé (fichier temp=True détruit en
+    #  fin de session, dossier jetable) n'est pas une résolution — on servait sinon
+    #  « [Errno 2] » sur un AUTRE chemin que celui demandé. (Snippet, lui, garde ce repli :
+    #  il sert le contenu en cache.)
+    if known and os.path.isfile(known):
         return known, [known]
     matches = _walk_for_basename(os.path.basename(file_path.replace("\\", "/")))
     if len(matches) == 1:
@@ -36,7 +40,8 @@ def _walk_for_basename(basename: str) -> list[str]:
     if not basename or basename in (".", ".."):
         return []
     found: list[str] = []
-    for dirpath, dirnames, filenames in os.walk(Path.cwd()):
+    from ...core.dossier_agent import courant
+    for dirpath, dirnames, filenames in os.walk(courant()):
         dirnames[:] = [d for d in dirnames if d not in _SKIP_DIRS and not d.startswith(".")]
         if basename in filenames:
             found.append(str(Path(dirpath) / basename))
@@ -47,6 +52,13 @@ def _walk_for_basename(basename: str) -> list[str]:
 
 def path_not_found_message(file_path: str, candidates: list[str]) -> str:
     if not candidates:
+        parent = os.path.dirname(file_path)
+        if parent and not os.path.exists(parent):
+            # Le DOSSIER lui-même n'existe pas (ex. `PycharmProjects\bouzecode` au lieu de
+            # `PycharmProjects\demo\bouzecode`) : proposer les dossiers réels proches.
+            from .path_hints import missing_path_message
+            return (f"Error: file not found: {file_path}\n"
+                    + missing_path_message(file_path).removeprefix("Error: "))
         return f"Error: file not found: {file_path}"
     listed = "\n".join(f"  {c}" for c in candidates[:_MAX_CANDIDATES])
     return (
@@ -70,6 +82,9 @@ def whole_file_for_unknown_symbol(file_path: str, symbol: str, content: str) -> 
         names.extend(f"{sym.name}.{child.name}" for child in sym.children)
     available = ", ".join(names[:30]) if names else "(no symbols detected)"
     lines = content.splitlines(keepends=True)
+    from .read_plan import SEUIL_LIGNES, plan_du_fichier
+    if len(lines) > SEUIL_LIGNES:
+        return f"Note: symbol '{symbol}' not found in {file_path}.\n" + plan_du_fichier(file_path, content)
     body = "".join(f"{i + 1:6}\t{line}" for i, line in enumerate(lines))
     return (
         f"Note: symbol '{symbol}' not found in {file_path} — serving the whole file "

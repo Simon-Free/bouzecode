@@ -1,7 +1,7 @@
 """Official stream interception point for bouzecode LLM calls.
 
-Provides set_stream_interceptor / get_streamer so an external host app can wrap
-the LLM stream without monkeypatching internals.
+Provides set_stream_interceptor / get_streamer so external apps (e.g. Focus)
+can wrap the LLM stream without monkeypatching internals.
 """
 from __future__ import annotations
 

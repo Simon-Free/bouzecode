@@ -93,7 +93,7 @@ install_hooks()                               [hooks.py]
 
 ## Storage Layout
 
-Checkpoints are stored per-session under the bouzecode data directory:
+Checkpoints are stored per-session under the bouzecode data directory (legacy ~/.bouzecode):
 
 ```
 ~/.bouzecode/checkpoints/<session_id>/

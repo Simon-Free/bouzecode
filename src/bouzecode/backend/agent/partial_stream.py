@@ -29,14 +29,6 @@ from pathlib import Path
 _MIN_INTERVAL_S = 0.12
 _MIN_CHARS = 24
 
-# The throttle's only clock, read through this name so a test can DRIVE time instead of
-# racing it. A test that writes twice in a row and hopes to stay inside a 120 ms window
-# is really measuring the machine: under load two consecutive statements straddle the
-# boundary, the second write lands, and the throttle gets blamed for a defect it does not
-# have. Rebinding this attribute (see the `clock` fixture in tests/web_v2/) makes the
-# elapsed time stated rather than hoped for, with no test-only parameter on the API.
-_clock = time.monotonic
-
 # Process-local write state (the runner is single agent-loop per process).
 _last_write_at: float = 0.0
 _last_len: int = 0
@@ -76,7 +68,7 @@ def write_partial(
         return
 
     global _last_write_at, _last_len, _seq
-    now = _clock()
+    now = time.monotonic()
     total_len = len(text) + len(thinking)
     grew = total_len - _last_len
     if not force and now - _last_write_at < _MIN_INTERVAL_S and grew < _MIN_CHARS:

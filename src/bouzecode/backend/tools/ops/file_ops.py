@@ -4,9 +4,13 @@ import difflib
 import time
 from pathlib import Path
 
+from ...core.dossier_agent import resoudre
+
 from ...tools.state import _track_read, _stale_edit_warning, _update_mtime_after_write, record_file_snapshot, read_text_raw
 from .edit_context import build_edit_context, find_enclosing_symbol
 from .edit_match import describe_missing_old_string, find_uniform_reindent, reindent_block
+from .long_lines import PLAFOND_DIFF_CAR, compacter_diff, plafonner_caracteres
+from .write_echo import echo_ecriture, nombre_de_lignes, zone_modifiee
 
 
 def _write_text_with_retry(path: Path, content: str, attempts: int = 5, base_delay: float = 0.05) -> None:
@@ -30,18 +34,27 @@ def generate_unified_diff(old, new, filename, context_lines=3):
     return "".join(diff)
 
 
-def maybe_truncate_diff(diff_text, max_lines=80):
+def maybe_truncate_diff(diff_text, max_lines=80, max_chars=PLAFOND_DIFF_CAR):
+    """Plafond en lignes ET en caractères ; lignes géantes réduites (cf. long_lines)."""
+    diff_text = compacter_diff(diff_text)
     lines = diff_text.splitlines()
-    if len(lines) <= max_lines:
-        return diff_text
-    shown = lines[:max_lines]
-    remaining = len(lines) - max_lines
-    return "\n".join(shown) + f"\n\n[... {remaining} more lines ...]"
+    if len(lines) > max_lines:
+        remaining = len(lines) - max_lines
+        diff_text = "\n".join(lines[:max_lines]) + f"\n\n[... {remaining} more lines ...]"
+    return plafonner_caracteres(diff_text, max_chars)
+
+
+def _sans_cr(ligne: str) -> str:
+    """Ligne AFFICHÉE : un fichier CRLF montrait un retour chariot (CR) en fin de chaque ligne au modèle (le
+    contenu brut reste intact pour Edit, qui gère lui-même les fins de ligne)."""
+    return ligne[:-2] + "\n" if ligne.endswith("\r\n") else ligne
 
 
 def _read(file_path: str, limit: int = None, offset: int = None, symbol: str = None) -> str:
     from .scratch import lookup_temp
     _temp_real = lookup_temp(file_path)
+    if _temp_real is None:
+        file_path = resoudre(file_path)  # sous-agent isole : relatif a SON dossier
     p = Path(_temp_real) if _temp_real is not None else Path(file_path)
     if not p.exists():
         from .read_fallback import path_not_found_message, resolve_missing_path
@@ -51,22 +64,10 @@ def _read(file_path: str, limit: int = None, offset: int = None, symbol: str = N
         file_path, p = resolved, Path(resolved)
     if p.is_dir():
         return f"Error: {file_path} is a directory"
-    _IMAGE_MIME = {
-        ".png": "image/png",
-        ".jpg": "image/jpeg",
-        ".jpeg": "image/jpeg",
-        ".gif": "image/gif",
-        ".webp": "image/webp",
-        ".bmp": "image/bmp",
-    }
-    media_type = _IMAGE_MIME.get(p.suffix.lower())
-    if media_type is not None:
-        import base64
-        try:
-            b64 = base64.b64encode(p.read_bytes()).decode("ascii")
-        except Exception as e:
-            return f"Error: {e}"
-        return f"__BOUZE_IMAGE__:{media_type}:{b64}"
+    from . import image_ref, read_plan
+    if p.suffix.lower() in image_ref.MIMES:
+        # Jamais de base64 dans un résultat d'outil : une ligne, et ImageQuestion pour voir.
+        return image_ref.lire(p)
     try:
         content = read_text_raw(p)
         lines = content.splitlines(keepends=True)
@@ -79,18 +80,23 @@ def _read(file_path: str, limit: int = None, offset: int = None, symbol: str = N
                 return whole_file_for_unknown_symbol(file_path, symbol, content)
             s, e = rng[0] - 1, rng[1]
             _track_read(file_path, content=content)
-            return "".join(f"{s + i + 1:6}\t{l}" for i, l in enumerate(lines[s:e]))
+            return "".join(f"{s + i + 1:6}\t{_sans_cr(l)}" for i, l in enumerate(lines[s:e]))
+        plan = read_plan.plan_si_sans_plage(file_path, content, limit, offset)
+        if plan:
+            _track_read(file_path, content=content)
+            return plan
         start = offset or 0
         chunk = lines[start:start + limit] if limit else lines[start:]
         if not chunk:
             return "(empty file)"
         _track_read(file_path, content=content)
-        return "".join(f"{start + i + 1:6}\t{l}" for i, l in enumerate(chunk))
+        return "".join(f"{start + i + 1:6}\t{_sans_cr(l)}" for i, l in enumerate(chunk))
     except Exception as e:
         return f"Error: {e}"
 
 
 def _write(file_path: str, content: str, temp: bool = False) -> str:
+    file_path = file_path if temp else resoudre(file_path)
     if temp:
         from .scratch import resolve_scratch_path, register_temp
         real = resolve_scratch_path(file_path)
@@ -102,7 +108,8 @@ def _write(file_path: str, content: str, temp: bool = False) -> str:
             f"[scratch] Created temp file {file_path} ({lc} lines) \u2014 not tracked by git, destroyed at session end.\n"
             f"\u2192 r\u00e9el: {real}\n"
             f"Bash/Glob/Grep ne voient pas le chemin logique \u00ab {file_path} \u00bb ; utilise le chemin r\u00e9el ci-dessus dans les commandes shell "
-            f"(Bash substitue automatiquement le chemin logique par le r\u00e9el, donc `python {file_path}` fonctionne aussi)."
+            f"(Bash substitue automatiquement le chemin logique par le r\u00e9el, donc `python {file_path}` fonctionne aussi).\n"
+            + echo_ecriture(file_path, content)
         )
     p = Path(file_path)
     try:
@@ -114,18 +121,20 @@ def _write(file_path: str, content: str, temp: bool = False) -> str:
         record_file_snapshot(file_path, old_content, content, is_new=is_new)
         if is_new:
             lc = content.count("\n") + (1 if content and not content.endswith("\n") else 0)
-            return f"Created {file_path} ({lc} lines)"
+            return f"Created {file_path} ({lc} lines)\n" + echo_ecriture(file_path, content)
         filename = p.name
         diff = generate_unified_diff(old_content, content, filename)
         if not diff:
             return f"No changes in {file_path}"
         truncated = maybe_truncate_diff(diff)
-        return f"File updated \u2014 {file_path}:\n\n{truncated}"
+        return (f"File updated \u2014 {file_path}:\n\n{truncated}\n\n"
+                f"Fichier complet sur disque : {nombre_de_lignes(content)} lignes.")
     except Exception as e:
         return f"Error: {e}"
 
 
 def _edit(file_path: str, old_string: str, new_string: str, replace_all: bool = False, temp: bool = False) -> str:
+    file_path = file_path if temp else resoudre(file_path)
     if temp:
         from .scratch import lookup_temp
         real = lookup_temp(file_path)
@@ -188,7 +197,7 @@ def _edit(file_path: str, old_string: str, new_string: str, replace_all: bool = 
         filename = p.name
         diff = generate_unified_diff(old_content_final, final_content, filename)
         diff = maybe_truncate_diff(diff, max_lines=40)
-        result = f"Changes applied to {filename}:\n\n{diff}"
+        result = f"Changes applied to {filename}:\n{zone_modifiee(new_content_norm, new_norm, content_norm.find(old_norm) if new_norm else -1)}\n\n{diff}"
 
         # Enriched context: show region around edit with line numbers + enclosing symbol
         # Skip context when diff is already large (truncated) — the diff IS the context

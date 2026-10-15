@@ -122,7 +122,9 @@ def get_unsnippeted_reads(messages: list[dict]) -> list[dict]:
                 # For Skill results, extract file_path from "[Skill: name | file: /path]"
                 if info["kind"] == "file" and not info["key"]:
                     m = re.search(r'\[Skill: .+? \| file: (.+?)\]', content)
-                    if m:
+                    #  Skill déjà figée dans la note par le harnais : rien à snippeter.
+                    from .skill.conservation import skill_conservee
+                    if m and not skill_conservee(content):
                         info["key"] = m.group(1)
                     else:
                         del tracked[tc_id]
@@ -249,8 +251,8 @@ def check_enforcement(tool_calls: list[dict], previous_had_unsnippeted_reads=Non
     if missing_methodology and not missing_snippets:
         parts.append(
             "⚠️ ENFORCEMENT: You MUST emit a Methodology call every turn. "
-            "Your thinking is lost next turn — distill key findings, decisions, "
-            "and next steps into Methodology now."
+            "Everything but your notes is cleared next turn — record key findings, "
+            "decisions, and next steps in Methodology now."
         )
     elif missing_snippets and not missing_methodology:
         parts.append(

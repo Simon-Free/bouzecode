@@ -11,16 +11,14 @@ from .session import cmd_save, cmd_where, cmd_load, cmd_resume
 from .session.checkpoint_cmd import cmd_checkpoint
 from .session.revert_cmd import cmd_revert
 from .info import cmd_history, cmd_context, cmd_cost, cmd_timing, cmd_doctor
-from .extensions import cmd_agent, cmd_agents, cmd_skills, cmd_tasks
+from .extensions import cmd_agent, cmd_agents, cmd_assistant, cmd_skills, cmd_tasks
 from .proactive import cmd_proactive
 from .image_cmd import cmd_image
 from .worker import cmd_worker
 from .ssj import cmd_ssj
-from .telegram_cmd import cmd_telegram
 from .plan_cmd import cmd_plan
 from .misc import cmd_compact, cmd_init, cmd_export, cmd_copy, cmd_diff
 from .agent_upgrade import cmd_agent_upgrade
-from .oss_shims import OSS_COMMANDS, OSS_COMMAND_META
 
 
 cmd_rewind = cmd_checkpoint  # alias
@@ -44,6 +42,7 @@ COMMANDS = {
     "skills":      cmd_skills,
     "agents":      cmd_agents,
     "agent":       cmd_agent,
+    "assistant":   cmd_assistant,
     "agent-upgrade": cmd_agent_upgrade,
     "tasks":       cmd_tasks,
     "task":        cmd_tasks,
@@ -57,22 +56,11 @@ COMMANDS = {
     "copy":        cmd_copy,
     "diff":        cmd_diff,
     "doctor":      cmd_doctor,
-    "telegram":    cmd_telegram,
-    # Sentinel commands: they hand a tuple back to the REPL loop instead of
-    # doing the work themselves (see `_REPL_SENTINELS` below and
-    # `bouzecode.ui.repl_sentinels`). Imported but unlisted, they printed
-    # "Unknown command" — the same defect `/telegram` had.
-    "worker":      cmd_worker,
-    "ssj":         cmd_ssj,
-    "image":       cmd_image,
     "exit":        cmd_exit,
     "quit":        cmd_exit,
     "resume":      cmd_resume,
     "where":       cmd_where,
     "tools":       cmd_tools,
-    # OSS compatibility layer: /voice, /mcp, /plugin, /memory, /video,
-    # /video-wizard are wired to the flat top-level packages.
-    **OSS_COMMANDS,
 }
 
 
@@ -87,12 +75,13 @@ _CMD_META: dict[str, tuple[str, list[str]]] = {
     "context":     ("Show token-context usage",           []),
     "cost":        ("Show cost estimate",                 []),
     "verbose":     ("Toggle verbose output",              []),
-    "thinking":    ("Toggle extended thinking",           []),
+    "thinking":    ("Show / set thinking level",          ["none", "low", "medium", "high", "xhigh", "max"]),
     "permissions": ("Set permission mode",                ["auto", "accept-all", "manual"]),
     "cwd":         ("Show / change working directory",    []),
     "skills":      ("List available skills",              []),
     "agents":      ("Show background agents",             []),
     "agent":       ("List specialized agents / switch the session to one", ["default"]),
+    "assistant":   ("Assistant du Bureau (= /agent bureau-assistant + suivi des tâches lancées)", []),
     "agent-upgrade": ("Upgrade plugins required by agent profiles (all or <name>)", []),
     "tasks":       ("Manage tasks",                       ["create", "delete", "get", "clear",
                                                            "todo", "in-progress", "done", "blocked"]),
@@ -108,26 +97,17 @@ _CMD_META: dict[str, tuple[str, list[str]]] = {
     "copy":        ("Copy last response to clipboard",      []),
     "diff":        ("Show diffs from recent Edit/Write",    []),
     "doctor":      ("Diagnose installation health",         []),
-    "timing":      ("Show timing breakdown by phase",       []),
-    "telegram":    ("Telegram bridge: /telegram <bot_token> <chat_id> to start",
-                                                            ["stop", "status"]),
-    "worker":      ("Auto-implement the pending tasks of a todo file",
-                                                            ["--path", "--tasks", "--workers"]),
-    "ssj":         ("Developer power menu (worker, debate, review, promote\u2026)", []),
-    "image":       ("Send the clipboard image to the model", []),
-    "exit":        ("Exit bouz\u00e9code",                      []),
+    "exit":        ("Exit bouzecode",                      []),
     "quit":        ("Exit (alias for /exit)",             []),
     "resume":      ("Resume a recent session (interactive picker)", []),
     "where":       ("Show session log file paths",        []),
     "tools":       ("List / enable / disable tools",      ["disable", "enable", "reset"]),
-    # OSS compatibility layer — dispatchable, so `/help` must list them too.
-    **OSS_COMMAND_META,
 }
 
 
-_REPL_SENTINELS = ("__voice__", "__image__", "__worker__",
+_REPL_SENTINELS = ("__image__", "__worker__",
                    "__ssj_cmd__", "__ssj_query__", "__ssj_debate__",
-                   "__ssj_passthrough__", "__ssj_promote_worker__", "__plan__")
+                   "__ssj_passthrough__", "__plan__")
 
 
 def handle_slash(line: str, state, config) -> Union[bool, tuple]:

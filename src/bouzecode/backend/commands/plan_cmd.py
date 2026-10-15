@@ -67,8 +67,8 @@ def cmd_plan(args: str, state, config) -> bool:
         return True
 
     session_id = config.get("_session_id", "default")
-    plans_dir = Path.cwd() / ".nano_claude" / "plans"
-    plans_dir.mkdir(parents=True, exist_ok=True)
+    from ..core.harness_dir import dossier_harnais
+    plans_dir = dossier_harnais("plans")
     plan_path = plans_dir / f"{session_id}.md"
     plan_path.write_text(f"# Plan: {arg}\n\n", encoding="utf-8")
 

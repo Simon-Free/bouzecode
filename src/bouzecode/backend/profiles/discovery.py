@@ -7,6 +7,7 @@ accessible everywhere) < <cwd>/.bouzecode (project) < registered --extra-dir pat
 """
 from __future__ import annotations
 
+from bouzecode.paths import project_dir as bouzecode_project_dir
 from pathlib import Path
 from typing import Dict
 
@@ -48,7 +49,7 @@ def profile_search_dirs(include_builtin: bool = False) -> list[Path]:
     if include_builtin:
         dirs.append(Path(__file__).resolve().parent / "builtin")
     dirs.append(user_global_dir())
-    dirs.append(Path.cwd() / ".bouzecode" / "profiles")
+    dirs.append(bouzecode_project_dir(Path.cwd()) / "profiles")
     dirs.extend(d / "profiles" for d in get_extra_dirs())
     return dirs
 
@@ -63,7 +64,7 @@ def _load(dirs: list[Path]) -> Dict[str, AgentProfile]:
 def load_user_profiles() -> Dict[str, AgentProfile]:
     """User-authored profiles (global + project + extra-dirs) — the directly switchable set.
 
-    `kind: app` profiles (standalone host-app agents) are excluded: their host
+    `kind: app` profiles (standalone host-app agents like `focus`) are excluded: their host
     loads them DIRECTLY by path and routes to them as a single agent — they are never
     switched to (/agent) nor spawned as bouzecode sub-agents. This keeps the shared profile
     FORMAT while stopping app agents from leaking into the dev agent set."""

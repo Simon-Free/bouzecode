@@ -1,5 +1,5 @@
 # [desc] Plugin system package: types, store ops, and loader for pip-installed bouzecode plugins. [/desc]
-"""Plugin system for bouzecode (pip packages from a package index)."""
+"""Plugin system for bouzecode (pip packages from Artifactory)."""
 from .types import PluginEntry, PluginManifest, PluginScope
 from .store import (
     install_plugin, list_plugins, get_plugin,

@@ -5,6 +5,8 @@ import os
 import re
 import subprocess
 import sys
+
+from ...core.dossier_agent import courant
 from pathlib import Path
 
 
@@ -128,7 +130,7 @@ def _run_quietly(cmd: list[str], cwd: str | None = None, timeout: int = 30) -> t
         r = subprocess.run(
             cmd, capture_output=True, text=True, encoding="utf-8", errors="replace",
             timeout=timeout,
-            cwd=cwd or os.getcwd(),
+            cwd=cwd or courant(),
         )
         out = (r.stdout + ("\n" + r.stderr if r.stderr else "")).strip()
         return r.returncode, out

@@ -19,9 +19,7 @@ def _strip_tool_xml(texte: str) -> str:
     presque jamais, et n'a rien à faire du renderer web."""
     from bouzecode.web_v2.runtime.html_renderer import strip_tool_xml
     return strip_tool_xml(texte)
-from .ansi import clr, info
-from .rendering import flush_response, stream_text
-from .tool_display import print_tool_end, print_tool_start
+from .ansi import info
 
 
 def _block_type(block: Any) -> str:
@@ -106,43 +104,15 @@ def _is_pure_tool_result_message(m: dict) -> bool:
     return all(_block_type(b) == "tool_result" for b in content)
 
 
-def _print_user_header(text: str) -> None:
-    print()
-    print(clr("\u256d\u2500 you ", "dim") + clr("\u25cb", "cyan")
-          + clr(" " + "\u2500" * 40, "dim"))
-    for line in (text.splitlines() or [""]):
-        print(clr("  \u2502 ", "dim") + line)
-
-
-def _print_assistant_header() -> None:
-    print()
-    print(clr("\u256d\u2500 bouz\u00e9code ", "dim") + clr("\u25cf", "green")
-          + clr(" " + "\u2500" * 25, "dim"))
-
-
-def replay_messages(messages: Iterable[dict]) -> None:
+def replay_messages(messages: Iterable[dict], en_cours: bool = False):
+    """Rejoue `messages` ; rend le `DerouleConversation` qui a servi, pour poursuivre le
+    suivi en direct du meme agent avec le meme rendu. `en_cours` : un appel encore sans
+    resultat reste annonce, son resultat s'imprimera a son arrivee."""
+    from .deroule import DerouleConversation
     msgs = list(messages)
+    deroule = DerouleConversation()
     if not msgs:
         info("(empty conversation)")
-        return
-
-    results = _collect_tool_results(msgs)
-
-    for m in msgs:
-        role = m.get("role")
-        if role == "user":
-            if _is_pure_tool_result_message(m):
-                continue
-            _print_user_header(_normalize_text(m.get("content", "")))
-        elif role == "assistant":
-            _print_assistant_header()
-            tool_calls = _normalize_tool_calls(m)
-            raw_text = _normalize_text(m.get("content", ""))
-            text = _strip_tool_xml(raw_text) if tool_calls else raw_text
-            if text:
-                stream_text(text)
-                flush_response()
-            for tc in tool_calls:
-                print_tool_start(tc["name"], tc["input"], verbose=False)
-                print_tool_end(tc["name"], results.get(tc["id"], ""), verbose=False, duration=0.0,
-                               tool_id=tc["id"], inputs=tc["input"])
+        return deroule
+    deroule.avancer(msgs, fin=not en_cours)
+    return deroule

@@ -37,6 +37,16 @@ class ThinkingChunk:
     def __init__(self, text): self.text = text
 
 
+class StreamRestart:
+    """Yielded when the backend REPLAYS the whole request after a mid-stream drop.
+
+    Everything streamed by the aborted attempt (thinking, text, tool calls) is void:
+    the server regenerates from scratch. Without this signal the consumer kept both
+    attempts, and the saved assistant message carried its reasoning twice (« réflexions
+    en double », session 3db4403a)."""
+    pass
+
+
 class ToolCallParsed:
     """Yielded mid-stream when the XML parser finishes a tool_use block."""
     def __init__(self, name: str, inputs: dict, tool_id: str):
@@ -56,7 +66,7 @@ class SystemPayload:
     plus (in native function-calling mode) the OpenAI-format tools list. `tools` is
     None when the XML tool protocol is used (the Anthropic path, or forced XML)."""
     def __init__(self, system_blocks: list, tools: list | None = None,
-                 messages: list | None = None):
+                 messages: list | None = None, empreinte: dict | None = None):
         self.system_blocks = system_blocks
         self.tools = tools
         # The EXACT wire messages sent to the API this turn, AFTER dispatch's
@@ -64,6 +74,26 @@ class SystemPayload:
         # reminder). None when the backend does not expose them; the loop then
         # falls back to the pre-mutation messages for the payload dump.
         self.messages = messages
+        # Empreintes du préfixe (backends/empreinte.py), journalisées avec l'appel.
+        self.empreinte = empreinte
+
+
+class UsageSnapshot:
+    """Token usage as known MID-stream.
+
+    Anthropic sends `usage.input_tokens` / cache counters in `message_start`
+    and `output_tokens` in `message_delta`, long before the stream ends. This
+    event carries that snapshot to the agent loop so that a stream which
+    CRASHES (or is interrupted) before its final AssistantTurn still reports
+    the tokens it really consumed instead of a hardcoded 0.
+    """
+
+    def __init__(self, in_tokens=0, out_tokens=0,
+                 cache_read_tokens=0, cache_creation_tokens=0):
+        self.in_tokens = in_tokens
+        self.out_tokens = out_tokens
+        self.cache_read_tokens = cache_read_tokens
+        self.cache_creation_tokens = cache_creation_tokens
 
 
 class AssistantTurn:
@@ -76,3 +106,29 @@ class AssistantTurn:
         self.stop_reason = stop_reason
         self.cache_read_tokens = cache_read_tokens
         self.cache_creation_tokens = cache_creation_tokens
+        # Vrai quand message_delta n'est jamais arrivé : out_tokens est alors estimé
+        # depuis le texte reçu (cf. anthropic_stream), pas lu dans l'usage de l'API.
+        self.out_tokens_estimated = False
+        # Fournisseur qui a réellement servi (champ `provider` des réponses OpenRouter).
+        self.provider = ""
+        # Texte que le modèle a bel et bien émis (et fait facturer) mais que le
+        # protocole a écarté du transcript — typiquement un wrapper <tool_calls>
+        # orphelin. Sans ça le tour passe pour vide sans qu'on sache ce qu'il a dit.
+        self.discarded_text = None
+        # Tentatives facturées puis écartées avant ce tour (refus content_filter relancé,
+        # coupure en vol rejouée) : une entrée par tentative, journalisée dans turns.jsonl.
+        self.tentatives_ecartees: list[dict] = []
+        # Refus EXPLICITE du modèle (champ `refusal` d'OpenAI, ou finish_reason
+        # "content_filter") : distingue un refus DÉTERMINISTE — que relancer à
+        # l'identique ne débloquera jamais — d'une complétion vide accidentelle
+        # (glitch de provider), qui elle vaut un retry. Texte du refus si fourni,
+        # True si seul le finish_reason l'indique, None sinon.
+        self.refusal = None
+
+
+def tentative_ecartee(motif: str, in_tokens: int, out_tokens: int, cache_read_tokens: int,
+                      cache_creation_tokens: int) -> dict:
+    """Une tentative facturée puis écartée, telle que turns.jsonl la journalise."""
+    return {"motif": motif, "in_tokens": in_tokens, "out_tokens": out_tokens,
+            "cache_read_tokens": cache_read_tokens,
+            "cache_creation_tokens": cache_creation_tokens}

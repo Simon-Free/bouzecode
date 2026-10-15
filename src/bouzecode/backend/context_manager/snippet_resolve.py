@@ -15,6 +15,9 @@ def _is_line_number(value: object) -> bool:
     return isinstance(value, int) and not isinstance(value, bool)
 
 
+_FROZEN_NOTE = " (frozen from the content read earlier — file no longer on disk)"
+
+
 def _render_ranges(
     lines: list, ranges: list, label: str, source: str, resolution_note: str = "",
 ) -> str:
@@ -51,20 +54,17 @@ def resolve_snippet_symbol(file_path: str, symbol: str, label: str = "") -> str:
     """
     from ..tools.folder_desc.symbols import find_symbol
 
-    path = Path(file_path)
-    if not path.is_absolute():
-        return f"\n## snippet ERROR: {file_path} — path must be absolute\n"
-    if not path.exists():
-        return f"\n## snippet ERROR: {file_path} — file not found\n"
-    content = path.read_text(encoding="utf-8", errors="replace")
-    result = find_symbol(file_path, symbol, content)
+    lines, resolved, resolution_note = resolve_file_lines(file_path)
+    if lines is None:
+        return resolution_note
+    content = "\n".join(lines)
+    result = find_symbol(resolved, symbol, content)
     if result is None:
         return f"\n## snippet ERROR: {file_path} :: {symbol} — symbol not found\n"
     start, end = result
-    lines = content.splitlines()
     suffix = f' — "{label}"' if label else ""
     body = "\n".join(f"{i:>5}  {lines[i-1]}" for i in range(start, end + 1))
-    return f"\n## snippet: {file_path} :: {symbol}{suffix}\n{body}\n"
+    return f"\n## snippet: {file_path} :: {symbol}{suffix}{resolution_note}\n{body}\n"
 
 
 def resolve_file_lines(file_path: str) -> tuple[list[str] | None, str, str]:
@@ -76,34 +76,65 @@ def resolve_file_lines(file_path: str) -> tuple[list[str] | None, str, str]:
     and does NOT check it still exists on disk. A deleted temp file or a reaped
     worktree therefore used to reach ``read_text`` and raise FileNotFoundError
     straight out of the tool. The fallback's existence is re-checked here.
+
+    Priority is strict: the requested path on disk, then the closest already-read
+    path IF it still exists, and only then the content frozen at read time by
+    ``get_cached_file_content``. A snippet on a file that existed when it was read
+    therefore never degrades into ``file not found`` just because the file has
+    since been reaped — which is what used to push agents into re-typing the
+    content by hand.
     """
-    path = Path(file_path)
+    #  Le chemin LOGIQUE d'un Write(temp=True) d'abord : `/tmp/sonde.py` n'est pas absolu sous
+    #  Windows, et le refuser rendait inepinglable ce que l'agent venait d'ecrire.
+    path, resolution_note = _chemin_temporaire(file_path)
     if not path.is_absolute():
         return None, "", f"\n## snippet ERROR: {file_path} — path must be absolute\n"
-    resolution_note = ""
     if not path.exists():
-        from ..tools.state import find_closest_read_file, list_read_files_with_basename
+        from ..tools.state import (
+            find_closest_read_file, get_cached_file_content, list_read_files_with_basename,
+        )
         fallback = find_closest_read_file(file_path)
-        if fallback is None:
-            candidates = list_read_files_with_basename(path.name)
-            if len(candidates) > 1:
-                joined = "\n  - ".join(candidates)
-                return None, "", (
-                    f"\n## snippet ERROR: {file_path} — file not found; "
-                    f"multiple read files share this basename (ambiguous):\n  - {joined}\n"
-                )
-            return None, "", f"\n## snippet ERROR: {file_path} — file not found\n"
-        if not Path(fallback).exists():
+        if fallback is not None and Path(fallback).exists():
+            # A real file still on disk always wins over a frozen copy.
+            resolution_note = f" (auto-resolved from {file_path})"
+            path = Path(fallback)
+        else:
+            # Last resort: the content this process already read. A file reaped
+            # between the read and the snippet must never cost the agent its data.
+            frozen = get_cached_file_content(file_path)
+            if frozen is not None:
+                return frozen.splitlines(), file_path, _FROZEN_NOTE
+            if fallback is None:
+                candidates = list_read_files_with_basename(path.name)
+                if len(candidates) > 1:
+                    joined = "\n  - ".join(candidates)
+                    return None, "", (
+                        f"\n## snippet ERROR: {file_path} — file not found; "
+                        f"multiple read files share this basename (ambiguous):\n  - {joined}\n"
+                    )
+                return None, "", f"\n## snippet ERROR: {file_path} — file not found\n"
             return None, "", (
                 f"\n## snippet ERROR: {file_path} — file not found. The closest file you "
                 f"read earlier ({fallback}) is gone from disk too (deleted temp file, "
                 f"reaped worktree...). Nothing was saved. Re-run the tool that produced "
                 f"this content, or snippet its tool_id while the result is on the wire.\n"
             )
-        resolution_note = f" (auto-resolved from {file_path})"
-        path = Path(fallback)
     lines = path.read_text(encoding="utf-8", errors="replace").splitlines()
     return lines, str(path), resolution_note
+
+
+def _chemin_temporaire(file_path: str) -> tuple[Path, str]:
+    """Un fichier ecrit avec Write(temp=True) vit dans le scratch sous un chemin reel ;
+    son chemin logique (ex. /tmp/sonde.py) doit rester epinglable sans Read prealable.
+    Un fichier reel au meme chemin l'emporte."""
+    from ..tools.ops.scratch import lookup_temp
+    path = Path(file_path)
+    if path.is_absolute() and path.exists():
+        return path, ""
+    reel = lookup_temp(file_path)
+    if reel and Path(reel).exists():
+        return Path(reel), f" (fichier temporaire : {reel})"
+    return path, ""
 
 
 def resolve_snippet(file_path: str, ranges: list, label: str) -> str:

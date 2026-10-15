@@ -28,6 +28,51 @@ def _add_project(params: dict, config: dict) -> str:
     )
 
 
+def _dismiss_project(params: dict, config: dict) -> str:
+    """Enregistre « ce dossier n'est PAS un projet », pour ne plus jamais le demander."""
+    from ....web_v2.services.work.dismissed_paths import dismiss
+
+    path = (params.get("path") or "").strip()
+    if not path:
+        return "Error: 'path' is required."
+    entry = dismiss(path, reason=(params.get("reason") or "").strip())
+    return (
+        f"Noté : {entry['path']} n'est pas un projet"
+        + (f" ({entry['reason']})" if entry["reason"] else "")
+        + ". La question ne sera plus posée pour ce dossier."
+    )
+
+
+register_tool(ToolDef(
+    name="DismissProject",
+    schema={
+        "name": "DismissProject",
+        "description": (
+            "Record that a directory is NOT a project, so the question is never asked "
+            "again for it. Call this ONLY to transcribe an explicit user answer — never "
+            "on your own initiative. The counterpart of AddProject."
+        ),
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "path": {
+                    "type": "string",
+                    "description": "Absolute path the user just said is not a project.",
+                },
+                "reason": {
+                    "type": "string",
+                    "description": "Optional short reason, as given by the user (<=200 chars).",
+                },
+            },
+            "required": ["path"],
+        },
+    },
+    func=_dismiss_project,
+    read_only=False,
+    concurrent_safe=False,
+))
+
+
 register_tool(ToolDef(
     name="AddProject",
     schema={

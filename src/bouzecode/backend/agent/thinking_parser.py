@@ -37,10 +37,15 @@ class ThinkingStreamParser:
     def _find_real(self, tag: str, *, streaming: bool = True, require_alone: bool = False) -> int:
         """Find tag at col 0.
 
-        If *require_alone* is True the tag must be alone on its line
-        (followed by ``\\n`` or at end-of-buffer in finalize mode).
-        Use this for CLOSE_TAG to avoid false closes when content
-        mentions ``</thinking>`` with trailing text on the same line.
+        Column 0 is what makes a tag structural — for BOTH tags. A model that
+        writes ``</thinking> and now the answer`` still means to close, so the
+        tag is accepted and the rest of the line is emitted as plain text by
+        the caller. Protection against a literal *mention* of ``</thinking>``
+        inside content is kept by :meth:`_is_at_line_start`: a mention appears
+        mid-line or inside an indented code block, never at column 0.
+
+        *require_alone* / *streaming* are kept for the buffer-retention path
+        (:meth:`_partial_retain`); they no longer reject trailing text.
         """
         search_start = 0
         while True:
@@ -48,17 +53,7 @@ class ThinkingStreamParser:
             if idx == -1:
                 return -1
             if self._is_at_line_start(idx):
-                if not require_alone:
-                    return idx  # col 0 is sufficient (open tag)
-                end_pos = idx + len(tag)
-                if end_pos >= len(self._buffer):
-                    # Tag at very end of buffer — can't confirm alone on line
-                    if not streaming:
-                        return idx  # finalize: accept
-                    return -1  # streaming: wait for more data
-                if self._buffer[end_pos] == '\n':
-                    return idx
-                # Tag has trailing text — not a real structural tag
+                return idx  # col 0 is sufficient (open AND close tag)
             search_start = idx + 1
 
     def _partial_retain(self, tag: str, *, require_alone: bool = False) -> int:
@@ -119,6 +114,18 @@ class ThinkingStreamParser:
                     break
             else:
                 start_idx = self._find_real(self.OPEN_TAG)
+                close_idx = self._find_real(self.CLOSE_TAG)
+                if close_idx != -1 and (start_idx == -1 or close_idx < start_idx):
+                    # Orphan close tag: the open tag was lost, so everything
+                    # before it was the reflection. Consume the tag (never
+                    # render it) and stay outside thinking afterwards.
+                    orphan_thinking = self._buffer[:close_idx]
+                    if orphan_thinking:
+                        results.append(("thinking", orphan_thinking))
+                        self._thinking_text.append(orphan_thinking)
+                    self._update_line_start(self._buffer[:close_idx + len(self.CLOSE_TAG)])
+                    self._buffer = self._buffer[close_idx + len(self.CLOSE_TAG):]
+                    continue
                 if start_idx != -1:
                     text_before = self._buffer[:start_idx]
                     if text_before:
@@ -216,57 +223,6 @@ class LoopDetector:
         )
 
 
-class ThinkingDisciplineMonitor:
-    """Analyze completed thinking blocks for discipline violations."""
-
-    DIRECTION_CHANGE_RE = re.compile(
-        r'\b(?:wait|attendons?|attends|actually|hmm+|'
-        r'non en fait|no wait|let me (?:re)?think|reconsider)\b',
-        re.IGNORECASE,
-    )
-    STOP_RE = re.compile(
-        r'\b(?:ok\s+stop|enough\s+thinking|je\s+over-?engineer)\b',
-        re.IGNORECASE,
-    )
-    MAX_DIRECTION_CHANGES = 2
-    MAX_LINES = 100
-
-    def analyze(self, text: str) -> list[dict]:
-        lines = text.splitlines()
-        violations: list[dict] = []
-
-        # Direction changes
-        changes = self.DIRECTION_CHANGE_RE.findall(text)
-        if len(changes) > self.MAX_DIRECTION_CHANGES:
-            violations.append({
-                "type": "direction_changes",
-                "detail": f"{len(changes)} direction changes (max {self.MAX_DIRECTION_CHANGES})",
-                "count": len(changes),
-            })
-
-        # Continued after STOP
-        for i, line in enumerate(lines):
-            if self.STOP_RE.search(line):
-                remaining = [ln for ln in lines[i + 1:] if ln.strip()]
-                if len(remaining) > 5:
-                    violations.append({
-                        "type": "continued_after_stop",
-                        "detail": f"{len(remaining)} non-empty lines after STOP at line {i + 1}",
-                        "lines_after_stop": len(remaining),
-                    })
-                break
-
-        # Line cap
-        if len(lines) > self.MAX_LINES:
-            violations.append({
-                "type": "line_cap_exceeded",
-                "detail": f"{len(lines)} lines (max {self.MAX_LINES})",
-                "line_count": len(lines),
-            })
-
-        return violations
-
-
 _THINKING_BLOCK_RE = re.compile(
     r'^<thinking>[ \t]*\n.*?^</thinking>[ \t]*$|<thinking>[^\n]*?</thinking>',
     re.DOTALL | re.MULTILINE,
@@ -282,12 +238,120 @@ def strip_tool_use_xml(content: str) -> str:
     """
     if "<tool_use" not in content:
         return content.strip()
-    from ..xml_tool_protocol.parser import XmlToolStreamParser
-    parser = XmlToolStreamParser()
-    items = parser.feed(content)
-    parser.finalize()
-    visible = "".join(item for item in items if isinstance(item, str))
-    return visible.strip()
+    # NOTE: a STREAM parser must never be used for this one-shot cleanup.
+    # XmlToolStreamParser retains its buffer on an unpaired opening tag and
+    # finalize() throws that buffer away, so a tool tag merely MENTIONED in
+    # the prose used to swallow the whole message (observed: assistant
+    # messages persisted as "." or as a 10-char residue). Bounded textual
+    # removal instead: only a properly PAIRED block is removed, anything
+    # unpaired stays as plain text.
+    tool_open = "<" + "tool_use"
+    tool_close = "</" + "tool_use" + ">"
+    cdata_open = "<![" + "CDATA["
+    cdata_close = "]]" + ">"
+    batch_open = "<" + "tool_calls" + ">"
+    batch_close = "</" + "tool_calls" + ">"
+
+    def _paired_close(text: str, start: int) -> int:
+        """Index just after the tool_use close matching the open at `start`.
+
+        Skips CDATA sections so a close tag quoted inside CDATA is ignored.
+        Returns -1 when no matching close exists.
+        """
+        i = start
+        while i < len(text):
+            cd = text.find(cdata_open, i)
+            end = text.find(tool_close, i)
+            if end == -1:
+                return -1
+            if cd != -1 and cd < end:
+                cd_end = text.find(cdata_close, cd + len(cdata_open))
+                if cd_end == -1:
+                    return -1
+                i = cd_end + len(cdata_close)
+                continue
+            return end + len(tool_close)
+        return -1
+
+    kept: list[str] = []
+    pos = 0
+    while pos < len(content):
+        found = content.find(tool_open, pos)
+        if found == -1:
+            kept.append(content[pos:])
+            break
+        after = content[found + len(tool_open):found + len(tool_open) + 1]
+        if after not in (" ", "\t", "\n", "\r", ">"):
+            # e.g. "<tool_useless": not a tool tag, plain text
+            kept.append(content[pos:found + len(tool_open)])
+            pos = found + len(tool_open)
+            continue
+        line_start = content.rfind("\n", 0, found) + 1
+        if content[line_start:found].strip():
+            # Inline mention inside prose (a real tool block always starts its
+            # own line). Keep it verbatim and keep scanning after it, so a real
+            # block further down is still removed.
+            kept.append(content[pos:found + len(tool_open)])
+            pos = found + len(tool_open)
+            continue
+        close_at = _paired_close(content, found)
+        if close_at == -1:
+            # Unpaired open tag: prose mention, keep everything verbatim.
+            kept.append(content[pos:])
+            break
+        kept.append(content[pos:found])
+        pos = close_at
+
+    visible = "".join(kept)
+    lines = [
+        line for line in visible.split("\n")
+        if line.strip() not in (batch_open, batch_close)
+    ]
+    return "\n".join(lines).strip()
+
+
+def normalize_orphan_close_tags(content: str) -> str:
+    """Make an orphan ``</thinking>`` well-formed by inserting the missing open tag.
+
+    A ``</thinking>`` at column 0 with no block currently open means the model
+    lost / forgot its opening tag: everything since the start of the current
+    segment WAS the reflection. We insert a ``<thinking>`` line at the start of
+    that segment, so every downstream regex/parser sees a well-formed block
+    instead of leaking the raw tag into the visible prose.
+
+    Trailing text on the close-tag line is moved to its own line so the
+    line-level (structural) passes see a lone ``</thinking>`` and still close
+    the block — otherwise everything after it would be swallowed.
+
+    Only column 0 is structural: an indented or mid-line *mention* of either
+    tag is left untouched.
+    """
+    open_tag = ThinkingStreamParser.OPEN_TAG
+    close_tag = ThinkingStreamParser.CLOSE_TAG
+    if close_tag not in content:
+        return content
+    out: list[str] = []
+    segment_start = 0  # index in `out` where the current unopened segment begins
+    is_open = False
+    for line in content.split('\n'):
+        if line.startswith(open_tag):
+            # An inline block (open AND close on the same line) is self-contained.
+            if close_tag not in line[len(open_tag):]:
+                is_open = True
+            out.append(line)
+            continue
+        if line.startswith(close_tag):
+            trailing = line[len(close_tag):]
+            if not is_open:
+                out.insert(segment_start, open_tag)
+            is_open = False
+            out.append(close_tag)
+            if trailing.strip():
+                out.append(trailing.lstrip())
+            segment_start = len(out)
+            continue
+        out.append(line)
+    return '\n'.join(out)
 
 
 def strip_thinking_tags(content: str) -> str:
@@ -299,6 +363,7 @@ def strip_thinking_tags(content: str) -> str:
     blocks that share lines with surrounding text. Unclosed opens (Ctrl+C)
     drop everything from the unmatched `<thinking>` to the end.
     """
+    content = normalize_orphan_close_tags(content)
     if "<thinking>" not in content:
         return content.strip()
     kept_lines: list[str] = []

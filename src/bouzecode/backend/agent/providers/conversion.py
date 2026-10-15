@@ -1,11 +1,26 @@
 # [desc] Converts neutral chat messages to Anthropic API format with XML tool serialization and caching. [/desc]
 from __future__ import annotations
 
+import re
+
 from .types import sanitize_tool_name  # noqa: F401 — used by anthropic_stream
+
+_REASONING_BLOCK_RE = re.compile(r"<thinking>.*?(</thinking>|\Z)", re.DOTALL)
+
+
+def _without_reasoning(message: dict) -> dict:
+    """Assistant text minus its `<thinking>` blocks (copy, the history is untouched): reasoning
+    replayed as TEXT trips claude-opus-5's refusal classifier (2026-09-29). A turn reduced to
+    its reasoning keeps a "." placeholder — the APIs refuse an empty assistant message."""
+    text = message.get("content")
+    if message.get("role") != "assistant" or not isinstance(text, str) or "<thinking>" not in text:
+        return message
+    stripped = _REASONING_BLOCK_RE.sub("", text).strip()
+    return {**message, "content": stripped or ("" if message.get("tool_calls") else ".")}
 
 
 def sanitize_messages(messages: list) -> list:
-    result = list(messages)
+    result = [_without_reasoning(m) for m in messages]
     i = 0
     while i < len(result):
         m = result[i]
@@ -71,6 +86,8 @@ def messages_to_anthropic(messages: list, cache_last: bool = True, meth_delta: s
 
         elif role == "assistant":
             neutral_to_anth[i] = len(result)
+            # La réflexion d'un tour (recopiée en <thinking> par loop._build_assistant_content
+            # pour l'affichage) est déjà retirée par sanitize_messages (_without_reasoning).
             text = m.get("content", "") or ""
             tcs = m.get("tool_calls", [])
             if tcs:
@@ -98,6 +115,12 @@ def messages_to_anthropic(messages: list, cache_last: bool = True, meth_delta: s
                     tool_xmls.append(serialize_tool_result(
                         tm["tool_call_id"], tm_content
                     ))
+                i += 1
+            # <harness_notes> : à la suite des tool_result, dans le même message user.
+            from .backends.encapsulation import notes_du_harnais_suivantes
+            harness_notes = notes_du_harnais_suivantes(messages, i) if tool_xmls or image_blocks else ""
+            if harness_notes:
+                tool_xmls.append(harness_notes)
                 i += 1
             if image_blocks:
                 content_blocks = []

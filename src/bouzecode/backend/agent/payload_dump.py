@@ -73,7 +73,7 @@ def _payload_fields(session_id: str, messages: list) -> dict:
 
 def dump_turn_payload(state, session_id: str, messages: list,
                       system_blocks: list | None = None,
-                      token_counts: dict | None = None) -> None:
+                      token_counts: dict | None = None, appel: dict | None = None) -> None:
     if not session_id:
         return
     target_dir = Path(_payload_dir(session_id))
@@ -97,6 +97,8 @@ def dump_turn_payload(state, session_id: str, messages: list,
         ]
     if token_counts is not None:
         record["token_counts"] = token_counts
+    if appel:
+        record["appel"] = appel  # modèle, repli, tentatives écartées (cf. loop_turn)
     if blobs:
         record["blobs"] = blobs
     with (target_dir / "turns.jsonl").open("a", encoding="utf-8") as f:

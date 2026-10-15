@@ -21,22 +21,22 @@ def cmd_verbose(_args: str, _state, config) -> bool:
     return True
 
 
-def cmd_thinking(_args: str, _state, config) -> bool:
+def cmd_thinking(args: str, _state, config) -> bool:
+    """`/thinking` affiche le niveau ; `/thinking <niveau>` le règle et l'enregistre."""
     from bouzecode.backend.core.config import save_config
-    on = config.get("thinking", False)
-    mode = config.get("thinking_mode", "extended")
-    if not on:
-        config["thinking"] = True
-        config["thinking_mode"] = "extended"
-        ok("Thinking: ON (extended)")
-    elif mode == "extended":
-        config["thinking_mode"] = "loud"
-        ok("Thinking: ON (loud)")
-    else:
-        config["thinking"] = False
-        config["thinking_mode"] = "extended"
-        ok("Thinking: OFF")
+    from bouzecode.backend.agent.providers.thinking_level import LEVELS, resolve_thinking_level
+    requested = args.strip().lower()
+    if not requested:
+        info(f"Thinking: {resolve_thinking_level(config)}  (choix : {' | '.join(LEVELS)})")
+        return True
+    if requested not in LEVELS:
+        err(f"Niveau inconnu : {requested}. Choisir parmi : {', '.join(LEVELS)}")
+        return True
+    config["thinking_level"] = requested
+    config["thinking"] = True
+    config["thinking_mode"] = "extended"
     save_config(config)
+    ok(f"Thinking: {requested}")
     return True
 
 

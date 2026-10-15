@@ -9,6 +9,7 @@ import time
 from concurrent.futures import ThreadPoolExecutor
 
 from ..tools import execute_tool
+from .dag_tests import inject_write_test_deps
 
 
 def _coerce_list(val) -> list:
@@ -38,10 +39,21 @@ def _coerce_list(val) -> list:
     return []
 
 
+_SCHEDULING_KEYS = ("depends_on", "tool_call_alias")
+
+
+def _tool_params(tc: dict) -> dict:
+    """The call's input WITHOUT the scheduling keys, which are not tool parameters.
+
+    The DAG reads those keys but never removes them: pause/resume rebuilds the DAG on the
+    same dicts, and popping them on the first build silently dropped every dependency."""
+    return {k: v for k, v in tc["input"].items() if k not in _SCHEDULING_KEYS}
+
+
 def _build_alias_map(tool_calls: list[dict]) -> dict[str, str]:
     alias_to_id: dict[str, str] = {}
     for tc in tool_calls:
-        alias = tc["input"].pop("tool_call_alias", None)
+        alias = tc["input"].get("tool_call_alias")
         if alias:
             alias_to_id[alias] = tc["id"]
     return alias_to_id
@@ -58,22 +70,26 @@ def _build_dag_levels(tool_calls: list[dict]) -> tuple[list[list[dict]], dict[st
     alias_to_id = _build_alias_map(tool_calls)
 
     deps: dict[str, set[str]] = {}
+    pinned: list[str] = []
     for tc in tool_calls:
-        raw = _coerce_list(tc["input"].pop("depends_on", None))
+        raw = _coerce_list(tc["input"].get("depends_on"))
         resolved = [alias_to_id.get(d, d) for d in raw]
-        valid = {d for d in resolved if d in tc_ids_in_turn}
-        dropped = [d for d in resolved if d not in tc_ids_in_turn]
-        if dropped:
+        deps[tc["id"]] = {d for d in resolved if d in tc_ids_in_turn and d != tc["id"]}
+        unresolved = [d for d in resolved if d not in tc_ids_in_turn]
+        if unresolved:
+            # The model named a producer it never aliased. Dropping the dependency ran the
+            # consumer in parallel with the very call it waits for: pin it after the turn.
             print(
-                f"[dag] dropped unresolvable depends_on for {tc['name']}({tc['id']}): "
-                f"{dropped} — available IDs: {sorted(tc_ids_in_turn)}, "
-                f"aliases: {sorted(alias_to_id.keys())}",
+                f"[dag] unresolved depends_on for {tc['name']}({tc['id']}): {unresolved} "
+                "— scheduled after every other call of the turn",
                 file=sys.stderr,
             )
-        deps[tc["id"]] = valid
+            pinned.append(tc["id"])
+    _pin_after_siblings(pinned, tc_ids_in_turn, deps)
 
     _add_implicit_write_deps(tool_calls, deps)
     _inject_write_bash_deps(tool_calls, deps, alias_to_id)
+    inject_write_test_deps(tool_calls, deps)
 
     remaining = set(by_id.keys())
     ordered_ids = [tc["id"] for tc in tool_calls]  # preserve batch order within a level
@@ -87,6 +103,14 @@ def _build_dag_levels(tool_calls: list[dict]) -> tuple[list[list[dict]], dict[st
         levels.append([by_id[nid] for nid in ordered_ids if nid in ready])
         remaining -= ready
     return levels, deps
+
+
+def _pin_after_siblings(pinned: list[str], ids: set[str], deps: dict[str, set[str]]) -> None:
+    """A pinned call waits for every NON-pinned call of the turn (pinned calls never wait on
+    each other, so two unresolved dependencies cannot deadlock)."""
+    unpinned = ids - set(pinned)
+    for call_id in pinned:
+        deps[call_id] |= unpinned
 
 
 def _compute_downstream(deps: dict[str, set[str]], seed_ids: set[str]) -> set[str]:
@@ -164,7 +188,7 @@ def _inject_write_bash_deps(
 
 
 def _announce_activity(config: dict, level: list[dict]) -> None:
-    """Publie les outils qui DÉMARRENT, pour les observateurs hors du process (BouzéqUI).
+    """Publie les outils qui DÉMARRENT, pour les observateurs hors du process (bouzeui).
 
     C'est le seul battement possible pendant l'exécution d'un outil, et il manquait. Les deux
     autres traces s'éteignent précisément là : `partial_stream.clear_partial` supprime le flux
@@ -173,7 +197,7 @@ def _announce_activity(config: dict, level: list[dict]) -> None:
     ne laissait rien : l'interface affichait « en cours » sans pouvoir dire de quoi, et un
     agent réellement bloqué était indiscernable d'un agent au travail (cas eac1f0bef295).
 
-    Le rappel est optionnel et n'existe que sous BouzéqUI (`repl` l'installe) : en CLI il n'y a
+    Le rappel est optionnel et n'existe que sous bouzeui (`repl` l'installe) : en CLI il n'y a
     personne à informer, l'utilisateur voit le terminal."""
     activity_cb = config.get("_ipc_activity_cb")
     if activity_cb is None:
@@ -189,14 +213,14 @@ def _cancel_requested(config: dict) -> bool:
 
     Le drapeau d'annulation n'était sondé QUE pendant le streaming LLM (`_interruptible_iter`)
     et en tête de tour. Un lot d'outils — c'est-à-dire la majeure partie d'un tour de travail —
-    ne le regardait jamais : sous BouzéqUI, interrompre pendant les outils ne produisait rien,
+    ne le regardait jamais : sous bouzeui, interrompre pendant les outils ne produisait rien,
     puis l'escalade de `/interrupt` tuait le process faute de réponse. Le Ctrl+C du TUI, lui,
     est un signal : il tombe n'importe où, y compris là.
 
     On PEEK (`_cancel_peek`) là où la boucle CONSOMME (`_cancel_check`) : consommer ici
     volerait la demande à la garde de tête de `loop.run`, qui est ce qui clôt réellement le
     tour (`close_reason='cancelled'`). Les outils cessent de partir, la boucle constate et
-    rend la main. Absent en CLI (`repl` ne l'installe que sous BouzéqUI) : le TUI garde son
+    rend la main. Absent en CLI (`repl` ne l'installe que sous bouzeui) : le TUI garde son
     signal, ce code ne le concerne pas."""
     peek = config.get("_cancel_peek")
     return bool(peek and peek())
@@ -236,7 +260,7 @@ def _execute_level(
         tc = level[0]
         t0 = time.monotonic()
         results[tc["id"]] = execute_tool(
-            tc["name"], tc["input"],
+            tc["name"], _tool_params(tc),
             permission_mode="accept-all", config=config)
         durations[tc["id"]] = time.monotonic() - t0
         return
@@ -247,18 +271,37 @@ def _execute_level(
     if parallel_tcs:
         _run_parallel(parallel_tcs, results, durations, config)
 
-    for index, tc in enumerate(sequential_tcs):
+    index = 0
+    for groupe in _groupes_sequentiels(sequential_tcs):
         # Seconde frontière : les outils séquentiels d'un même niveau partent l'un APRÈS
         # l'autre (deux `Bash` à la suite, p.ex.). Sans ce test, interrompre au premier
         # laissait quand même tourner tous les suivants.
         if _cancel_requested(config):
             _mark_cancelled(sequential_tcs[index:], results, durations)
             return
-        t0 = time.monotonic()
-        results[tc["id"]] = execute_tool(
-            tc["name"], tc["input"],
-            permission_mode="accept-all", config=config)
-        durations[tc["id"]] = time.monotonic() - t0
+        _run_parallel(groupe, results, durations, config)
+        index += len(groupe)
+
+
+def _groupes_sequentiels(tcs: list[dict]) -> list[list[dict]]:
+    """Découpe la file séquentielle en groupes lancés l'un après l'autre, dans l'ordre du lot.
+
+    Un groupe = un seul appel, SAUF une suite d'appels consécutifs du même outil
+    `lot_simultane` (Agent) : ceux-là partent ensemble. Avant, un lot de 4 Agent en mode
+    pause attendait l'enfant 1 avant de LANCER l'enfant 2 (TODO §4 du 2026-09-25 : 4
+    dispatchs à 14:59, 15:11, 15:17, 15:27). L'ordre vis-à-vis des autres outils séquentiels
+    est gardé : `Bash(git commit)` puis `Agent` → l'enfant part de l'état commité."""
+    from ..core.tool_registry import is_lot_simultane
+
+    groupes: list[list[dict]] = []
+    for tc in tcs:
+        precedent = groupes[-1][-1] if groupes else None
+        if (precedent is not None and precedent["name"] == tc["name"]
+                and is_lot_simultane(tc["name"])):
+            groupes[-1].append(tc)
+        else:
+            groupes.append([tc])
+    return groupes
 
 
 def _run_parallel(
@@ -271,7 +314,7 @@ def _run_parallel(
         tc = tcs[0]
         t0 = time.monotonic()
         results[tc["id"]] = execute_tool(
-            tc["name"], tc["input"],
+            tc["name"], _tool_params(tc),
             permission_mode="accept-all", config=config)
         durations[tc["id"]] = time.monotonic() - t0
         return
@@ -281,10 +324,14 @@ def _run_parallel(
     for tc in tcs:
         start_times[tc["id"]] = time.monotonic()
     futures = {
-        pool.submit(execute_tool, tc["name"], tc["input"],
+        pool.submit(execute_tool, tc["name"], _tool_params(tc),
                     "accept-all", None, config): tc
         for tc in tcs
     }
+    # TUI : pendant qu'un lot d'Agent attend ses enfants, l'utilisateur garde la main sur la
+    # barre des sous-agents (`_attente_lot`, posé par le REPL ; dort 0,1 s sinon).
+    attente = config.get("_attente_lot")
+    noms = [tc["name"] for tc in tcs]
     try:
         remaining_futs = set(futures)
         while remaining_futs:
@@ -294,7 +341,9 @@ def _run_parallel(
                 results[tc["id"]] = fut.result()
                 durations[tc["id"]] = time.monotonic() - start_times[tc["id"]]
             remaining_futs -= newly_done
-            if remaining_futs:
+            if remaining_futs and attente is not None:
+                attente(lambda: all(f.done() for f in remaining_futs), noms)
+            elif remaining_futs:
                 time.sleep(0.1)
     finally:
         pool.shutdown(wait=False, cancel_futures=True)

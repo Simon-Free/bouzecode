@@ -9,7 +9,6 @@ from __future__ import annotations
 
 import re
 from .state import resolve_context_state, METHODOLOGY_NOTE, ContextState
-from .readme_stale import mark_readme_stale
 
 # Matches snippet headers, range-based (L<start>-<end>) or symbol-based (:: <symbol>).
 _SNIPPET_RE = re.compile(
@@ -68,7 +67,6 @@ def install_stale_hooks() -> None:
         def hooked_edit(params, config):
             result = original_edit(params, config)
             if not result.startswith("Error"):
-                mark_readme_stale(params.get("file_path", ""))
                 ctx_state = resolve_context_state(config)
                 if ctx_state:
                     _mark_stale_snippets(ctx_state, params.get("file_path", ""))
@@ -84,7 +82,6 @@ def install_stale_hooks() -> None:
         def hooked_write(params, config):
             result = original_write(params, config)
             if not result.startswith("Error"):
-                mark_readme_stale(params.get("file_path", ""))
                 ctx_state = resolve_context_state(config)
                 if ctx_state:
                     _mark_stale_snippets(ctx_state, params.get("file_path", ""))

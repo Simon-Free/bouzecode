@@ -2,7 +2,8 @@
 """Build the on-wire payload under the methodology-centric architecture.
 
 The contract communicated to the model: every persistent fact lives in the
-methodology system block (cached). At each turn the wire contains only:
+methodology note (cached, in <working_notes> at the head of the first user
+message). At each turn the wire contains only:
 - The LATEST user message (earlier user msgs are already in methodology as
   ## User blocks, keeping them on the wire is pure duplication)
 - The last assistant turn's tool_results (the assistant message itself — prose
@@ -20,10 +21,25 @@ from __future__ import annotations
 
 import json
 
-_DESTRUCTION_BANNER = (
-    "[SYSTEM] This tool_result will be destroyed at the next user turn "
-    "unless you snippet it or stash a note with Methodology.\n\n"
+# Consigne du harnais, posée à part du résultat (clé HARNESS_NOTE_KEY) : dispatch la regroupe
+# dans le bloc <harness_notes> qui suit les tool_results. Écrite DANS un tool_result, elle
+# faisait refuser claude-opus-5-5 (content_filter du gateway, rejeux du 2026-10-07).
+_DESTRUCTION_NOTICE = (
+    "The tool_results above are destroyed at the next turn unless you snippet them "
+    "or stash a note with Methodology."
 )
+
+# Un message user posé PENDANT le tour, juste après les résultats d'un lot (courrier relevé à
+# la frontière de tour, relance du harnais) : le lot reste vivant. Sans cette marque, le fil
+# lisait ce message comme la FIN du lot et n'envoyait que lui (keep=0) — mesuré à l'essai du
+# 2026-09-25 : l'enfant 40ea29e4 a perdu les 3 résultats de son tour 35 en recevant le message
+# de son parent, la racine 6bafe9cd les 5 de son tour 72 avec une précision relayée.
+SUITE_DU_LOT = "_suite_du_lot"
+
+
+def message_du_lot(texte: str) -> dict:
+    """Le message user qui suit les résultats du lot en cours, sans les retirer du fil."""
+    return {"role": "user", "content": texte, SUITE_DU_LOT: True}
 
 
 def _last_asst_with_tools_idx(messages: list[dict]) -> int:
@@ -40,15 +56,23 @@ def _last_asst_with_tools_idx(messages: list[dict]) -> int:
     # while reasoning about it — so keep it live (don't let the cut orphan it),
     # else the freshly-fetched material (e.g. a BR) is dropped and re-fetched,
     # re-triggering overflow (loop). Loop to handle consecutive overflows.
+    # `_empty_completion` (2026-08-26) is skipped for the exact same reason as
+    # `_overflow_cut`: the model returned NOTHING (no text, no thinking, no tool call),
+    # so the batch it was supposed to act on is still unfinished. Without this skip the
+    # trailing assistant(empty)+user(nudge) pair made this function return -1, and
+    # `build_minimal_payload` then shipped `[user_msg]` ALONE — the live batch's
+    # tool_results were RAZED (that is the keep=0 / api_input_tokens=566 seen in
+    # turns.jsonl), producing a degenerate request that yielded another empty reply:
+    # a permanent loop at ~0.2s/turn. Keeping the batch live is the context FLOOR.
     while (
         j >= 1
         and messages[j].get("role") == "user"
         and messages[j - 1].get("role") == "assistant"
-        and messages[j - 1].get("_overflow_cut")
+        and (messages[j - 1].get("_overflow_cut")
+             or messages[j - 1].get("_empty_completion"))
     ):
         j -= 2
-    while j >= 0 and messages[j].get("role") == "tool":
-        j -= 1
+    j = _avant_la_suite_du_lot(messages, j)
     if j < 0:
         return -1
     msg = messages[j]
@@ -61,6 +85,16 @@ def _last_asst_with_tools_idx(messages: list[dict]) -> int:
         if prev.get("role") == "assistant" and prev.get("tool_calls"):
             return j - 1
     return -1
+
+
+def _avant_la_suite_du_lot(messages: list[dict], j: int) -> int:
+    """Remonte les messages posés pendant le tour (`SUITE_DU_LOT`) puis les résultats d'outils :
+    l'index qui reste est ce qui les précède (le lot, s'il y en a un)."""
+    while j >= 0 and messages[j].get("role") == "user" and messages[j].get(SUITE_DU_LOT):
+        j -= 1
+    while j >= 0 and messages[j].get("role") == "tool":
+        j -= 1
+    return j
 
 
 def _build_tool_name_index(messages: list[dict]) -> dict[str, str]:
@@ -99,6 +133,15 @@ def _tool_call_recall(name: str, input_dict: dict) -> str:
     """
     import json as _json
     name = name or "tool"
+    if name in ("Methodology", "Snippet", "ResetContext"):
+        # Jamais leurs arguments : la note est déjà dans le bloc METHODOLOGY. Recopier côté
+        # utilisateur le texte que le modèle vient d'écrire faisait refuser claude-opus-5
+        # par le filtre du gateway en milieu de conversation (incident Focus 2026-09-29).
+        return f"[↩ {name}]\n"
+    if name in ("Write", "Edit") and isinstance(input_dict, dict) and input_dict.get("file_path"):
+        # Jamais le contenu tronqué : il faisait croire à un fichier partiel. Le résultat,
+        # juste en dessous, porte l'aperçu numéroté de ce qui a réellement été écrit.
+        return f"[↩ {name}: {input_dict['file_path']}{_taille_ecrite(name, input_dict)}]\n"
     if isinstance(input_dict, dict) and input_dict.get("command"):
         compact = str(input_dict["command"])
     else:
@@ -110,6 +153,14 @@ def _tool_call_recall(name: str, input_dict: dict) -> str:
     if len(compact) > 200:
         compact = compact[:200] + "…"
     return f"[↩ {name}: {compact}]\n"
+
+
+def _taille_ecrite(name: str, input_dict: dict) -> str:
+    texte = input_dict.get("content" if name == "Write" else "new_string") or ""
+    if not texte:
+        return ""
+    lignes = texte.count("\n") + (0 if texte.endswith("\n") else 1)
+    return f" ({lignes} lignes écrites)" if name == "Write" else f" ({lignes} lignes remplacées)"
 
 
 def _build_file_path_index(messages: list[dict]) -> dict[str, str]:
@@ -142,37 +193,29 @@ def _compact_write_edit_result(content: str, tool_name: str, tool_call_id: str) 
     return f"[{tool_name} {tool_call_id} — {first[:120]}]"
 
 
-# A plugin tool that maintains one big artifact (a document, a data model, a
-# dataset) tends to echo the WHOLE artifact on every write call, alongside a
-# human-readable "summary" of what just changed. Such an artifact is persisted in
-# the artifacts store at execution time, so it never needs to reach the LLM;
-# re-sending it is the dominant fresh-token cost (measured: 21 write calls in a
-# single turn, each re-emitting the same ~25 KB artifact). Below this size an
-# envelope is cheap enough to pass through untouched.
-_ARTIFACT_ENVELOPE_MIN_CHARS = 2000
+def _compact_model_envelope(content: str) -> str | None:
+    """If a tool_result is a PBI model envelope (the full model.bim / pbit bytes
+    plus a human 'summary'), return just the summary for the wire — else None.
 
-
-def _compact_artifact_envelope(content: str) -> str | None:
-    """If a tool_result is a bulky JSON envelope pairing a human 'summary' with an
-    artifact payload, return just the summary for the wire — else None.
-
-    The contract a plugin opts into: return a JSON object with a non-empty
-    "summary" string plus the payload keys. The summary keeps the actionable
-    feedback (what changed, resulting counts); the payload is dropped."""
+    pbi_* write tools (add_measure, add_table, add_relationship, edit_*, …) echo
+    the ENTIRE growing model.bim on every call. The model is persisted in the
+    artifacts store at execution time, so the model never needs to reach the LLM;
+    re-sending it was the dominant fresh-token cost (e.g. 21 add_measure calls in
+    one turn each re-emitting the whole ~25 KB model). The summary keeps the
+    actionable feedback (what changed + table/measure/relation counts)."""
     if not content or '"summary"' not in content:
         return None
-    if len(content) < _ARTIFACT_ENVELOPE_MIN_CHARS:
+    if '"pbi_model"' not in content and '"pbit_files"' not in content:
         return None
     try:
         data = json.loads(content)
     except (ValueError, TypeError):
         return None
-    if not isinstance(data, dict) or len(data) < 2:
-        return None  # no bulky payload sitting next to the summary
-    summary = data.get("summary")
-    if not isinstance(summary, str) or not summary.strip():
+    if not isinstance(data, dict) or "summary" not in data:
         return None
-    return summary
+    if "pbi_model" not in data and "pbit_files" not in data:
+        return None
+    return data["summary"]
 
 
 def _last_user_idx(messages: list[dict]) -> int:
@@ -192,6 +235,20 @@ _INTERRUPTED_BANNER = (
 )
 
 
+def _latest_user_only(messages: list[dict], latest_user: int,
+                      interrupted_content: str | None) -> list[dict]:
+    """Wire without a live batch: the latest user message alone (Ctrl+C prefix included)."""
+    if latest_user < 0:
+        return []
+    user_msg = dict(messages[latest_user])
+    if interrupted_content:
+        user_msg["content"] = (
+            _INTERRUPTED_BANNER + interrupted_content
+            + "\n\n---\n\n" + (user_msg.get("content", "") or "")
+        )
+    return [user_msg]
+
+
 def build_minimal_payload(messages: list[dict]) -> list[dict]:
     """Apply the methodology-centric pruning: only tool_results from the live
     batch reach the wire. The assistant message (prose + tool_use XML) is
@@ -208,27 +265,20 @@ def build_minimal_payload(messages: list[dict]) -> list[dict]:
             interrupted_content = prev.get("content", "")
 
     if last_batch < 0:
-        if latest_user >= 0:
-            user_msg = dict(messages[latest_user])
-            if interrupted_content:
-                user_msg["content"] = (
-                    _INTERRUPTED_BANNER + interrupted_content
-                    + "\n\n---\n\n" + (user_msg.get("content", "") or "")
-                )
-            return [user_msg]
-        return []
+        return _latest_user_only(messages, latest_user, interrupted_content)
 
     # Drop the live-batch assistant message itself (its prose + tool_use XML are
     # redundant — methodology + tool_results convey everything). Keep only what
     # follows it (tool_results, the enforcement/next user msg). The Ctrl+C case is
     # handled separately via interrupted_content, which prefixes the user message.
-    # Snippetable results are wrapped with "==== A SNIPPETER ====" markers:
-    # - tool_id-keyed (Grep, GetFolderDescription, WebFetch): id: tool_id=...
-    # - file-keyed (Read, Skill): id: file=<path>
-    # The first non-snippetable result gets the destruction banner instead.
+    # Snippetable results get numbered lines; their "A SNIPPETER" instruction rides apart
+    # (HARNESS_NOTE_KEY), for the <harness_notes> block that dispatch places after them:
+    # - tool_id-keyed (FindCode, Tree, LoadProjectConfig): id: tool_id=...
+    # - file-keyed (Read, Skill, Edit, Write): id: file=<path>
+    # The first non-snippetable result carries the destruction notice instead.
     from .snippet_wire import (
-        is_snippetable_tool_id, wrap_snippetable,
-        is_file_snippetable, wrap_file_snippetable,
+        is_snippetable_tool_id, mark_snippetable, HARNESS_NOTE_KEY,
+        is_file_snippetable, mark_file_snippetable, mark_write_snippetable,
         SNIPPET_MIN_LINES, _line_count,
     )
 
@@ -244,30 +294,37 @@ def build_minimal_payload(messages: list[dict]) -> list[dict]:
         if msg.get("role") == "tool":
             tool_id = msg.get("tool_call_id")
             tool_name = name_index.get(tool_id)
+            # Ni l'appel Methodology ni son résultat : la note est déjà dans le fil (<working_notes>,
+            # bloc METHODOLOGY). Redéclaré en argument d'outil, il faisait refuser claude-opus-5-5
+            # (content_filter du gateway, session bb991b7c du 2026-10-07 : 8/8 refus avec, 0/8 sans).
+            if tool_name == "Methodology":
+                continue
             content = msg.get("content", "") or ""
-            compacted_envelope = _compact_artifact_envelope(content)
-            # Artifact envelopes carry the whole artifact — drop it to the summary
-            # on the wire (the artifact is persisted in artifacts at execution time).
-            if compacted_envelope is not None:
+            compacted_model = _compact_model_envelope(content)
+            # PBI model envelopes carry the full model.bim — drop it to the summary
+            # on the wire (the model is persisted in artifacts at execution time).
+            if compacted_model is not None:
                 cleaned = dict(msg)
-                cleaned["content"] = compacted_envelope
+                cleaned["content"] = compacted_model
                 result.append(cleaned)
             # For snippetable tools, only wrap if content meets line threshold;
             # small results fall through to the normal banner/passthrough path.
             elif is_snippetable_tool_id(tool_name) and _line_count(content) >= SNIPPET_MIN_LINES:
                 cleaned = dict(msg)
-                cleaned["content"] = wrap_snippetable(content, tool_id)
+                cleaned["content"], cleaned[HARNESS_NOTE_KEY] = mark_snippetable(content, tool_id)
                 result.append(cleaned)
             elif is_file_snippetable(tool_name) and file_path_index.get(tool_id) and _line_count(content) >= SNIPPET_MIN_LINES:
                 cleaned = dict(msg)
-                cleaned["content"] = wrap_file_snippetable(
-                    content, file_path_index[tool_id]
-                )
+                mark = mark_write_snippetable if tool_name in ("Write", "Edit") \
+                    else mark_file_snippetable
+                cleaned["content"], cleaned[HARNESS_NOTE_KEY] = mark(
+                    content, file_path_index[tool_id], tool_id)
                 result.append(cleaned)
             elif not banner_injected:
                 cleaned = dict(msg)
                 recall = _tool_call_recall(tool_name, input_index.get(tool_id, {}))
-                cleaned["content"] = _DESTRUCTION_BANNER + recall + content
+                cleaned["content"] = recall + content
+                cleaned[HARNESS_NOTE_KEY] = _DESTRUCTION_NOTICE
                 result.append(cleaned)
                 banner_injected = True
             else:
@@ -275,6 +332,11 @@ def build_minimal_payload(messages: list[dict]) -> list[dict]:
                 recall = _tool_call_recall(tool_name, input_index.get(tool_id, {}))
                 cleaned["content"] = recall + content
                 result.append(cleaned)
+            # Le message assistant du lot est retiré du fil : les convertisseurs à outils natifs
+            # redéclarent ses appels depuis les résultats. Sans les VRAIS arguments, ils les
+            # redéclaraient avec `{}`, et le modèle recopiait ce lot vide (claude-opus-5-5 sur le
+            # gateway, 2026-10-05 : 5 lots vides sur 22 rejeux, 0 sur 12 avec les arguments).
+            result[-1]["call_input"] = input_index.get(tool_id, {})
         elif msg.get("role") == "user" and interrupted_content and i == latest_user:
             injected = dict(msg)
             injected["content"] = (
@@ -288,10 +350,13 @@ def build_minimal_payload(messages: list[dict]) -> list[dict]:
     # The wire must begin with a user/assistant message — never a bare
     # tool_result (Anthropic rejects that). The methodology-centric design keeps
     # the earlier user message OUT of the wire (it lives in the methodology
-    # system block), so when the batch's tool_results would lead, prepend a
+    # note), so when the batch's tool_results would lead, prepend a
     # minimal assistant stub. In the enforcement pattern a trailing user message
     # already provides a valid leading role, so no stub is added there.
-    if not result or result[0].get("role") == "tool":
+    # Lot réduit à Methodology seul : rien n'en reste, le fil retombe sur la demande.
+    if not result:
+        return _latest_user_only(messages, latest_user, interrupted_content)
+    if result[0].get("role") == "tool":
         result.insert(0, {"role": "assistant", "content": "."})
 
     return result
@@ -341,8 +406,10 @@ def _strip_thinking_from_messages(messages: list) -> list:
 
 
 def build_messages_for_api(state, config: dict) -> list:
-    """Methodology-centric pipeline: strip thinking then prune to minimal wire payload."""
+    """Methodology-centric pipeline: strip thinking, prune to minimal wire payload, then put
+    the user's current request first (`demande_en_cours`)."""
+    from .demande_en_cours import demande_en_cours, mettre_la_demande_en_tete
     result = list(state.messages)
     result = _strip_thinking_from_messages(result)
     result = build_minimal_payload(result)
-    return result
+    return mettre_la_demande_en_tete(result, demande_en_cours(state))

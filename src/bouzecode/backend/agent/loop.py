@@ -4,6 +4,7 @@ from __future__ import annotations
 import os
 import re
 import subprocess
+import sys
 import time
 from pathlib import Path
 from typing import Generator
@@ -18,10 +19,16 @@ from .id_uniquify import uniquify_tool_call_ids
 from .payload_dump import dump_turn_payload
 from ..tools.interaction import PausedForInput, is_web_ipc_active, DeferredChecks
 from ..tools.plan_mode import PlanRejected
+from ..tools.registration import oublier_micros_de_cloture_refusee
 
 from .loop_context import LoopContext, TurnAction
-from .loop_turn import stream_llm_turn, handle_no_tools, enforce_methodology, execute_tool_calls
+from .loop_turn import (
+    stream_llm_turn, handle_no_tools, enforce_methodology, execute_tool_calls,
+    StreamStalled,
+)
+from .repli_collant import tour_llm
 from .task_classifier import classify
+from ..context_manager.compact_precache import armer_apres_appel, desarmer_minuteur
 
 
 # Matches inline <thinking>...</thinking> blocks (same shape as
@@ -29,6 +36,29 @@ from .task_classifier import classify
 # thinking tags already inline in at_text before recomposing, so the thinking
 # text is never duplicated (once from thinking_parts, once inline).
 _THINKING_STRIP_RE = re.compile(r"<thinking>\s*\n?.*?\n?\s*</thinking>", re.DOTALL)
+_UNCLOSED_THINKING_RE = re.compile(r"(?:^|(?<=\n))<thinking>(?:(?!</thinking>).)*\Z", re.DOTALL)
+
+# Plafond de tours ENCHAÎNÉS sans reprise de la main par l'utilisateur.
+#
+# `while True` (plus bas) ne sort que si le MODÈLE le décide : outil `ends_turn`,
+# réponse sans tool call, ou l'un des compteurs de pathologie (meta_only_cap,
+# empty_turn_nudges, consecutive_no_tool_recoveries…). Tous ces compteurs bornent des
+# tours IMPRODUCTIFS. Un tour qui exécute un vrai outil n'en incrémente aucun : il les
+# remet tous à zéro (L490-492). Un modèle — ou un provider — qui rappelle indéfiniment
+# un outil productif tient donc la boucle ouverte pour toujours, en brûlant des jetons
+# et en immobilisant le worker. C'était le dernier chemin non borné, et rien ne le
+# couvrait depuis que l'abort d'anti-paralysie a été retiré (cf. loop_turn.py L51).
+#
+# Le chiffre : sur les 334 sessions d'agents web réellement exécutées sur ce poste
+# (~/.bouzecode/web_agents/*.session.json), la plus longue fait 113 tours, p99 = 72,
+# médiane = 6, et AUCUNE ne dépasse 150. 500 laisse donc 4,4× la pire session réelle
+# avant de mordre : le plafond ne peut pas interrompre un travail légitime, il ne peut
+# attraper qu'un emballement.
+#
+# Il se compte par APPEL de run(), pas sur la session : ce qu'on borne est la traite
+# autonome (l'agent enchaîne sans que personne ne reprenne la main). Un utilisateur qui
+# dialogue longtemps en TUI relance un run() à chaque message et repart de zéro.
+MAX_AUTONOMOUS_TURNS = 500
 
 
 def _build_assistant_content(at_text: str, thinking_parts: list[str]) -> str:
@@ -40,11 +70,27 @@ def _build_assistant_content(at_text: str, thinking_parts: list[str]) -> str:
     """
     if not thinking_parts:
         return at_text
-    at_text = _THINKING_STRIP_RE.sub("", at_text).strip()
+    at_text = _THINKING_STRIP_RE.sub("", at_text)
+    # Un <thinking> resté OUVERT (tour coupé en pleine réflexion) est lui aussi déjà dans
+    # thinking_parts : le garder répétait la réflexion (session a3b38124, message 50).
+    at_text = _UNCLOSED_THINKING_RE.sub("", at_text).strip()
     thinking_text = "".join(thinking_parts)
     if at_text and at_text.strip() != ".":
         return f"<thinking>\n{thinking_text}\n</thinking>\n\n{at_text}"
     return f"<thinking>\n{thinking_text}\n</thinking>"
+
+
+#  Comparées par NOM le long du MRO : aucun import dans le qualificateur d'exception.
+_COUPURES_DE_TRANSPORT = frozenset({
+    "ChunkedEncodingError", "ConnectionError", "ProtocolError", "ReadTimeout", "Timeout",
+    "RemoteProtocolError", "ReadError", "IncompleteRead",
+})
+
+
+def coupure_de_transport(exc: BaseException) -> bool:
+    """Socket coupé / flux tronqué (requests, urllib3, httpx, http.client) ?"""
+    return any(klass.__module__.split(".")[0] in ("requests", "urllib3", "httpx", "http")
+               and klass.__name__ in _COUPURES_DE_TRANSPORT for klass in type(exc).__mro__)
 
 
 def _fire_completion(state, config, close_reason: str) -> None:
@@ -66,6 +112,12 @@ def _fire_completion(state, config, close_reason: str) -> None:
     # SESSION → they saw an empty close_reason → false crash. Persist it here so a
     # graceful close is ALWAYS recorded on disk, independently of the IPC.
     state.close_reason = close_reason
+    #  Les suites déclarées par FinalAnswer ne s'ouvrent qu'ICI, clôture acceptée, et AVANT
+    #  le hook (qui peut bloquer puis faire tuer ce process).
+    from ..tools.registration import ouvrir_micros_de_cloture_acceptee
+    ouvrir_micros_de_cloture_acceptee(config)
+    from .cloture_reprise import oublier_la_tentative
+    oublier_la_tentative(config)
     session_file = config.get("_session_file")
     if session_file:
         from ..commands.session.session import _save_session_checkpoint
@@ -76,6 +128,12 @@ def _fire_completion(state, config, close_reason: str) -> None:
             config.get("_session_path"),
             model=config.get("model"),
         )
+    #  Un agent qui clôt n'a plus besoin des serveurs et watchers que ses Bash ont lancés :
+    #  laissés vivants, ils survivaient des heures à l'agent (et à son worktree).
+    from ..tools.ops.bash_bg import arreter_processus_lances
+    arretes = arreter_processus_lances()
+    if arretes:
+        print(f"[clôture] processus lancés par Bash arrêtés : {arretes}", flush=True)
     finish_cb = config.get("_ipc_finish_cb")
     if finish_cb:
         finish_cb(close_reason)
@@ -151,6 +209,13 @@ def _resolve_pending_from_state(state):
 
 
 def _get_bouzecode_commit() -> str:
+    """HEAD abrégé du dépôt bouzecode, relu sur le disque à chaque run. Lu dans `.git`
+    (quelques fichiers) : le `git rev-parse` d'avant coûtait ~165 ms de spawn par run, 92 %
+    du temps d'un test e2e. git ne sert plus que de repli si la lecture directe échoue."""
+    from ..core.code_version import REPO_ROOT, read_head_short
+    short = read_head_short(REPO_ROOT)
+    if short:
+        return short
     try:
         repo_dir = str(Path(__file__).resolve().parent.parent)
         return subprocess.check_output(
@@ -161,34 +226,42 @@ def _get_bouzecode_commit() -> str:
         return "unknown"
 
 
-def _get_bouzecode_version() -> str:
-    """Resolve bouzecode version from pyproject.toml [project].version.
+def _stamp_code_version(state: AgentState) -> None:
+    """Commit du disque (HEAD relu maintenant) ET commit que ce process a chargé à son
+    démarrage : un process vieux de plusieurs jours annonçait le premier alors qu'il
+    exécutait le second (sessions du 25/09 à tokens nuls)."""
+    from ..core.code_version import BOOT
+    state.bouzecode_commit = _get_bouzecode_commit()
+    state.bouzecode_version = _get_bouzecode_version()
+    state.bouzecode_boot_commit = BOOT.boot_sha
+    from ..core.version_session import noter_version
+    noter_version(state, version=state.bouzecode_version, commit=state.bouzecode_commit,
+                  boot_commit=state.bouzecode_boot_commit)
 
-    Walks up from this file's directory looking for pyproject.toml.
-    Falls back to 'unknown' if the file is not found or unparseable.
-    """
-    try:
-        import tomllib
-    except ModuleNotFoundError:
-        return "unknown"
-    try:
-        current = Path(__file__).resolve().parent
-        for _ in range(10):  # walk up at most 10 levels
-            candidate = current / "pyproject.toml"
-            if candidate.is_file():
-                with open(candidate, "rb") as f:
-                    data = tomllib.load(f)
-                version = data.get("project", {}).get("version")
-                if version:
-                    return version
-                return "unknown"
-            parent = current.parent
-            if parent == current:
-                break
-            current = parent
-    except Exception:
-        pass
-    return "unknown"
+
+def _get_bouzecode_version() -> str:
+    """Version de bouzecode (pyproject du dépôt, sinon paquet installé)."""
+    from ..core.version_session import lire_version_bouzecode
+    return lire_version_bouzecode()
+
+
+def relever_courrier(state: AgentState, config: dict) -> bool:
+    """Frontière de tour : les messages écrits PENDANT le lot d'outils qui vient de finir
+    entrent maintenant dans la conversation, comme un message de l'utilisateur (et dans la
+    note Methodology, comme tout énoncé) — sans attendre la fin du travail, sans rien casser
+    du lot : tous ses résultats sont déjà là. `_inbox_pop` n'existe qu'en mode web."""
+    relever = config.get("_inbox_pop")
+    textes = relever() if relever else []
+    if not textes:
+        return False
+    texte = "\n\n".join(textes)
+    from .minimal_payload import message_du_lot
+    #  Le lot qui vient de finir reste sur le fil : ce message le SUIT, il ne le clôt pas.
+    state.messages.append(message_du_lot(texte))
+    state.user_loop_count += 1
+    from ..context_manager.methodology import append_user_msg_to_methodology
+    append_user_msg_to_methodology(getattr(state, "context_state", None), texte)
+    return True
 
 
 def run(
@@ -203,12 +276,19 @@ def run(
     state.messages = [m for m in state.messages if not m.get("_interrupted")]
 
     if user_message is not None:
-        user_msg = {"role": "user", "content": user_message}
+        from .demande_en_cours import DEMANDE_UTILISATEUR
+        user_msg = {"role": "user", "content": user_message, DEMANDE_UTILISATEUR: True}
         pending_img = config.pop("_pending_image", None)
         if pending_img:
             user_msg["images"] = [pending_img]
         state.messages.append(user_msg)
         state.user_loop_count += 1
+        #  Un nouveau message ouvre un tour qui n'est PAS clos : le motif du tour d'avant ne
+        #  le décrit plus. Sans ça, un Ctrl+C en plein lot (rien ne réécrit le motif) laissait
+        #  la session enregistrée « final_answer » (001c222b) et `close_reason or "cancelled"`
+        #  gardait l'ancien. La réponse livrée, elle, reste le dernier livrable de la session.
+        state.close_reason = ""
+        state.close_detail = ""
         from ..context_manager.methodology import append_user_msg_to_methodology
         append_user_msg_to_methodology(getattr(state, "context_state", None), user_message)
         yield CheckpointReady(len(state.messages))
@@ -231,13 +311,17 @@ def run(
 
     config["_context_state"] = getattr(state, "context_state", None)
     config["_state"] = state
-    # Plugin tools persist into a shared `artifacts` list the host must provide.
-    # Back it on AgentState so an artifact created by one plugin tool survives
-    # across turns and is read back by the plugin's later calls.
+    # Identité de LA config de cette boucle : un appel annexe (résumé de réflexion,
+    # classifieur, rattrapage d'enforcement, compaction) part d'une COPIE de ce dict, donc
+    # d'un autre objet — c'est ce qui permet à dispatch.stream de le reconnaître et de
+    # journaliser son usage (event "side_call"), sans le confondre avec un appel principal.
+    config["_main_config_id"] = id(config)
+    # Plugin tools (e.g. demo-pbi-plugin) persist into a shared `artifacts`
+    # list the host must provide. Back it on AgentState so a model created by
+    # pbi_create_model survives across turns and is read back by pbi_add_table etc.
     config["artifacts"] = state.artifacts
     state.system_prompt = system_prompt
-    state.bouzecode_commit = _get_bouzecode_commit()
-    state.bouzecode_version = _get_bouzecode_version()
+    _stamp_code_version(state)
 
     if depth == 0 and state.conversation_start == 0.0:
         state.conversation_start = time.monotonic()
@@ -267,10 +351,33 @@ def run(
         loop_detector=ToolCallLoopDetector(),
     )
 
+    max_autonomous_turns = config.get("max_turns") or MAX_AUTONOMOUS_TURNS
+    turn_count_at_entry = state.turn_count
+
     while True:
         if cancel_check and cancel_check():
             state.close_reason = "cancelled"
             return
+        if state.turn_count - turn_count_at_entry >= max_autonomous_turns:
+            # Atteindre ce plafond est une ANOMALIE, jamais une fin de travail : on ne
+            # clôt donc pas en silence. `max_turns_exceeded` est classé dans
+            # web_v2.close_reasons comme une fin FORCÉE — rc ≠ 0 côté runner, ticket NON
+            # avancé côté wake — et la ligne stderr laisse une trace dans le terminal et
+            # dans les logs headless, où le close_reason du JSON de session n'est lu par
+            # personne. Une boucle qu'on arrête sans le dire, c'est le même bug en moins
+            # visible : l'agent rendrait la main comme s'il avait fini.
+            state.close_reason = "max_turns_exceeded"
+            state.close_detail = (
+                f"{max_autonomous_turns} tours enchaînés sans clôture — boucle "
+                f"interrompue par le plafond, aucun travail n'est prouvé livré."
+            )
+            # ASCII pur : cette ligne part aussi dans un stderr redirigé vers un fichier
+            # en cp1252 (runs headless Windows), où un emoji lèverait UnicodeEncodeError
+            # — le garde-fou tuerait alors la session qu'il est censé clore proprement.
+            print(f"[bouzecode] WARNING: {max_autonomous_turns} chained turns without a "
+                  f"close - loop stopped by the cap, nothing proven delivered.",
+                  file=sys.stderr)
+            break
         state.turn_count += 1
         config["_turn_count"] = state.turn_count
         # Push the live turn number to the IPC state so web reconcilers see real
@@ -282,19 +389,95 @@ def run(
         ctx.action = TurnAction.PROCEED
 
         try:
-            yield from stream_llm_turn(state, config, system_prompt, ctx, cancel_check)
+            # Refus du modèle (content_filter) : rejeu sur la marche suivante de la chaîne
+            # de repli, une tentative par marche (refusal_fallback.py) ; la dernière marche
+            # qui a répondu colle (repli_collant.py). Dans le try pour qu'une erreur du
+            # rejeu soit qualifiée pareil.
+            # 2026-10-12 — un silence du provider (StreamStalled) n'est plus fatal du
+            # premier coup : loop_turn ne relaie StreamStalled que si RIEN n'a ete
+            # streame (ni texte ni outil), donc rejouer le tour est sans risque. Cas
+            # reel : session 69fae8479e09, gateway preprod muet 300 s, session tuee.
+            _replay_delays = _stall_replay_delays()
+            _replays_done = 0
+            #  Un appel au modèle part : le cache va être relu, il n'expirera pas — le minuteur
+            #  de compaction avant expiration (armé à la fin de l'appel précédent) tombe.
+            desarmer_minuteur(state)
+            while True:
+                try:
+                    yield from tour_llm(state, config, system_prompt, ctx, cancel_check,
+                                        stream_turn=stream_llm_turn)
+                    break
+                except StreamStalled as stall:
+                    if _replays_done >= len(_replay_delays):
+                        raise
+                    # L'appel abandonne a ete facture (prompt lu) : on le compte.
+                    _account_llm_call(state, config, ctx)
+                    _delay = _replay_delays[_replays_done]
+                    _replays_done += 1
+                    print(f"[STREAM STALLED] {stall} -- rejeu du tour "
+                          f"{_replays_done}/{len(_replay_delays)} dans {_delay:.0f}s",
+                          file=sys.stderr)
+                    _wait_before_replay(_delay, cancel_check)
         except BaseException as exc:
+            # Un appel qui meurt en vol a quand même été facturé (prompt lu) : on le compte.
+            _account_llm_call(state, config, ctx)
             # A fatal provider error (connection exhausted after all retries, or a
             # non-retryable API status) reaches here when nothing was streamed. It
             # is NOT a graceful close: mark close_reason='api_error' so the disk
             # session records the death cause (runner derives rc!=0, web_v2 reports
             # a crash) instead of looking like a normal finish. Re-raise so the
             # process still exits non-zero.
-            import anthropic as _ant
-            if isinstance(exc, (_ant.APIConnectionError, _ant.APIStatusError)):
+            # 2026-08-26 — un provider qui se TAIT en vol (plus aucun evenement de
+            # stream, sans erreur ni fin de flux) faisait boucler le consommateur a
+            # l'infini : le tour ne revenait jamais, donc aucun garde-fou post-stream
+            # ne pouvait s'appliquer et la session mourait avec close_reason='' (cas
+            # reel : agent d116c9422334, 3 relances manuelles, 1,06 USD sans livrable).
+            # StreamStalled est maintenant levee par _interruptible_iter apres une
+            # deadline d'inactivite : on l'estampille explicitement pour que le journal
+            # ET l'etat disque DISENT pourquoi le run s'est arrete.
+            if isinstance(exc, StreamStalled):
+                state.close_reason = "stream_stalled"
+                state.close_detail = str(exc)
+                print(f"[STREAM STALLED] {exc}", file=sys.stderr)
+                raise
+            #  Session 9d81964e (2026-10-06) : `ChunkedEncodingError` au 69e tour, relances du
+            #  backend épuisées → traceback, process tué, close_reason vide. Une coupure de
+            #  TRANSPORT clôt désormais la session proprement, avec sa cause.
+            if coupure_de_transport(exc):
                 state.close_reason = "api_error"
-                state.close_detail = f"{type(exc).__name__}: {exc}"
+                state.close_detail = (f"coupure de transport en vol, relances épuisées : "
+                                      f"{type(exc).__name__}: {exc}")
+                print(f"[TRANSPORT] {state.close_detail}", file=sys.stderr)
+                return
+            # Ce bloc QUALIFIE une exception deja survenue : il ne doit jamais
+            # pouvoir la remplacer par la sienne. Le 2026-08-24, un `import
+            # anthropic` place ici a fait mourir des agents sur un
+            # ModuleNotFoundError qui n'etait pas la cause premiere, et le
+            # diagnostic est parti sur une fausse piste. D'ou : aucun import,
+            # aucune resolution de symbole (on compare les noms le long du MRO),
+            # et un filet `except BaseException` qui rend la main a l'exception
+            # d'origine si le qualificateur defaille pour quelque raison que ce
+            # soit.
+            try:
+                for _klass in type(exc).__mro__:
+                    if (
+                        _klass.__module__.split(".")[0] == "anthropic"
+                        and _klass.__name__ in ("APIConnectionError", "APIStatusError")
+                    ):
+                        state.close_reason = "api_error"
+                        state.close_detail = f"{type(exc).__name__}: {exc}"
+                        break
+            except BaseException:
+                pass
             raise
+        # UN SEUL endroit compte l'appel, AVANT les branches (interruption, dépassement de
+        # réflexion, tour vide) : chacune rendait la main sans l'avoir compté, et ses tokens
+        # manquaient aux totaux de session alors qu'ils avaient été facturés.
+        _account_llm_call(state, config, ctx)
+        #  Fin de l'appel : le cache du gateway expire dans 5 min. Ce qui suit (lot d'outils,
+        #  question à l'utilisateur, attente du message suivant) peut durer plus : à 4 min 30
+        #  la note est compactée (context_manager/compact_precache.py).
+        armer_apres_appel(config)
         if ctx.action == TurnAction.BREAK:
             if ctx.interrupted and ctx.assistant_turn:
                 state.close_reason = state.close_reason or "cancelled"
@@ -358,28 +541,16 @@ def run(
                         append_overflow_summary_to_methodology,
                     )
                     append_overflow_summary_to_methodology(cs, summary)
-                    summary_block = (
-                        "[Ton raisonnement coupé a été résumé dans ta Methodology "
-                        "(section « Auto-compacted thoughts after overflow »).]\n"
-                        "Ne re-déroule pas ce raisonnement : décide et AGIS.\n\n"
-                    )
+                    summary_block = " ; résumé dans la Methodology"
                 else:
-                    summary_block = (
-                        "[Résumé de ton raisonnement coupé au tour précédent]\n"
-                        f"{summary}\n\n"
-                        "Ne re-déroule pas ce raisonnement : décide et AGIS.\n\n"
-                    )
-            # Common (agent-agnostic) overflow notice; the domain-specific action
-            # tail comes from config so it stays out of the shared loop.
-            action_hint = config.get("overflow_action_hint", "")
-            nudge = (
-                "</thinking>\n\n"
-                f"{summary_block}"
-                f"[SYSTEM] Your thinking was cut off after {ctx.thinking_chars} characters.\n\n"
-                "You have been analyzing too long without acting. "
-                "STOP DELIBERATING. ACT NOW."
-                + (f"\n\n{action_hint}" if action_hint else "")
-            )
+                    summary_block = f" ; résumé :\n{summary}"
+            # Pure information, persisted in EVERY later turn (user messages are never
+            # dropped from the wire): neutral wording, no `</thinking>` tag, no reasoning
+            # vocabulary — measured 2026-09-29, both trip claude-opus-5's refusal classifier.
+            # The cut assistant turn is stored closed (`<thinking>…</thinking>`) and stripped
+            # from the wire by conversion.py, so nothing is left open to close here.
+            nudge = (f"[SYSTEM] Tour précédent interrompu (longueur : {ctx.thinking_chars} "
+                     f"caractères){summary_block}")
             state.messages.append({"role": "user", "content": nudge})
             yield CheckpointReady(len(state.messages))
             ctx.thinking_overflow = False
@@ -396,15 +567,6 @@ def run(
         if remap:
             yield ToolIdRemap(remap)
 
-        from .compaction import estimate_tokens
-        state.compaction_log.append({
-            "event": "llm_call", "timestamp": time.time(), "turn": state.turn_count,
-            "api_input_tokens": at.in_tokens, "api_output_tokens": at.out_tokens,
-            "api_cache_read": at.cache_read_tokens, "api_cache_create": at.cache_creation_tokens,
-            "est_message_tokens": estimate_tokens(_build_messages_for_api(state, config)),
-            "message_count": len(state.messages), "has_tool_calls": bool(at.tool_calls),
-        })
-
         content = _build_assistant_content(at.text, ctx.thinking_parts)
         state.messages.append({
             "role": "assistant", "content": content, "tool_calls": at.tool_calls,
@@ -412,12 +574,14 @@ def run(
         # NB: thinking_parts is NOT cleared here — enforce_methodology (below) needs it
         # to re-inject the model's reasoning into the retry message (assistant <thinking>
         # blocks get stripped from the wire). It is reset at the start of the next turn.
-        state.total_input_tokens += at.in_tokens
-        state.total_output_tokens += at.out_tokens
-        state.total_cache_read_tokens += at.cache_read_tokens
-        state.total_cache_creation_tokens += at.cache_creation_tokens
-        yield TurnDone(at.in_tokens, at.out_tokens, at.cache_read_tokens,
-                       at.cache_creation_tokens)
+        # Bandeau « +N in / +N out » : l'usage COMPTÉ (estimé si l'API ne l'a pas renvoyé),
+        # pas le brut de l'AssistantTurn, qui restait à 0 sur un flux coupé avant l'usage.
+        compte = ctx.accounted_usage if ctx.accounted_turn == state.turn_count else None
+        if compte:
+            yield TurnDone(*compte[:4], input_estimated=compte[4], output_estimated=compte[5])
+        else:
+            yield TurnDone(at.in_tokens, at.out_tokens, at.cache_read_tokens,
+                           at.cache_creation_tokens)
 
         if not at.tool_calls:
             action = handle_no_tools(state, config, ctx)
@@ -454,7 +618,7 @@ def run(
                 # Best-effort: recovery is an optimization — a transient provider
                 # error on the side-call must never kill the session.
                 try:
-                    meth = recover_methodology(state, config, ctx)
+                    meth = recover_methodology(state, config, ctx, at.tool_calls)
                 except Exception as exc:
                     yield RecoveryFailed(tool="Methodology", error=str(exc))
                     meth = None
@@ -490,6 +654,7 @@ def run(
         ctx.empty_turn_nudges = 0
         ctx.consecutive_no_tool_recoveries = 0
         ctx.swallowed_xml_nudges = 0
+        ctx.sterile_turns = 0
 
         tool_calls = ctx._final_tool_calls
         try:
@@ -515,6 +680,8 @@ def run(
             # clean FinalAnswer — hiding exactly the anomalies they exist to surface.
             _fire_completion(state, config, state.close_reason or "final_answer")
             break
+        oublier_micros_de_cloture_refusee(config)
+        courrier = relever_courrier(state, config)
         if ctx.action == TurnAction.CONTINUE:
             continue
 
@@ -524,17 +691,18 @@ def run(
         # (SSE dumps 2026-06-10). A fresh user message unsticks it every time, so
         # say proactively that the turn is still open; this also saves the empty
         # round-trip and its retry cost.
-        if meth_recovered and not _real_tool_names:
+        if meth_recovered and not _real_tool_names and not courrier:
             # Only when the model's real batch was EMPTY (Methodology merged in as the
             # sole turn-closing meta) — the historical deepseek EOS case. A productive
             # turn (real tools executed) that merely forgot an explicit Methodology must
             # NOT get this "turn not finished" bounce: it already did work.
-            state.messages.append({"role": "user", "content": (
+            from .minimal_payload import message_du_lot
+            state.messages.append(message_du_lot(
                 "(System Automated Event): Methodology récupérée et enregistrée "
                 "hors-bande. Le tour n'est PAS terminé : continue le travail avec "
                 "des tool calls. Si la tâche est entièrement terminée, réponds en "
                 "texte SANS aucun tool call."
-            )})
+            ))
 
         yield CheckpointReady(len(state.messages))
 
@@ -686,3 +854,148 @@ def resume_paused(
 
     yield CheckpointReady(len(state.messages))
     yield from run(None, state, config, system_prompt, cancel_check=cancel_check)
+
+def _usage_of_call(ctx: LoopContext, state: AgentState | None = None):
+    """Usage de l'appel qui vient de se terminer : le tour complet s'il existe, sinon le
+    dernier instantané du flux (tour coupé par dépassement de réflexion ou par une
+    exception avant AssistantTurn). None = aucun octet d'usage reçu, rien à compter."""
+    at = ctx.assistant_turn
+    if at is not None:
+        usage = (at.in_tokens, at.out_tokens, at.cache_read_tokens, at.cache_creation_tokens)
+        has_tools, estimated = bool(at.tool_calls), getattr(at, "out_tokens_estimated", False)
+    elif ctx.last_usage is not None:
+        u = ctx.last_usage
+        usage = (u.in_tokens, u.out_tokens, u.cache_read_tokens, u.cache_creation_tokens)
+        has_tools, estimated = False, False
+    elif ctx.thinking_chars or ctx.pending_tool_parsed:
+        # Flux mort (ou coupé par dépassement) avant tout usage, alors que des octets
+        # sont arrivés : l'appel a été facturé, on l'estime plutôt que l'oublier.
+        usage, has_tools, estimated = (0, 0, 0, 0), bool(ctx.pending_tool_parsed), False
+    else:
+        return None
+    in_tok, out_tok, cache_read, cache_create = usage
+    # Flux coupé avant message_delta (dépassement de réflexion, interruption, exception) :
+    # la sortie a été générée et facturée ; on l'estime sur les caractères reçus
+    # (ctx.thinking_chars compte TOUT le texte et la réflexion) plus les appels d'outils,
+    # que le parser ne rend pas en texte, plutôt que servir 0.
+    if not out_tok:
+        chars = ctx.thinking_chars + _tool_calls_chars(ctx.pending_tool_parsed)
+        if chars:
+            out_tok, estimated = _chars_to_tokens(chars), True
+    # Usage d'entrée jamais reçu (gateway LiteLLM : message_start tout à zéro, l'usage réel
+    # n'arrive qu'en fin de flux ; OpenAI-compatible : dernier chunk seulement). Un client
+    # qui raccroche avant — fermeture du lot, flux coupé, budget d'attente épuisé — servait
+    # 0 : on estime depuis la taille du préfixe envoyé, et on le DIT (in_estimated).
+    in_estimated = False
+    if not (in_tok or cache_read or cache_create):
+        in_tok = _estimate_input_tokens(ctx, state)
+        in_estimated = bool(in_tok)
+    return in_tok, out_tok, cache_read, cache_create, has_tools, estimated, in_estimated
+
+
+def _chars_to_tokens(chars: int) -> int:
+    """ceil(chars / 3.5) : le ratio de l'estimateur du context_viewer (_tokens.py)."""
+    return -(-chars * 2 // 7) if chars > 0 else 0
+
+
+def _tool_calls_chars(parsed: list) -> int:
+    import json as _json
+    total = 0
+    for ev in parsed or []:
+        try:
+            total += len(ev.name) + len(_json.dumps(ev.inputs, ensure_ascii=False))
+        except (TypeError, ValueError, AttributeError):
+            continue
+    return total
+
+
+def _estimate_input_tokens(ctx: LoopContext, state: AgentState | None = None) -> int:
+    """Tokens d'entrée estimés depuis ce qui a été ENVOYÉ : longueurs du préfixe relevées
+    par l'empreinte (system, outils, note, messages), à défaut blocs système (ou prompt
+    système) + messages envoyés."""
+    longueurs = (getattr(ctx, "empreinte", None) or {}).get("longueurs") or {}
+    chars = sum(v for v in longueurs.values() if isinstance(v, int))
+    if not chars:
+        import json as _json
+        blocks = getattr(ctx, "system_blocks", None) or []
+        chars = sum(len(b.get("text", "")) for b in blocks if isinstance(b, dict))
+        if not chars and state is not None:
+            chars = len(getattr(state, "system_prompt", "") or "")
+        envoyes = (getattr(ctx, "wire_messages", None)
+                   or getattr(state, "last_api_payload", None) or [])
+        try:
+            chars += len(_json.dumps(envoyes, ensure_ascii=False, default=str))
+        except (TypeError, ValueError):
+            pass
+    return _chars_to_tokens(chars)
+
+
+_DEFAULT_STALL_REPLAY_DELAYS_S = "2,5"
+
+
+def _stall_replay_delays() -> list[float]:
+    """Pauses avant chaque rejeu d'un tour coupe par StreamStalled.
+
+    BOUZECODE_STALL_REPLAY_DELAYS_S : liste separee par des virgules (defaut "2,5" = deux
+    rejeux) ; chaine vide = aucun rejeu. Une valeur illisible ou negative est ignoree."""
+    import os
+    raw = os.environ.get("BOUZECODE_STALL_REPLAY_DELAYS_S", _DEFAULT_STALL_REPLAY_DELAYS_S)
+    delays: list[float] = []
+    for part in raw.split(","):
+        part = part.strip()
+        if not part:
+            continue
+        try:
+            value = float(part)
+        except ValueError:
+            continue
+        if value >= 0:
+            delays.append(value)
+    return delays
+
+
+def _wait_before_replay(delay_s: float, cancel_check) -> None:
+    """Attend delay_s en restant interruptible par l'humain (cancel_check)."""
+    import time
+    end = time.monotonic() + delay_s
+    while True:
+        if cancel_check and cancel_check():
+            raise _CancelledTurn()
+        remaining = end - time.monotonic()
+        if remaining <= 0:
+            return
+        time.sleep(min(0.2, remaining))
+
+
+def _account_llm_call(state: AgentState, config: dict, ctx: LoopContext) -> None:
+    """Compte UN appel LLM principal, une seule fois : totaux de session + entrée
+    `llm_call` du compaction_log (source de /api/sessions/<key>/turns et /costs)."""
+    if ctx.accounted_turn == state.turn_count:
+        return
+    usage = _usage_of_call(ctx, state)
+    if usage is None:
+        return
+    ctx.accounted_turn = state.turn_count
+    in_tok, out_tok, cache_read, cache_create, has_tools, estimated, in_estimated = usage
+    ctx.accounted_usage = (in_tok, out_tok, cache_read, cache_create, in_estimated, estimated)
+    state.total_input_tokens += in_tok
+    state.total_output_tokens += out_tok
+    state.total_cache_read_tokens += cache_read
+    state.total_cache_creation_tokens += cache_create
+    from .compaction import estimate_tokens
+    entry = {
+        "event": "llm_call", "timestamp": time.time(), "turn": state.turn_count,
+        "api_input_tokens": in_tok, "api_output_tokens": out_tok,
+        "api_cache_read": cache_read, "api_cache_create": cache_create,
+        "est_message_tokens": estimate_tokens(_build_messages_for_api(state, config)),
+        "message_count": len(state.messages), "has_tool_calls": has_tools,
+    }
+    if estimated:
+        entry["api_output_estimated"] = True
+    if in_estimated:
+        entry["api_input_estimated"] = True
+    if getattr(ctx.assistant_turn, "provider", ""):
+        entry["provider"] = ctx.assistant_turn.provider
+    from .providers.backends.empreinte import completer
+    completer(entry, ctx.empreinte, state)
+    state.compaction_log.append(entry)

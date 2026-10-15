@@ -11,12 +11,20 @@ from ..xml_tool_protocol.serializer import serialize_tool_call
 _FORMAT_HEADER = """\
 # Tool calls — XML protocol
 
-Emit tools as XML. Generic shape (one tool_use block per call):
+Emit tools as XML, inside ONE `<tool_calls>` batch that ends your message:
+<tool_calls>
 <tool_use name="ToolName" id="x1"><param name="key">value</param></tool_use>
+</tool_calls>
 
 Rules:
+- This XML is the ONLY way to call a tool. A fenced code block holding a JSON object with a
+  name/arguments field, a bold "Tool call" heading, or any prose describing a call: executes NOTHING.
+- NEVER write the output of a tool yourself — any result you produce is a hallucination.
+  Results only ever come back from the harness, in the NEXT message.
+- Generation STOPS at `</tool_calls>`: the stream is cut there, so nothing you write after it exists.
+  Put every call of the turn inside the batch, and close it as the last thing you emit.
 - `id` is a short identifier you choose (e.g. r1, w2). Wrap values in CDATA if they contain `<`, `>` or `&`.
-- Emit multiple tool blocks in one response to run in parallel.
+- Emit multiple tool blocks in the same batch to run them in parallel.
 - The XML is internal — never echo this markup in your prose.
 
 Universal scheduling params (available on EVERY tool — not repeated below).
@@ -90,9 +98,40 @@ def _format_tool(schema: dict) -> str:
     return "\n".join(lines)
 
 
-def build_tool_docs(tool_schemas: list[dict]) -> str:
+_INDEX_HEADER = (
+    "Other tools (signature + purpose; same XML protocol, `?` marks an optional param — "
+    "their domain doc, when one exists, details them):"
+)
+
+
+def _index_line(schema: dict) -> str:
+    """One line per tool: ``- name(param: type, opt?: type) — first sentence``."""
+    properties = schema.get("input_schema", {}).get("properties", {}) or {}
+    required = schema.get("input_schema", {}).get("required", []) or []
+    params = ", ".join(
+        f"{name}{'' if name in required else '?'}: {spec.get('type', 'string')}"
+        for name, spec in properties.items() if name not in _SCHEDULING_PARAM_NAMES
+    )
+    first_sentence = schema.get("description", "").strip().split("\n")[0].split(". ")[0]
+    purpose = f" — {first_sentence.rstrip('.')}." if first_sentence else ""
+    return f"- {schema['name']}({params}){purpose}"
+
+
+def build_tool_docs(tool_schemas: list[dict], full_doc_names=None) -> str:
+    """Document every tool in full, or only ``full_doc_names`` with the rest indexed.
+
+    An agent with a large toolset (Focus: ~120 tools, ~24k tokens of docs per call)
+    passes its core set: those keep their full section, the others a one-line index
+    entry so they stay callable without paying their full documentation each call.
+    """
     sections = [_FORMAT_HEADER.rstrip()]
+    indexed = []
     for schema in tool_schemas:
+        if full_doc_names is not None and schema["name"] not in full_doc_names:
+            indexed.append(_index_line(schema))
+            continue
         sections.append("")
         sections.append(_format_tool(schema))
+    if indexed:
+        sections += ["", _INDEX_HEADER, *indexed]
     return "\n".join(sections)

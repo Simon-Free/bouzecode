@@ -1,194 +1,184 @@
 # [desc] Implements /doctor command combining session status summary with environment health checks. [/desc]
-"""Diagnostic command: /doctor = session status + environment checks."""
-from __future__ import annotations
+"""Diagnostic command: /doctor = session status + environment checks.
 
-import json
+Le test de connectivité passe par la VOIE COMMUNE des appels LLM (`get_streamer()` →
+`dispatch.stream`), avec le modèle de la session (`modele_annexe`) : il teste donc le
+fournisseur, l'URL (ANTHROPIC_BASE_URL, PREPROD_ENDPOINT…) et la clé que les agents
+utilisent réellement. L'ancien POST écrit à la main vers api.anthropic.com ignorait
+ANTHROPIC_BASE_URL et testait un endpoint que la session n'utilise pas.
+"""
+from __future__ import annotations
+from bouzecode.paths import data_dir as bouzecode_data_dir
+
 import os
+import subprocess
+import sys
+import threading
+import time
 from pathlib import Path
 
 try:
-    from bouzecode.ui.ansi import clr, info, ok, warn, err
+    from bouzecode.ui.ansi import clr
 except ImportError:
-    from bouzecode import clr, info, ok, warn, err
+    from bouzecode import clr
+
+# Au-delà, le test rend la main : les retries du transport (connexion, 5xx) peuvent durer
+# plusieurs minutes, et /doctor doit répondre même quand le réseau ne répond pas.
+PROBE_DEADLINE_S = 45.0
+_PROBE_MAX_TOKENS = 32
 
 
-def cmd_doctor(args: str, state, config) -> bool:
-    """Show session status and run installation health checks."""
-    import subprocess as _sp
-    import sys as _sys
-    from ...agent.providers import PROVIDERS, detect_provider
-    from ...agent.providers.registry import get_provider_key
-    from bouzecode.backend.agent.compaction import estimate_tokens, get_context_limit
-    from bouzecode import VERSION
+def _appel_minimal(model: str, config: dict, resultat: dict) -> None:
+    """Un appel d'une ligne par la voie commune ; remplit `resultat` (reponse ou erreur)."""
+    from ...agent.providers import AssistantTurn
+    from ...agent.stream_interceptor import get_streamer
 
-    model = config.get("model", "unknown")
-    provider = detect_provider(model)
-    perm_mode = config.get("permission_mode", "auto")
-    session_id = config.get("_session_id", "N/A")
-    turn_count = getattr(state, "turn_count", 0)
-    msg_count = len(getattr(state, "messages", []))
-    tokens_in = getattr(state, "total_input_tokens", 0)
-    tokens_out = getattr(state, "total_output_tokens", 0)
-    est_ctx = estimate_tokens(getattr(state, "messages", []))
-    ctx_limit = get_context_limit(model)
-    ctx_pct = (est_ctx / ctx_limit * 100) if ctx_limit else 0
+    side = {**config, "_depth": 1, "_context_state": None, "max_tokens": _PROBE_MAX_TOKENS,
+            "thinking_mode": "off", "task_classification": False, "_call_label": "doctor"}
+    side.pop("_tool_choice", None)
+    try:
+        for event in get_streamer()(
+            model=model, system="Réponds uniquement : OK",
+            messages=[{"role": "user", "content": "ping"}], tool_schemas=[], config=side,
+        ):
+            if isinstance(event, AssistantTurn):
+                resultat["reponse"] = event.text or ""
+    except Exception as exc:  # noqa: BLE001 — le diagnostic rapporte l'erreur, il ne plante pas
+        resultat["erreur"] = f"{type(exc).__name__}: {exc}"
 
-    # Session summary
-    print()
-    print(clr("  \u2500\u2500 Session \u2500\u2500", "bold"))
-    print(f"  Version:     {VERSION}")
-    print(f"  Model:       {model} ({provider})")
-    print(f"  Permissions: {perm_mode}")
-    print(f"  Session:     {session_id}")
-    print(f"  Turns:       {turn_count}  |  Messages: {msg_count}")
-    print(f"  Tokens:      {tokens_in:,} in / {tokens_out:,} out")
-    print(f"  Context:     ~{est_ctx:,} / {ctx_limit:,} ({ctx_pct:.0f}%)")
-    print()
 
-    # Health checks
-    ok_n = warn_n = fail_n = 0
+def sonder_fournisseur(config: dict, deadline: float = PROBE_DEADLINE_S) -> dict:
+    """Teste le fournisseur de la session par un appel minimal.
 
-    def _print_safe(s):
+    Rend {"fournisseur", "modele", "latence_s", "reponse", "erreur"} ; `erreur` est None
+    si et seulement si le fournisseur a répondu."""
+    from ...agent.providers.registry import resolve_provider
+    from ...agent.providers.side_model import modele_annexe
+
+    model = modele_annexe(config)
+    resultat: dict = {"fournisseur": resolve_provider(model)[0], "modele": model,
+                      "reponse": None, "erreur": None}
+    debut = time.monotonic()
+    worker = threading.Thread(target=_appel_minimal, args=(model, config, resultat),
+                              name="doctor-probe", daemon=True)
+    worker.start()
+    worker.join(deadline)
+    bilan = dict(resultat)
+    bilan["latence_s"] = time.monotonic() - debut
+    if worker.is_alive():
+        bilan["erreur"] = f"pas de réponse en {deadline:.0f} s (réseau, proxy ou retries en cours)"
+    elif bilan["erreur"] is None and bilan["reponse"] is None:
+        bilan["erreur"] = "le flux s'est terminé sans réponse"
+    return bilan
+
+
+class _Bilan:
+    """Compteurs et affichage des vérifications."""
+
+    def __init__(self) -> None:
+        self.ok = self.warn = self.fail = 0
+
+    @staticmethod
+    def _print(s: str) -> None:
         try:
             print(s)
         except UnicodeEncodeError:
             print(s.encode("ascii", errors="replace").decode())
 
-    def _ok(msg):
-        nonlocal ok_n; ok_n += 1
-        _print_safe(clr("  [PASS] ", "green") + msg)
+    def passe(self, msg: str) -> None:
+        self.ok += 1
+        self._print(clr("  [PASS] ", "green") + msg)
 
-    def _warn(msg):
-        nonlocal warn_n; warn_n += 1
-        _print_safe(clr("  [WARN] ", "yellow") + msg)
+    def avertit(self, msg: str) -> None:
+        self.warn += 1
+        self._print(clr("  [WARN] ", "yellow") + msg)
 
-    def _fail(msg):
-        nonlocal fail_n; fail_n += 1
-        _print_safe(clr("  [FAIL] ", "red") + msg)
+    def echoue(self, msg: str) -> None:
+        self.fail += 1
+        self._print(clr("  [FAIL] ", "red") + msg)
 
-    print(clr("  \u2500\u2500 Environment \u2500\u2500", "bold"))
+    def resume(self) -> None:
+        total = self.ok + self.warn + self.fail
+        texte = f"  {self.ok} passed, {self.warn} warnings, {self.fail} failures ({total} checks)"
+        couleur = "red" if self.fail else "yellow" if self.warn else "green"
+        self._print(clr(texte, couleur))
 
-    v = _sys.version_info
-    if v >= (3, 10):
-        _ok(f"Python {v.major}.{v.minor}.{v.micro}")
-    else:
-        _fail(f"Python {v.major}.{v.minor}.{v.micro} (need >=3.10)")
 
-    try:
-        r = _sp.run(["git", "--version"], capture_output=True, text=True, timeout=5)
-        if r.returncode == 0:
-            _ok(f"Git: {r.stdout.strip()}")
-        else:
-            _fail("Git: not working")
-    except Exception:
-        _fail("Git: not found")
+def _afficher_session(state, config) -> None:
+    from ...agent.providers import detect_provider
+    from bouzecode.backend.agent.compaction import estimate_tokens, get_context_limit
+    from bouzecode import VERSION
 
-    try:
-        r = _sp.run(["git", "rev-parse", "--is-inside-work-tree"],
-                     capture_output=True, text=True, timeout=5)
-        if r.returncode == 0:
-            _ok("Inside a git repository")
-        else:
-            _warn("Not inside a git repository")
-    except Exception:
-        _warn("Could not check git repo status")
-
-    # ripgrep decides Grep/Glob performance, the registry decides whether the
-    # agent has any tools at all. Both are promised by the README's /doctor line.
-    from .runtime_checks import ripgrep_status, tool_registry_status
-    _report = {"pass": _ok, "warn": _warn, "fail": _fail}
-    for level, message in (ripgrep_status(), tool_registry_status()):
-        _report[level](message)
-
-    key = get_provider_key(provider, config)
-
-    if key:
-        _ok(f"API key for {provider}: set ({key[:4]}...{key[-4:]})")
-    elif provider in ("ollama", "lmstudio"):
-        _ok(f"Provider {provider}: no key needed (local)")
-    else:
-        _fail(f"API key for {provider}: NOT SET")
-
-    if key or provider in ("ollama", "lmstudio"):
-        print(f"  ... testing {provider} API connectivity...")
-        try:
-            import urllib.request, urllib.error
-            prov = PROVIDERS.get(provider, {})
-            ptype = prov.get("type", "openai")
-
-            if ptype == "anthropic":
-                req = urllib.request.Request(
-                    "https://api.anthropic.com/v1/messages",
-                    data=json.dumps({
-                        "model": model,
-                        "max_tokens": 1,
-                        "messages": [{"role": "user", "content": "hi"}],
-                    }).encode(),
-                    headers={
-                        "x-api-key": key,
-                        "anthropic-version": "2023-06-01",
-                        "content-type": "application/json",
-                    },
-                )
-                try:
-                    urllib.request.urlopen(req, timeout=10)
-                    _ok(f"Anthropic API: reachable, model {model} works")
-                except urllib.error.HTTPError as e:
-                    if e.code == 401:
-                        _fail("Anthropic API: invalid API key (401)")
-                    elif e.code == 404:
-                        _fail(f"Anthropic API: model {model} not found (404)")
-                    elif e.code == 429:
-                        _warn("Anthropic API: rate limited (429) -- key is valid")
-                    else:
-                        _warn(f"Anthropic API: HTTP {e.code}")
-                except Exception as e:
-                    _fail(f"Anthropic API: connection error -- {e}")
-
-            elif ptype == "ollama":
-                base = prov.get("base_url", "http://localhost:11434")
-                try:
-                    urllib.request.urlopen(f"{base}/api/tags", timeout=5)
-                    _ok(f"Ollama: reachable at {base}")
-                except Exception:
-                    _fail(f"Ollama: cannot reach {base} -- is Ollama running?")
-
-            else:
-                base = prov.get("base_url", "")
-                if provider == "custom":
-                    base = config.get("custom_base_url", base or "")
-                if base:
-                    models_url = base.rstrip("/") + "/models"
-                    req = urllib.request.Request(
-                        models_url,
-                        headers={"Authorization": f"Bearer {key}"},
-                    )
-                    try:
-                        urllib.request.urlopen(req, timeout=10)
-                        _ok(f"{provider} API: reachable")
-                    except urllib.error.HTTPError as e:
-                        if e.code == 401:
-                            _fail(f"{provider} API: invalid API key (401)")
-                        elif e.code == 429:
-                            _warn(f"{provider} API: rate limited (429) -- key is valid")
-                        else:
-                            _warn(f"{provider} API: HTTP {e.code}")
-                    except Exception as e:
-                        _fail(f"{provider} API: connection error -- {e}")
-                else:
-                    _warn(f"{provider}: no base_url configured")
-        except Exception as e:
-            _warn(f"API test skipped: {e}")
-
+    model = config.get("model", "unknown")
+    messages = getattr(state, "messages", [])
+    est_ctx = estimate_tokens(messages)
+    ctx_limit = get_context_limit(model)
+    ctx_pct = (est_ctx / ctx_limit * 100) if ctx_limit else 0
     print()
+    print(clr("  ── Session ──", "bold"))
+    print(f"  Version:     {VERSION}")
+    print(f"  Model:       {model} ({detect_provider(model)})")
+    print(f"  Permissions: {config.get('permission_mode', 'auto')}")
+    print(f"  Session:     {config.get('_session_id', 'N/A')}")
+    print(f"  Turns:       {getattr(state, 'turn_count', 0)}  |  Messages: {len(messages)}")
+    print(f"  Tokens:      {getattr(state, 'total_input_tokens', 0):,} in / "
+          f"{getattr(state, 'total_output_tokens', 0):,} out")
+    print(f"  Context:     ~{est_ctx:,} / {ctx_limit:,} ({ctx_pct:.0f}%)")
+    print()
+
+
+def _git(args: list[str]) -> bool | None:
+    """True/False selon le code retour ; None si git est introuvable."""
+    try:
+        return subprocess.run(["git", *args], capture_output=True, text=True,
+                              timeout=5).returncode == 0
+    except Exception:  # noqa: BLE001
+        return None
+
+
+def _verifier_outils(b: _Bilan) -> None:
+    v = sys.version_info
+    version = f"Python {v.major}.{v.minor}.{v.micro}"
+    b.passe(version) if v >= (3, 10) else b.echoue(f"{version} (need >=3.10)")
+    git_ok = _git(["--version"])
+    if git_ok is None:
+        b.echoue("Git: not found")
+    else:
+        b.passe("Git: available") if git_ok else b.echoue("Git: not working")
+    b.passe("Inside a git repository") if _git(["rev-parse", "--is-inside-work-tree"]) \
+        else b.avertit("Not inside a git repository")
+
+
+def _verifier_fournisseur(b: _Bilan, config: dict) -> None:
+    """Clé du fournisseur de la session, puis un vrai appel minimal par la voie commune."""
+    from ...agent.providers.registry import get_provider_key, resolve_provider
+    from ...agent.providers.side_model import modele_annexe
+
+    provider = resolve_provider(modele_annexe(config))[0]
+    if not get_provider_key(provider, config):
+        b.echoue(f"API key for {provider}: NOT SET")
+        return
+    b.passe(f"API key for {provider}: set")
+    print(f"  ... testing {provider} API (one minimal call)...")
+    r = sonder_fournisseur(config)
+    ligne = f"{r['fournisseur']} / {r['modele']} ({r['latence_s']:.1f} s)"
+    if r["erreur"]:
+        b.echoue(f"LLM call {ligne}: {r['erreur']}")
+    else:
+        b.passe(f"LLM call {ligne}: answered")
+
+
+def _verifier_autres_cles(b: _Bilan, config: dict) -> None:
+    from ...agent.providers import PROVIDERS, detect_provider
+
+    session = detect_provider(config.get("model", ""))
     for pname, pdata in PROVIDERS.items():
-        if pname == provider:
-            continue
         env_var = pdata.get("api_key_env")
-        if env_var and os.environ.get(env_var, ""):
-            _ok(f"{pname} key ({env_var}): set")
+        if pname != session and env_var and os.environ.get(env_var, ""):
+            b.passe(f"{pname} key ({env_var}): set")
 
-    print()
+
+def _verifier_modules(b: _Bilan) -> None:
     for mod, desc in [
         ("rich", "Rich (live markdown rendering)"),
         ("PIL", "Pillow (clipboard image)"),
@@ -197,44 +187,94 @@ def cmd_doctor(args: str, state, config) -> bool:
     ]:
         try:
             __import__(mod)
-            _ok(desc)
+            b.passe(desc)
         except ImportError:
-            _warn(f"{desc}: not installed")
+            b.avertit(f"{desc}: not installed")
 
-    print()
+
+def _verifier_fichiers(b: _Bilan, config: dict) -> None:
     claude_md = Path.cwd() / "CLAUDE.md"
     global_md = Path.home() / ".claude" / "CLAUDE.md"
-    if claude_md.exists():
-        _ok(f"Project CLAUDE.md: {claude_md}")
-    else:
-        _warn("No project CLAUDE.md in current directory")
+    b.passe(f"Project CLAUDE.md: {claude_md}") if claude_md.exists() \
+        else b.avertit("No project CLAUDE.md in current directory")
     if global_md.exists():
-        _ok(f"Global CLAUDE.md: {global_md}")
-
+        b.passe(f"Global CLAUDE.md: {global_md}")
     ckpt_root = Path.home() / ".nano_claude" / "checkpoints"
     if ckpt_root.exists():
-        total = sum(f.stat().st_size for f in ckpt_root.rglob("*") if f.is_file())
-        mb = total / (1024 * 1024)
+        mb = sum(f.stat().st_size for f in ckpt_root.rglob("*") if f.is_file()) / (1024 * 1024)
         sessions = sum(1 for d in ckpt_root.iterdir() if d.is_dir())
-        if mb > 100:
-            _warn(f"Checkpoints: {mb:.1f} MB ({sessions} sessions)")
-        else:
-            _ok(f"Checkpoints: {mb:.1f} MB ({sessions} sessions)")
-
+        (b.avertit if mb > 100 else b.passe)(f"Checkpoints: {mb:.1f} MB ({sessions} sessions)")
     perm = config.get("permission_mode", "auto")
-    if perm == "accept-all":
-        _warn(f"Permission mode: {perm} (all operations auto-approved)")
-    else:
-        _ok(f"Permission mode: {perm}")
+    b.avertit(f"Permission mode: {perm} (all operations auto-approved)") \
+        if perm == "accept-all" else b.passe(f"Permission mode: {perm}")
 
+
+def conseil_defender(exclusions: list[str] | None, dossiers: list[str]) -> str:
+    """Conseil d'exclusion Windows Defender pour `dossiers`, "" si tous sont déjà couverts.
+
+    Mesure (session 1f5b8d96) : `git worktree add` = 1784 fichiers en ~28 s à froid, ~16 ms par
+    fichier, contre 2,2 s à chaud — l'inspection temps réel taxe chaque écriture ; c'est ce
+    qui fait durer `Environment(action='worktree')` ~30 s. `exclusions` = None quand la liste
+    est illisible (sans droits administrateur, Defender la masque). Pur : testable partout."""
+    import ntpath
+
+    def _couvert(dossier: str) -> bool:
+        d = ntpath.normcase(ntpath.normpath(dossier))
+        for ex in exclusions or []:
+            e = ntpath.normcase(ntpath.normpath(ex)).rstrip("\\")
+            if d == e or d.startswith(e + "\\"):
+                return True
+        return False
+
+    manquants = [d for d in dossiers if not _couvert(d)]
+    if not manquants:
+        return ""
+    commandes = "\n".join(f'    Add-MpPreference -ExclusionPath "{d}"' for d in manquants)
+    entete = ("Exclusions Defender illisibles (il faut les droits administrateur pour "
+              "`Get-MpPreference`). " if exclusions is None else
+              "Dossiers non exclus de Windows Defender. ")
+    return (entete + "Chaque worktree d'agent écrit ~1800 fichiers : ~16 ms par fichier "
+            "inspecté, soit ~30 s par Environment(action='worktree'). Dans un PowerShell "
+            "lancé en administrateur :\n" + commandes +
+            "\n  (Poste géré par GPO : demander l'exclusion au support.)")
+
+
+def _verifier_antivirus(b: _Bilan) -> None:
+    """Windows seulement : les dossiers où s'écrivent les worktrees sont-ils exclus ?"""
+    if sys.platform != "win32":
+        return
+    from ...core.context import harness_repo
+    dossiers = [str(bouzecode_data_dir() / "worktrees")]
+    racine, depot = harness_repo()
+    dossiers += [str(p) for p in (depot or racine,) if p]
+    try:
+        out = subprocess.run(
+            ["powershell", "-NoProfile", "-NonInteractive", "-Command",
+             "(Get-MpPreference).ExclusionPath"],
+            capture_output=True, text=True, encoding="utf-8", errors="replace", timeout=20)
+        lignes = [ln.strip() for ln in out.stdout.splitlines() if ln.strip()]
+        exclusions = None if (out.returncode != 0 or any("N/A" in ln for ln in lignes)) \
+            else lignes
+    except Exception:  # noqa: BLE001 — Defender absent/indisponible : on conseille quand même
+        exclusions = None
+    conseil = conseil_defender(exclusions, dossiers)
+    b.avertit(conseil) if conseil else b.passe("Windows Defender : worktrees exclus")
+
+
+def cmd_doctor(args: str, state, config) -> bool:
+    """Show session status and run installation health checks."""
+    _afficher_session(state, config)
+    b = _Bilan()
+    print(clr("  ── Environment ──", "bold"))
+    _verifier_outils(b)
+    _verifier_antivirus(b)
+    _verifier_fournisseur(b, config)
     print()
-    total = ok_n + warn_n + fail_n
-    summary = f"  {ok_n} passed, {warn_n} warnings, {fail_n} failures ({total} checks)"
-    if fail_n:
-        _print_safe(clr(summary, "red"))
-    elif warn_n:
-        _print_safe(clr(summary, "yellow"))
-    else:
-        _print_safe(clr(summary, "green"))
-
+    _verifier_autres_cles(b, config)
+    print()
+    _verifier_modules(b)
+    print()
+    _verifier_fichiers(b, config)
+    print()
+    b.resume()
     return True

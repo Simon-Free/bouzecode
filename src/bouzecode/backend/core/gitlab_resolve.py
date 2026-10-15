@@ -5,9 +5,9 @@ The input is either a GitLab web URL (what you copy from the browser bar) or the
 path of a local folder backed by git. For a local path we never use its contents:
 we read its git remote to deduce the online URL. We always target the online repo.
 
-One GitLab repo == one pip plugin package: the repo name IS the pip distribution
-name, so we can derive both the package-index name and a git+https fallback source
-for the plugin installer.
+One GitLab repo == one pip plugin package (the demo_plugins subgroup): the repo
+name IS the pip distribution name, so we can derive both the Artifactory name and a
+git+https fallback source for the plugin installer.
 """
 from __future__ import annotations
 
@@ -16,22 +16,17 @@ import re
 import subprocess
 from pathlib import Path
 
+from .tls import git_env
+
 
 class SourceError(Exception):
     """User-facing error (bad input, no remote, clone failed, …)."""
 
 
 def _git(*args: str) -> tuple[int, str, str]:
-    """Run git with the interactive credentials prompt disabled.
-
-    TLS verification stays ON. A GitLab behind a private CA must be handled the
-    right way — install the CA, or point `http.sslCAInfo` at its bundle. As an
-    explicit last resort, BOUZECODE_GIT_SSL_NO_VERIFY=1 disables the check; it is
-    opt-in on purpose so no clone is ever silently unauthenticated.
-    """
-    env = {**os.environ, "GIT_TERMINAL_PROMPT": "0"}
-    if os.environ.get("BOUZECODE_GIT_SSL_NO_VERIFY") == "1":
-        env["GIT_SSL_NO_VERIFY"] = "1"
+    """Run git with creds-prompt disabled. TLS stays verified: the corporate
+    GitLab CA comes from the bundle (SSL_CERT_FILE / REQUESTS_CA_BUNDLE -> GIT_SSL_CAINFO)."""
+    env = {**git_env(), "GIT_TERMINAL_PROMPT": "0"}
     proc = subprocess.run(["git", *args], capture_output=True, text=True, env=env)
     return proc.returncode, proc.stdout.strip(), proc.stderr.strip()
 
@@ -140,7 +135,7 @@ def plugin_install_target(info: dict) -> tuple[str, str]:
     """(pip package name, git+https fallback source) for a resolved plugin repo.
 
     Convention: the repo's last path segment is the pip distribution name
-    (e.g. .../plugins/demo-sql-plugin → 'demo-sql-plugin')."""
+    (e.g. .../demo_plugins/demo-sql-plugin → 'demo-sql-plugin')."""
     package = info["project_path"].rsplit("/", 1)[-1]
     git_source = f"git+{info['scheme']}://{info['host']}/{info['project_path']}.git"
     return package, git_source

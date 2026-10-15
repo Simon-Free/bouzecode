@@ -27,6 +27,8 @@ def _build_session_data(state, session_id: str | None = None, model: str | None 
                 first_msg = c.replace("\n", " ").strip()[:80]
             break
     from bouzecode.backend.tools.state import get_file_snapshots
+    from bouzecode.backend.chrome_devtools import launcher as _navigateur
+    from bouzecode.backend.context_manager.state import state_du_contexte
     max_snapshot_size = 50_000
     raw_snapshots = get_file_snapshots()
     truncated_snapshots = {}
@@ -37,13 +39,18 @@ def _build_session_data(state, session_id: str | None = None, model: str | None 
             "is_new": snap.get("is_new", False),
         }
 
-    from ...agent.thinking_parser import strip_thinking_tags, strip_tool_use_xml
+    from ...agent.thinking_parser import strip_tool_use_xml
 
     def _clean_message(m):
         content = m.get("content", "")
         if m.get("role") == "assistant" and isinstance(content, str) and content:
             cleaned = strip_tool_use_xml(content)
             if not cleaned:
+                # Legitimately empty: a pure tool_use turn (no prose, no
+                # thinking) — the renderer uses tool_calls for the call.
+                # Safe now that strip_tool_use_xml only removes PAIRED blocks:
+                # a tool tag merely mentioned in prose is kept verbatim, so an
+                # empty result can no longer mean "content was swallowed".
                 cleaned = "."
             return {**m, "content": cleaned}
         if isinstance(content, list):
@@ -70,15 +77,20 @@ def _build_session_data(state, session_id: str | None = None, model: str | None 
         "compaction_log": getattr(state, "compaction_log", []),
         "distinct_base": getattr(state, "distinct_base", 0),
         "file_snapshots": truncated_snapshots,
-        "context_state": {
-            "notes": state.context_state.notes,
-        },
+        # La note et le contexte de session figé (contexte_fige.py) : une reprise renvoie le même
+        # bloc, le préfixe reste en cache.
+        "context_state": state_du_contexte(state.context_state),
         "notes_timeline": getattr(state, "notes_timeline", []),
         "thinking_log": getattr(state, "thinking_log", []),
         "last_api_payload": getattr(state, "last_api_payload", []),
         "system_prompt": getattr(state, "system_prompt", ""),
         "bouzecode_commit": getattr(state, "bouzecode_commit", ""),
         "bouzecode_version": getattr(state, "bouzecode_version", ""),
+        # Commit du code que le PROCESS a chargé à son démarrage (bouzecode_commit, lui, est
+        # le HEAD du disque relu à chaque run) : l'interface signale un agent périmé.
+        "bouzecode_boot_commit": getattr(state, "bouzecode_boot_commit", ""),
+        # Champ ADDITIF : chaque code sous lequel la session a tourné, avec le tour de bascule.
+        "versions_successives": getattr(state, "versions_successives", []),
         # Attribution : profil effectif du run et rôle du run (work/validation/merge).
         # Champs ADDITIFS — une session écrite avant leur existence n'a pas la clé, et
         # tout lecteur (history.json, cost_dashboard) la lit avec un défaut.
@@ -88,6 +100,26 @@ def _build_session_data(state, session_id: str | None = None, model: str | None 
         "final_answer": getattr(state, "final_answer", ""),
         "recap": getattr(state, "recap", None),
         "recap_missing": getattr(state, "recap_missing", False),
+        # Verdict des vérifications différées (TUI) : la réponse livrée disait « non faite ».
+        "deferred_result": getattr(state, "deferred_result", None),
+        # Déclaration OBLIGATOIRE de clôture (FinalAnswer) : ce que l'agent dit avoir
+        # achevé et ce qu'il laisse. `taches_declarees` distingue « rien ne reste » (liste
+        # vide DÉCLARÉE) d'une clôture ANTÉRIEURE au champ — la vue TO-DO doit dire
+        # « non déclaré » plutôt que faire semblant que la mission n'a rien laissé.
+        "taches_terminees": getattr(state, "taches_terminees", []),
+        "taches_restantes": getattr(state, "taches_restantes", []),
+        "taches_declarees": getattr(state, "taches_declarees", False),
+        # Fichiers livrés déclarés au FinalAnswer (related_files) : [{path, label, kind}].
+        "related_files": getattr(state, "related_files", []),
+        # À sa dernière clôture, l'agent attendait-il des enfants encore actifs ? Le serveur ne
+        # relance par un réveil que ceux-là (wake._reveil_sans_objet).
+        "cloture_en_attente_des_enfants": getattr(state, "cloture_en_attente_des_enfants", None),
+        # Outils navigateur dans la liste envoyée au modèle : une reprise les redéclare, pour
+        # que le préfixe (outils puis note et historique) reste en cache (cf. launcher).
+        _navigateur.CLE_SESSION: _navigateur.outils_declares(),
+        # Fenêtre visible / profil persistant choisis par l'agent : une reprise rallume
+        # Chrome avec eux, pas en headless sur un profil jetable (TODO §5 du 2026-09-25).
+        _navigateur.CLE_OPTIONS: _navigateur.options_de_l_agent(),
     }
 
 
@@ -216,6 +248,7 @@ def cmd_save(args: str, state, config) -> bool:
 
 def cmd_where(_args: str, _state, config) -> bool:
     from datetime import datetime as _dt
+    from bouzecode.ui.cli_logging import current_log_file
     from bouzecode.backend.core.config import DAILY_DIR, MR_SESSION_DIR, SESSION_HIST_FILE
 
     today_dir = DAILY_DIR / _dt.now().strftime("%Y-%m-%d")
@@ -232,6 +265,7 @@ def cmd_where(_args: str, _state, config) -> bool:
         for f in recent:
             print(clr(f"    - {f.name}", "dim"))
     print(f"  Master history:               {SESSION_HIST_FILE}")
+    print(f"  Backend log:                  {current_log_file() or '(not configured)'}")
     if explicit:
         print(f"  Per-tool checkpoint:          {explicit}  " + clr("(--session-file)", "dim"))
     print(clr(f"  Runtime session id: {config.get('_session_id', 'unknown')}", "dim"))

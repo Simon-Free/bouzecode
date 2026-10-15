@@ -35,6 +35,7 @@ def build_verbatim_audit_note(messages: list) -> str:
     model can correlate "MUST re-read X" notes with results already in context.
     """
     from ..agent.compaction import estimate_tokens
+    from ..tools.skill.conservation import skill_conservee
     args_by_id: dict[str, dict] = {}
     for message in messages:
         if message.get("role") != "assistant":
@@ -55,6 +56,10 @@ def build_verbatim_audit_note(messages: list) -> str:
             )
         tool_call_id = message.get("tool_call_id", "?")
         tool_name = message.get("name", "?")
+        #  Une skill figée dans la note n'est pas « à jeter une fois lue » : la lister là
+        #  poussait à la jeter puis à la recharger (session c4fe6829, 2026-10-07).
+        if tool_name == "Skill" and skill_conservee(content):
+            continue
         size = estimate_tokens([{"content": content}])
         args = _summarize_args(tool_name, args_by_id.get(tool_call_id, {}))
         suffix = f" {args}" if args else ""

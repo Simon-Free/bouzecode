@@ -33,6 +33,9 @@ _session_id: str | None = None
 _loaded: bool = False
 
 _REGISTRY_FILE = "_registry.json"
+#: Racine des dossiers de session. Lue a l'appel : les tests la redirigent (les process d'une
+#: meme machine partagent sinon `default`, et le menage de l'un efface les fichiers de l'autre).
+RACINE = Path(tempfile.gettempdir()) / "bouzecode_scratch"
 
 
 def set_scratch_session(session_id: str | None) -> None:
@@ -54,7 +57,7 @@ def _get_scratch_dir() -> Path:
     global _scratch_dir
     if _scratch_dir is None:
         sid = _session_id or "default"
-        base = Path(tempfile.gettempdir()) / "bouzecode_scratch" / _sanitize_session(sid)
+        base = RACINE / _sanitize_session(sid)
         base.mkdir(parents=True, exist_ok=True)
         _scratch_dir = base
     return _scratch_dir

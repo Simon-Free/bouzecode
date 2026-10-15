@@ -1,3 +1,5 @@
+from bouzecode.paths import project_dir as bouzecode_project_dir
+from bouzecode.paths import data_dir as bouzecode_data_dir
 import os
 import subprocess
 from pathlib import Path
@@ -5,7 +7,6 @@ from datetime import datetime
 
 from ._embedded_data import (
     SYSTEM_PROMPT_TEMPLATE,
-    THINK_OUT_LOUD_PROMPT,
     WINDOWS_PLATFORM_HINTS,
     PLAN_MODE_TEMPLATE,
 )
@@ -31,57 +32,45 @@ def checked_out_branch(cwd: str = "") -> str:
     return result.stdout.strip() if result.returncode == 0 else ""
 
 
-# Mémorisation par répertoire, dans CE process. `build_system_prompt` est rappelé (reprise,
-# compaction, second tour) et repayait à chaque fois trois `git`. Volontairement sans
-# expiration : la vie d'un agent est courte et son dépôt ne change pas sous ses pieds au point
-# de fausser trois lignes de contexte. Un process neuf repart d'un cache vide.
-_GIT_INFO_MEMO: dict[str, str] = {}
+_BRANCH_MEMO: dict[str, str] = {}
 
 
-def _git_sortie(args: list[str]) -> str:
-    """Sortie d'une commande git, "" si elle échoue. Ne lève jamais."""
-    try:
-        return subprocess.check_output(
-            args, stderr=subprocess.DEVNULL, text=True,
-            encoding="utf-8", errors="replace").strip()
-    except Exception:  # noqa: BLE001 — une info de contexte absente ne doit pas tuer le boot
-        return ""
+def _git_branch_memo() -> str:
+    """Branche sortie dans le cwd, mémorisée par répertoire (un `git` par cwd et par process).
+
+    `Environment(action='worktree')` change le cwd : la clé change avec lui, donc la branche
+    du worktree apparaît d'elle-même au tour suivant."""
+    cwd = os.getcwd()
+    if cwd not in _BRANCH_MEMO:
+        try:
+            _BRANCH_MEMO[cwd] = checked_out_branch()
+        except Exception:  # noqa: BLE001 — hors dépôt / git absent : pas de branche, pas d'échec
+            _BRANCH_MEMO[cwd] = ""
+    return _BRANCH_MEMO[cwd]
 
 
-def get_git_info() -> str:
-    """Les trois lectures git du prompt système, EN PARALLÈLE.
-
-    Mesuré le 2026-07-30 : ces trois `subprocess` coûtaient 0,50 s au démarrage de CHAQUE
-    agent — 99,6 % du temps de `build_system_prompt` — et ils sont indépendants. Sous Windows
-    un spawn de process est cher ; les mener de front ramène le coût à celui du plus lent,
-    ~0,17 s. C'est autant de retiré aux ~4 s que l'utilisateur attend avant le premier signe
-    de vie de son agent.
-    """
-    memo = _GIT_INFO_MEMO.get(os.getcwd())
-    if memo is not None:
-        return memo
-    try:
-        from concurrent.futures import ThreadPoolExecutor
-
-        with ThreadPoolExecutor(max_workers=3) as pool:
-            f_branch = pool.submit(checked_out_branch)
-            f_status = pool.submit(_git_sortie, ["git", "status", "--short"])
-            f_log = pool.submit(_git_sortie, ["git", "log", "--oneline", "-5"])
-            branch, status, log = f_branch.result(), f_status.result(), f_log.result()
-        parts = [f"- Git branch: {branch}"]
-        if status:
-            lines = status.split('\n')[:10]
-            parts.append("- Git status:\n" + "\n".join(f"  {l}" for l in lines))
-        if log:
-            parts.append("- Recent commits:\n" + "\n".join(f"  {l}" for l in log.split('\n')))
-        info = "\n".join(parts) + "\n"
-    except Exception:  # noqa: BLE001 — hors dépôt git : contexte vide, jamais d'échec de boot
-        info = ""
-    _GIT_INFO_MEMO[os.getcwd()] = info
-    return info
+_DEPOT_MEMO: dict[str, str] = {}
 
 
+def _depot_du_worktree() -> str:
+    """Dépôt PRINCIPAL quand le cwd est un worktree lié, "" sinon (mémorisé par cwd).
 
+    Les worktrees d'agent vivent sous `~/.bouzecode/worktrees/<dépôt>/<id>` : sans ce nom, un
+    parent a lu la partie avant `/.bouzecode/` — le HOME — comme « son dépôt », et l'a dicté
+    à son enfant (essai du 2026-09-24)."""
+    cwd = os.getcwd()
+    if cwd not in _DEPOT_MEMO:
+        try:
+            out = subprocess.run(
+                ["git", "rev-parse", "--path-format=absolute", "--git-common-dir",
+                 "--show-toplevel"], cwd=cwd, capture_output=True, text=True,
+                encoding="utf-8", errors="replace").stdout.split("\n")
+            depot = Path(out[0].strip()).parent if len(out) > 1 and out[1].strip() else None
+            linked = depot is not None and depot != Path(out[1].strip())
+            _DEPOT_MEMO[cwd] = str(depot) if linked else ""
+        except Exception:  # noqa: BLE001 — hors dépôt / git absent : rien à dire
+            _DEPOT_MEMO[cwd] = ""
+    return _DEPOT_MEMO[cwd]
 
 
 def get_platform_hints() -> str:
@@ -93,26 +82,25 @@ def get_platform_hints() -> str:
 
 
 def get_skills_section() -> str:
-    """Return a short instruction telling the model to call SkillList()."""
+    """Instructions Projets + Skills.
+
+    `LoadProjectConfig` est la porte d'entrée : lui seul sait ce qu'un projet
+    apporte. Le prompt ne nomme aucun projet — le registre change, et l'outil
+    liste lui-même les projets voisins quand le chemin n'en est pas un.
+    """
     return """
-# Skills
-
-Skills are reusable knowledge templates (correct sequences, pitfalls, project patterns).
-Call `SkillList()` to discover all available skills and their triggers.
-Then call `Skill(name=<skill-name>)` to load a skill BEFORE acting on a non-trivial task.
-
-**Rules:**
-- Call `SkillList()` at the start of a session or when facing an unfamiliar task.
-- Load skills BEFORE you act — loading after you've started is too late.
-- Better to load too many skills than too few (~200 tokens each, cheap insurance).
-- For project-specific skills, call `LoadProjectConfig(path=<project_root>)` first if not already done.
+# Projets et skills
+- Avant de travailler dans un dossier : `LoadProjectConfig(path=..., cd=true s'il n'est pas ton dossier de départ)`, une fois, puis Snippet du résultat. `AddProject`/`DismissProject` seulement pour transcrire la réponse de l'utilisateur (sans bloquer : pose la question en fin de travail).
+- Charge une skill **AVANT** d'agir (`SkillResearch(query="mots-clés")`, puis `Skill(name=...)`). Le code a raison contre une skill ; skill fausse → corrige son `.md` dans le même tour (date `updated` à aujourd'hui).
+- Pars du principe que des sessions précédentes ont déjà traité un problème proche : chaque recherche dans le code sur un sujet neuf (`FindCode`, `Grep`, `Glob`) part avec un `SkillResearch` dans le même lot, en mots-clés de langage naturel qui décrivent le problème (« certificat base expiré », « coût sessions focus ») plutôt qu'en identifiants. Même chose dès qu'une erreur ou un sujet nouveau apparaît. SkillResearch cherche dans le nom, la description, les déclencheurs et le corps des skills.
+- Un enseignement qui t'a coûté plusieurs tours et resservira (où sont les données, comment s'y connecter, piège d'environnement, méthode d'analyse) va dans une skill projet avant ta clôture, sans demander : enrichis la skill existante la plus proche, sinon crée-en une.
 """
 
 
 def render_profile_skills(names: list[str]) -> str:
     """Preload the named skills' content into the prompt (an agent's declared skills are
     part of its equipment, not something to discover). Falls back to the generic
-    SkillList() instruction when no name resolves."""
+    SkillResearch() instruction when no name resolves."""
     from bouzecode.backend.tools.skill.loader import load_skills
 
     by_name = {s.name: s for s in load_skills()}
@@ -129,69 +117,44 @@ def render_profile_skills(names: list[str]) -> str:
     return (
         "\n\n# Skills (préchargées pour cet agent)\n\n"
         "Ces skills font partie de ton équipement et sont déjà chargées ci-dessous — "
-        "applique-les directement, inutile d'appeler SkillList()/Skill().\n\n" + body + "\n"
+        "applique-les directement, inutile d'appeler SkillResearch()/Skill().\n\n" + body + "\n"
     )
+
+
+def entrees_de_memoire() -> dict[str, str]:
+    """Les entrées de mémoire visibles (~/.bouzecode/memory/ puis .bouzecode/memory/ du cwd) :
+    {chemin du fichier : ligne d'index « - [nom](fichier) — description »}. Un fichier sans
+    `name:` dans son en-tête YAML n'est pas listé."""
+    entrees = {}
+    for dossier in (bouzecode_data_dir() / "memory", bouzecode_project_dir(Path.cwd()) / "memory"):
+        if not dossier.is_dir():
+            continue
+        for fichier in sorted(dossier.glob("*.md")):
+            ligne = _ligne_d_index(fichier)
+            if ligne:
+                entrees[str(fichier)] = ligne
+    return entrees
+
+
+def _ligne_d_index(fichier: Path) -> str:
+    texte = fichier.read_text(encoding="utf-8", errors="ignore")
+    if not texte.startswith("---"):
+        return ""
+    parties = texte.split("---", 2)
+    if len(parties) < 3:
+        return ""
+    nom = description = ""
+    for ligne in parties[1].splitlines():
+        if ligne.startswith("name:"):
+            nom = ligne[5:].strip()
+        elif ligne.startswith("description:"):
+            description = ligne[12:].strip()
+    return f"- [{nom}]({fichier.name}) — {description}" if nom else ""
 
 
 def get_memory_context() -> str:
-    """Load memory entries from ~/.bouzecode/memory/ and .bouzecode/memory/."""
-    entries = []
-    memory_dirs = [
-        Path.home() / ".bouzecode" / "memory",
-        Path.cwd() / ".bouzecode" / "memory",
-    ]
-    for mem_dir in memory_dirs:
-        if not mem_dir.is_dir():
-            continue
-        for md_file in sorted(mem_dir.glob("*.md")):
-            text = md_file.read_text(encoding="utf-8", errors="ignore")
-            # Parse YAML frontmatter between --- lines
-            if text.startswith("---"):
-                parts = text.split("---", 2)
-                if len(parts) >= 3:
-                    frontmatter = parts[1]
-                    name = ""
-                    description = ""
-                    for line in frontmatter.splitlines():
-                        if line.startswith("name:"):
-                            name = line[5:].strip()
-                        elif line.startswith("description:"):
-                            description = line[12:].strip()
-                    if name:
-                        entries.append(f"- [{name}]({md_file.name}) — {description}")
-    return "\n".join(entries)
-
-
-
-def get_readme_navigation_section() -> str:
-    """The code-navigation protocol, in the stable half of the prompt.
-
-    It replaced the old `readme_sync/prompts/reader.md` block (293 permanent
-    tokens), which walked a per-folder `## Subfolders` table that no longer
-    exists — a protocol pointing at sections the repo does not have. That file
-    has since been deleted, along with the conditional injection around it. This one is
-    unconditional: the maps are generated on demand, so there is nothing to
-    probe for, and it applies to every repository rather than to bouzecode only.
-    """
-    if not agents_map_enabled():
-        return ""
-    # Deliberately says nothing about HOW to read a symbol: that guidance is the
-    # code profile's job (tests/backend/prompts/test_code_discovery_prompt.py
-    # keeps it out of the agnostic noyau). This block only locates things.
-    return (
-        "\n\n# Codebase navigation\n\n"
-        "`AgentsMap()` -> which folder. `SymbolMap(path=<folder>)` -> which symbol "
-        "lives in it, and where.\n"
-        "If you already know the file, skip `AgentsMap()` and go straight to its "
-        "`SymbolMap`.\n"
-    )
-
-
-def agents_map_enabled() -> bool:
-    """The single global escape hatch for the code-map feature."""
-    from ..tools.agents_map import feature_enabled
-
-    return feature_enabled()
+    """La mémoire visible à l'instant, une ligne par entrée."""
+    return "\n".join(entrees_de_memoire().values())
 
 
 def build_system_prompt_parts(config: dict | None = None) -> tuple[str, str]:
@@ -223,30 +186,122 @@ def build_system_prompt_parts(config: dict | None = None) -> tuple[str, str]:
         .replace("{platform}", platform.system())
         .replace("{tool_examples}", _examples)
     )
-    if config and config.get("thinking") and config.get("thinking_mode") == "loud":
-        stable += THINK_OUT_LOUD_PROMPT
-    memory_ctx = get_memory_context()
+    # Figée au premier appel de la session quand il y en a une (memoire_figee.py) : modifiée
+    # ensuite, elle ne change plus le préfixe en cache, une note de harnais le dit.
+    from ..context_manager.memoire_figee import memoire_de_l_appel
+    memory_ctx = memoire_de_l_appel(config.get("_context_state") if config else None)
     if memory_ctx:
         stable += f"\n\n# Memory\nYour persistent memories:\n{memory_ctx}\n"
     # An agent's declared skills are part of its equipment: preload their bodies.
-    # Otherwise emit the generic SkillList()/Skill() discovery instruction.
+    # Otherwise emit the generic SkillResearch()/Skill() discovery instruction.
     profile_skills = config.get("_profile_skills") if config else None
     stable += render_profile_skills(profile_skills) if profile_skills else get_skills_section()
-    stable += get_readme_navigation_section()
 
     # Active agent typology selected in-session via /agent <name>.
     agent_extra = config.get("_agent_system_prompt_extra", "") if config else ""
     if agent_extra:
         stable += f"\n\n# Active agent profile\n{agent_extra.strip()}\n"
 
-    volatile = (
-        "\n# Session Context\n"
-        f"- Current date: {datetime.now().strftime('%Y-%m-%d %A')}\n"
-        f"- Working directory: {Path.cwd()}\n"
-    )
-    git_info = get_git_info()
-    if git_info:
-        volatile += git_info
+    volatile = build_session_context(config)
+
+    return stable, volatile
+
+
+def build_system_prompt(config: dict | None = None) -> str:
+    """Prompt complet (stable + contexte de session), pour l'affichage et les aperçus.
+
+    Pour un tour d'agent, passer plutôt `build_stable_system_prompt` : `dispatch.stream`
+    rajoute lui-même le contexte de session EN DERNIER, après le préfixe stable et la note,
+    et le recalcule à chaque appel (cwd et branche changent avec `Environment`)."""
+    stable, volatile = build_system_prompt_parts(config)
+    return stable + volatile
+
+
+def build_stable_system_prompt(config: dict | None = None) -> str:
+    """La moitié STABLE seule (noyau, skills, navigation) : identique d'un tour à l'autre et
+    d'un agent à l'autre du même profil, donc partageable par le cache."""
+    return build_system_prompt_parts(config)[0]
+
+
+_JOURS = ("lundi", "mardi", "mercredi", "jeudi", "vendredi", "samedi", "dimanche")
+
+
+def harness_repo(root: Path | None = None) -> tuple[Path | None, Path | None]:
+    """(racine du code de bouzecode, dépôt principal si cette racine est un worktree lié).
+
+    Lu sur disque, sans `git` : `.git` FICHIER (« gitdir: <principal>/.git/worktrees/<nom> »)
+    désigne un worktree lié. (None, None) si `root` n'est pas un projet (installation en
+    site-packages : aucun dépôt à annoncer)."""
+    root = Path(root) if root else Path(__file__).resolve().parents[4]
+    if not (root / "pyproject.toml").is_file():
+        return None, None
+    git = root / ".git"
+    if git.is_file():
+        try:
+            ligne = git.read_text(encoding="utf-8", errors="replace").strip()
+        except OSError:
+            return root, None
+        if ligne.startswith("gitdir:"):
+            gitdir = Path(ligne.split(":", 1)[1].strip())
+            if gitdir.parent.name == "worktrees" and gitdir.parent.parent.name == ".git":
+                return root, gitdir.parent.parent.parent
+    return root, None
+
+
+def _ligne_code_du_harnais() -> str:
+    """« où est le code de bouzecode », sauf si le cwd y est déjà (l'info serait redondante).
+
+    Constat sur 70 sessions réelles : pour une tâche « dans bouzecode », l'agent cherchait
+    `PycharmProjects\\bouzecode` alors que le dépôt est `PycharmProjects\\demo\\bouzecode` —
+    2 à 5 tours perdus par session, et un autre dépôt modifié une fois."""
+    racine, depot = harness_repo()
+    if racine is None:
+        return ""
+    try:
+        Path.cwd().resolve().relative_to(racine)
+        return ""
+    except (ValueError, OSError):
+        pass
+    ligne = f"- Code de bouzecode (ce harnais, si la tâche porte sur lui) : {racine}"
+    if depot is not None:
+        ligne += f" — worktree du dépôt {depot}"
+    return ligne + ".\n"
+
+
+def build_session_context(config: dict | None = None) -> str:
+    """Le contexte de session, court, placé EN DERNIER dans le prompt système.
+
+    Audit du 2026-09-24 : placé au milieu du préfixe (avant le profil), il cassait le cache à
+    chaque redémarrage de process et rendait le préfixe différent d'un agent à l'autre. Il
+    ne porte plus ni `git status` ni les derniers commits : ils changent sans cesse, et l'agent
+    les obtient avec `git log` / `git status` quand il en a besoin. La doctrine d'environnement
+    (worktree / venv / integrate) vit dans le profil `default`, avec le reste du processus git.
+
+    2026-10-07 : pour un tour d'agent, `dispatch` n'envoie plus ce texte recalculé mais celui du
+    premier appel de la session (`contexte_fige`) ; un changement ultérieur part en note de
+    harnais. Cette fonction reste la vérité de l'instant.
+    """
+    return "".join(situation_de_session(config)["segments"].values())
+
+
+def situation_de_session(config: dict | None = None) -> dict:
+    """Le contexte de session en morceaux nommés (`segments`, dans l'ordre du texte) avec les
+    valeurs brutes qui le fondent (`repertoire`, `branche`, `worktree`) : `contexte_fige`
+    compare deux situations morceau par morceau pour rédiger sa note."""
+    import platform
+    now = datetime.now()
+    branch = _git_branch_memo()
+    segments = {
+        "entete": "\n# Contexte de session\n",
+        "date": (f"- Date : {now.strftime('%Y-%m-%d')} ({_JOURS[now.weekday()]}). "
+                 f"Plateforme : {platform.system()}.\n"),
+        "repertoire": f"- Répertoire : {Path.cwd()}" + (f" — branche {branch}" if branch else "")
+                      + ".\n",
+    }
+    depot = _depot_du_worktree()
+    if depot:
+        segments["depot"] = f"- Dépôt git : {depot} (le répertoire ci-dessus en est un worktree).\n"
+    segments["harnais"] = _ligne_code_du_harnais()
 
     # Contrat EXPLICITE pour un agent tournant dans un worktree ISOLÉ. Anciennement préfixé au
     # prompt user (dispatch._worktree_contract) — il pollue la lecture du ticket ; il vit
@@ -259,39 +314,35 @@ def build_system_prompt_parts(config: dict | None = None) -> tuple[str, str]:
     # lecteur, et le spawn_validator/mark_run_out_of_worktree_notified que la doc annonçait
     # n'a jamais existé. Promettre au modèle une surveillance inexistante lui apprend à
     # escompter le reste du prompt ; la vraie conséquence (non récolté) suffit et est vraie.
+    #
+    # 2026-08-23 : la variable n'est plus posée qu'au spawn. `Environment(action='worktree')` la
+    # pose EN VOL dans le process de l'agent. 2026-10-07 : le contrat posé en vol arrive par la
+    # note de harnais de `contexte_fige` (le bloc envoyé reste celui du premier appel).
     worktree_root = os.environ.get("BOUZECODE_WORKTREE_ROOT", "") or ""
     if worktree_root:
-        volatile += (
-            f"\n\nTu travailles dans un worktree isolé : {worktree_root}. Tout ton travail se "
-            "fait ICI ; tes diffs sont récoltés depuis CE worktree et mergés en fin de session "
-            "— ce qui est écrit ailleurs n'est PAS récolté. Exception : suivre un chemin absolu "
-            "externe UNIQUEMENT si le ticket l'ordonne explicitement (git -C, consigne "
-            "cross-repo) ; c'est autorisé, mais ce que tu y écris ne sera pas récolté.\n"
+        segments["worktree"] = (
+            f"- Tu travailles dans un worktree isolé : {worktree_root}. Seul ce qui est écrit ICI "
+            "est récolté ; ce que tu écris ailleurs n'est PAS récolté (autorisé seulement si le "
+            "ticket l'ordonne : git -C, consigne cross-repo).\n"
         )
         # La branche EFFECTIVE, dite explicitement. Un ticket peut annoncer « ta branche de
         # travail = agent/X » alors que le provisioning a sorti agent/Y : l'agent livrait alors
         # au bon endroit techniquement, mais RAPPORTAIT le mauvais — un compte rendu trompeur
         # sans que personne mente. Nommer la branche réelle rend la contradiction visible AVANT
         # le rapport, pas après.
-        branch = checked_out_branch(worktree_root)
-        if branch:
-            volatile += (
-                f"Ta branche de travail est `{branch}` — c'est là que tes commits atterrissent. "
-                "Si ton ticket en nomme une AUTRE, ne fais pas comme si de rien n'était : "
-                "signale la contradiction dans ton rapport, elle signifie que ta livraison "
-                "n'ira pas là où on l'attend.\n"
+        branche_de_travail = checked_out_branch(worktree_root)
+        if branche_de_travail:
+            segments["branche_de_travail"] = (
+                f"- Ta branche de travail est `{branche_de_travail}`. Si ton ticket en nomme une "
+                "autre, signale la contradiction dans ton rapport : ta livraison n'ira pas où on "
+                "l'attend.\n"
             )
 
     if config and config.get("permission_mode") == "plan":
-        plan_file = config.get("_plan_file", "")
-        volatile += PLAN_MODE_TEMPLATE.format(plan_file=plan_file)
+        segments["plan"] = PLAN_MODE_TEMPLATE.format(plan_file=config.get("_plan_file", ""))
 
-    return stable, volatile
-
-
-def build_system_prompt(config: dict | None = None) -> str:
-    stable, volatile = build_system_prompt_parts(config)
-    return stable + volatile
+    return {"repertoire": str(Path.cwd()), "branche": branch, "worktree": worktree_root,
+            "segments": {cle: texte for cle, texte in segments.items() if texte}}
 
 
 # Re-exported for backward compat: call sites (e.g. dispatch.py) import these

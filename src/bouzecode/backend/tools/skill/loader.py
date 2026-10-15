@@ -5,13 +5,15 @@ Parsing one file lives in parsing.py; deciding *where a skill applies* lives in 
 """
 from __future__ import annotations
 
+from bouzecode.paths import project_dir as bouzecode_project_dir
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Optional
 
 # Re-exported: callers (and tests) have always imported these from loader.
 from .parsing import _parse_list_field, _parse_skill_file, substitute_arguments  # noqa: F401
-from .scope import SkillResolution, report_shadows, resolve
+from .scope import SkillResolution, resolve
+from .shadow_report import report_shadows
 
 
 @dataclass
@@ -29,7 +31,12 @@ class SkillDef:
     model: str = ""              # model override
     user_invocable: bool = True  # appears in /skills list
     context: str = "inline"      # "inline" or "fork" (fork = sub-agent)
-    source: str = "user"         # "user", "project", "builtin"
+    source: str = "user"         # "user", "project", "plugin", "builtin"
+    # Fraîcheur : `updated` = date de dernière VÉRIFICATION du contenu (pas le dernier
+    # commit du fichier), `covers` = chemins du code que la skill décrit. Les deux
+    # ensemble rendent la dérive mesurable — cf. skill/freshness.py.
+    updated: str = ""            # "YYYY-MM-DD"
+    covers: list[str] = field(default_factory=list)
     # Scope: the directory tree this skill applies to ("" = global). See scope.py.
     scope: str = ""
     scope_label: str = ""        # short prefix used when a name collides ("projet:nom")
@@ -42,7 +49,7 @@ def _project_skill_dirs(cwd: Path) -> list[tuple[Path, str]]:
     """`.bouzecode/skills` and `.claude/skills` of `cwd` and its ancestors, nearest first.
 
     Walking the ancestors is what makes a monorepo work: an agent in
-    `monorepo/backend/` also sees the skills filed at `monorepo/`. The walk stops at the
+    `demo/bouzecode/` also sees the skills filed at `demo/`. The walk stops at the
     home directory — `~/.bouzecode/skills` is the GLOBAL store, not a project's.
 
     `<cwd>/.claude/skills` is read too. It was not, which is why the project's own
@@ -54,7 +61,7 @@ def _project_skill_dirs(cwd: Path) -> list[tuple[Path, str]]:
     for base in [start, *start.parents]:
         if base == home:
             break
-        dirs.append((base / ".bouzecode" / "skills", "project"))
+        dirs.append((bouzecode_project_dir(base) / "skills", "project"))
         dirs.append((base / ".claude" / "skills", "project"))
     return dirs
 
@@ -68,7 +75,8 @@ def _get_skill_paths() -> list[tuple[Path, str]]:
         (CONFIG_DIR / "skills", "user"),  # ~/.bouzecode/skills (global, editable from the UI)
         (Path.home() / ".claude" / "skills", "claude"),
     ]
-    return extra + _project_skill_dirs(Path.cwd()) + base
+    from ...core.dossier_agent import courant
+    return extra + _project_skill_dirs(Path(courant())) + base
 
 
 def _iter_skill_files(skill_dir: Path):
@@ -114,7 +122,7 @@ def _collect_candidates(include_builtins: bool, cwd: Path) -> list[SkillDef]:
     directories = _get_skill_paths()
     if cwd is not None:
         # An explicitly frozen cwd brings its own project trees along: _get_skill_paths()
-        # only knows about Path.cwd().
+        # only knows about the agent's current directory.
         directories = _project_skill_dirs(cwd) + directories
     seen_dirs: set[Path] = set()
     ordered: list[tuple[Path, str]] = []
@@ -124,6 +132,7 @@ def _collect_candidates(include_builtins: bool, cwd: Path) -> list[SkillDef]:
             continue
         seen_dirs.add(resolved)
         ordered.append((skill_dir, src))
+    candidates += _plugin_skill_candidates()
     for skill_dir, src in reversed(ordered):
         for md_file in _iter_skill_files(skill_dir):
             skill = _parse_skill_file(md_file, source=src)
@@ -132,13 +141,32 @@ def _collect_candidates(include_builtins: bool, cwd: Path) -> list[SkillDef]:
     return candidates
 
 
+def _plugin_skill_candidates() -> list[SkillDef]:
+    """Skills declared in the `plugin.json` of enabled plugins (`~/.bouzecode/plugins.json`).
+
+    Lowest file priority: a project or user skill of the same name wins. They used to be
+    listed by `load_plugin_skills()` and never read by anyone — installed, never offered.
+    `BOUZECODE_NO_PLUGINS` skips them, as it skips plugin tools and hooks.
+    """
+    import os
+    if os.environ.get("BOUZECODE_NO_PLUGINS"):
+        return []
+    from ...plugin.loader import load_plugin_skills
+    parsed = [_parse_skill_file(path, source="plugin") for path in load_plugin_skills()]
+    return [skill for skill in parsed if skill]
+
+
 def resolve_skills(include_builtins: bool = True, cwd=None) -> SkillResolution:
     """Resolve skills against a working directory: winners, shadowed, ambiguous.
 
-    `cwd` defaults to the process working directory. Pass it explicitly (frozen at agent
-    start) so a session that changes directory does not see its skill set shift under it.
+    `cwd` defaults to the AGENT's working directory (core.dossier_agent.courant: a sub-agent's
+    worktree, else the process cwd) — the same one _get_skill_paths() walks. Anchoring on
+    Path.cwd() put an in-process sub-agent in its parent's directory. Pass it explicitly
+    (frozen at agent start) so a session that changes directory does not see its skill set
+    shift under it.
     """
-    base = Path(cwd) if cwd is not None else Path.cwd()
+    from ...core.dossier_agent import courant
+    base = Path(cwd) if cwd is not None else Path(courant())
     resolution = resolve(_collect_candidates(include_builtins, cwd), base)
     report_shadows(resolution)
     return resolution
@@ -158,6 +186,10 @@ def find_skill(query: str, cwd=None) -> Optional[SkillDef]:
     first_word = query.split()[0]
     skills = load_skills(cwd=cwd)
     for skill in skills:
+        # Match the plain name too, like SkillResolution.by_name does: a project skill
+        # has no qualified name to spell out, and Skill(name=...) must still find it.
+        if first_word == skill.name:
+            return skill
         if skill.qualified_name and first_word == skill.qualified_name:
             return skill
     for skill in skills:

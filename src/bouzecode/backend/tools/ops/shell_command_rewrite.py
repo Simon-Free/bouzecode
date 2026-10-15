@@ -29,9 +29,10 @@ _HOST_FLAGS = (
 )
 
 # The ONLY switches we accept on a wrapper we are about to delete, because they
-# are no-ops once unwrapped: we already launch PowerShell with -NonInteractive
-# and capture its output (no logo), and our own launcher loads the profile, so
-# dropping -NoProfile only makes MORE names visible to the body, never fewer.
+# are no-ops once unwrapped: our launcher already runs PowerShell with -NoProfile
+# -NonInteractive and captures its output (no logo). A plain wrapper would have
+# loaded the user profile in the child; unwrapped, the body runs without it, as
+# every agent command does (see _build_popen_command: nothing may depend on it).
 _NO_OP_FLAGS = {"nologo", "noprofile", "noninteractive"}
 
 

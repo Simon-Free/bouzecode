@@ -1,9 +1,9 @@
-# [desc] Interactive REPL loop, query execution, and sentinel-dispatch state machine for bouzécode. [/desc]
-"""Main REPL loop for bouzécode.
+# [desc] Interactive REPL loop, query execution, and sentinel-dispatch state machine for bouzecode. [/desc]
+"""Main REPL loop for bouzecode.
 
 Owns the interactive read-eval-print loop, run_query turn handler, and the
 sentinel-dispatch state machine that processes commands whose execution must
-flow back through the REPL (voice, image, plan, worker, SSJ menu, etc.).
+flow back through the REPL (voice, image, brainstorm, SSJ menu, etc.).
 """
 from __future__ import annotations
 
@@ -27,7 +27,6 @@ from .rendering import (
 )
 from .spinner import (
     _start_tool_spinner, _stop_tool_spinner, _change_spinner_phrase,
-    animation_enabled,
 )
 from .tool_display import print_tool_start, print_tool_end, _fmt_duration
 
@@ -35,13 +34,36 @@ from bouzecode.backend.commands import (
     COMMANDS, handle_slash, setup_readline,
     ask_permission_interactive,
     save_latest, save_progressive, _build_session_data,
-    _proactive_watcher_loop, _tg_send,
+    _proactive_watcher_loop,
     _print_background_notifications,
 )
 
 from bouzecode.backend.commands.session import _save_session_checkpoint
-from bouzecode.backend.commands.telegram_cmd import _tg_poll_loop
 from bouzecode.backend.tools.interaction import DeferredChecks, PausedForInput
+from bouzecode.backend.agent.state import CheckpointReady, ToolEnd, TurnDone
+
+
+def _persister_a_la_frontiere(event, state, config: dict) -> None:
+    """Écrit la session sur disque aux frontières DURABLES d'un tour : fin d'un tour du
+    modèle (`TurnDone`), fin d'un outil (`ToolEnd`), point de reprise (`CheckpointReady`).
+
+    Le fil web n'a que deux sources : `/blocks` (cette session sur disque) et `/partial` (le
+    tour EN COURS, effacé au début du suivant). Un tour fini qui n'est pas écrit ici n'existe
+    donc plus nulle part à l'écran : le tour n+1 remplace le tour n jusqu'à la clôture.
+    C'est ce qui arrivait après une réponse à une question en pause CHAUDE
+    (`_resume_paused_warm` vidait le générateur sans rien écrire, TODO 2026-09-25 §3).
+    UNE seule fonction pour tous les consommateurs d'événements : ils ne peuvent plus
+    diverger sur ce qui est persisté."""
+    if not isinstance(event, (TurnDone, ToolEnd, CheckpointReady)):
+        return
+    sf = config.get("_session_file")
+    if sf:
+        _save_session_checkpoint(state, sf, config.get("_session_id"), config.get("_session_path"), model=config.get("model"))
+    if isinstance(event, CheckpointReady):
+        try:
+            save_progressive(state, config)
+        except Exception:
+            pass
 
 
 def _fmt_tok_compact(n: int) -> str:
@@ -175,8 +197,10 @@ def _resume_paused_warm(pause: PausedForInput, state, config, system_prompt, can
         web_ipc.write_state(paths, web_ipc.STATUS_RUNNING, turn=getattr(state, "turn_count", 0))
         try:
             gen = resume_paused(current_pause, answer, state, config, system_prompt, cancel_check=cancel_check)
-            for _ in gen:
-                pass
+            # Chaque tour repris est écrit dès qu'il finit, comme dans run_query : sinon le
+            # fil web n'en voit que le streaming, écrasé tour après tour jusqu'à la clôture.
+            for event in gen:
+                _persister_a_la_frontiere(event, state, config)
         except PausedForInput as next_pause:
             current_pause = next_pause
             continue  # pauses again -> re-persist + idle-wait
@@ -220,11 +244,72 @@ def _persist_deferred_and_exit(deferred: DeferredChecks, state, config) -> None:
     sys.exit(0)
 
 
+def _traiter_cloture_differee(deferred: DeferredChecks, state, config):
+    """Clôture différée : le web persiste et sort (le runner draine) ; le TUI, lui, reste.
+
+    Le TUI passait aussi par `_persist_deferred_and_exit` : sans `_session_file` rien
+    n'était persisté, et `sys.exit(0)` quittait le REPL — la suite différée ne tournait
+    JAMAIS (a5536ec2, 3f364511). Ici elle tourne en fond, dans le dossier courant (celui
+    des Bash de l'agent), et son verdict remplace l'avis « non faite » de la réponse puis
+    s'affiche. Rend le fil (les tests l'attendent)."""
+    if config.get("_session_file"):
+        _persist_deferred_and_exit(deferred, state, config)
+        return None
+    from ..web_v2.runtime import deferred as web_deferred
+    from bouzecode.backend.tools.interaction import remplacer_annonce
+    cwd = os.getcwd()
+    commandes = ", ".join(c.get("command", "") for c in deferred.checks)
+    print(clr(f"  ⏳ Vérification différée lancée en fond (réponse livrée AVANT elle) : "
+              f"{commandes}", "yellow"))
+
+    def _drainer():
+        try:
+            verdict = web_deferred.executer(deferred.checks, cwd)
+        except Exception as exc:  # jamais muet : le verdict dit que la vérif n'a pas abouti
+            verdict = {"statut": "rouge", "checks": [
+                {"command": commandes, "code": None, "extrait": f"non lancée : {exc}"}]}
+        texte = web_deferred.texte_du_verdict(
+            verdict, apres_echec="Relance l'agent pour corriger.")
+        state.deferred_result = verdict
+        state.final_answer = remplacer_annonce(state.final_answer or "", texte)
+        print("\n" + clr(texte, "green" if verdict["statut"] == "vert" else "red"), flush=True)
+
+    fil = threading.Thread(target=_drainer, name="verifications-differees", daemon=True)
+    fil.start()
+    return fil
 
 
 
-_telegram_thread: threading.Thread | None = None
-_telegram_stop: threading.Event = threading.Event()
+
+
+def _print_code_drift_notice(probe=None) -> None:
+    """Avant chaque prompt : prévient, une seule fois par process, que le dépôt bouzecode a
+    avancé depuis le démarrage de ce process — qui exécute donc encore l'ancien code (des
+    TUI de plusieurs jours montraient des bugs « déjà corrigés »). Quelques lectures de
+    fichiers dans .git, jamais d'exception."""
+    try:
+        if probe is None:
+            from bouzecode.backend.core.code_version import BOOT as probe
+        message = probe.drift_warning()
+    except Exception:
+        return
+    if message:
+        print(clr(f"\n  ⚠  {message}", "yellow", "bold"))
+
+
+def print_active_flags(config: dict) -> None:
+    """Ligne « Active: » de la bannière ; le thinking y apparaît par son niveau résolu."""
+    from bouzecode.backend.agent.providers.thinking_level import resolve_thinking_level
+    active_flags = []
+    if config.get("verbose"):
+        active_flags.append("verbose")
+    thinking_level = resolve_thinking_level(config)
+    if thinking_level != "none":
+        active_flags.append(f"thinking:{thinking_level}")
+    if config.get("_proactive_enabled"):
+        active_flags.append("proactive")
+    if active_flags:
+        info("Active: " + " · ".join(clr(f, "green") for f in active_flags))
 
 
 def _strip_surrogates(raw: str) -> str:
@@ -234,18 +319,18 @@ def _strip_surrogates(raw: str) -> str:
 
 def repl(config: dict, initial_prompt: str = None):
     from bouzecode.backend.core.config import HISTORY_FILE
-    from bouzecode.backend.core.context import build_system_prompt
+    from bouzecode.backend.core.context import build_stable_system_prompt
     from bouzecode.backend.agent import (
         AgentState, run, TextChunk, ThinkingChunk, ToolCallParsed, ToolIdRemap,
         ToolStart, ToolEnd, TurnDone, PermissionRequest, CheckpointReady,
         EnforcementWarning, RecoveryFailed,
     )
+    from bouzecode.backend.agent.providers.types import StreamRestart
     from bouzecode import VERSION
 
     setup_readline(HISTORY_FILE)
     state = AgentState()
     verbose = config.get("verbose", False)
-    config["_tg_send_callback"] = _tg_send
 
     from bouzecode.backend import checkpoint as ckpt
     session_id = uuid.uuid4().hex[:8]
@@ -256,25 +341,33 @@ def repl(config: dict, initial_prompt: str = None):
     ckpt.cleanup_old_sessions()
     ckpt.make_snapshot(session_id, state, config, "(initial state)", tracked_edits=None)
 
+    # Prompt de lancement dans une vraie console (sans `-p`) : 1er message du TUI interactif,
+    # barre des sous-agents posee avant lui ; le REPL continue ensuite (cf. lancement_tui).
+    from .lancement_tui import prompt_soumis_au_tui, annoncer_le_premier_message
+    messages_en_attente = []
+    if prompt_soumis_au_tui(config, initial_prompt):
+        messages_en_attente.append(initial_prompt)
+        initial_prompt = None
+
     if not initial_prompt and not config.get("_web_agent_dir"):
         from bouzecode.backend.agent.providers import detect_provider
         try:
             from bouzecode.backend.core._embedded_data import LOGO_TEXT
             _BOUZECODE_LOGO = LOGO_TEXT.rstrip("\n").splitlines()
         except Exception:
-            _BOUZECODE_LOGO = ["  bouz\u00e9code"]
+            _BOUZECODE_LOGO = ["  bouzecode"]
 
-        # Only on a real terminal: in a pipe `\r` does not overwrite, so each
-        # frame would land as its own line of noise (see spinner.animation_enabled).
-        if animation_enabled():
-            _GALAXY_FRAMES = ["\u25dc", "\u25dd", "\u25de", "\u25df"]
+        _GALAXY_FRAMES = ["\u25dc", "\u25dd", "\u25de", "\u25df"]
+        try:
             for i in range(8):
                 frame = _GALAXY_FRAMES[i % 4]
-                sys.stdout.write(f"\r  {clr(frame, 'cyan', 'bold')} Initializing bouz\u00e9code...")
+                sys.stdout.write(f"\r  {clr(frame, 'cyan', 'bold')} Initializing bouzecode...")
                 sys.stdout.flush()
                 time.sleep(0.12)
             sys.stdout.write(f"\r{' ' * 45}\r")
             sys.stdout.flush()
+        except Exception:
+            pass
 
         for line in _BOUZECODE_LOGO:
             print(clr(line, "cyan", "bold"))
@@ -286,7 +379,7 @@ def repl(config: dict, initial_prompt: str = None):
         prov_clr = clr(f"({pname})", "dim")
         pmode = clr(config.get("permission_mode", "auto"), "yellow")
         ver_clr = clr(f"v{VERSION}", "green")
-        print(clr("  \u256d\u2500 ", "dim") + clr("bouz\u00e9code ", "cyan", "bold")
+        print(clr("  \u256d\u2500 ", "dim") + clr("bouzecode ", "cyan", "bold")
               + clr("(based on cheetahclaws) ", "dim") + ver_clr
               + clr(" \u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u256e", "dim"))
         print(clr("  \u2502", "dim") + clr("  Model: ", "dim") + model_clr + " " + prov_clr)
@@ -298,21 +391,13 @@ def repl(config: dict, initial_prompt: str = None):
         _today_dir = _DAILY_DIR / _dt.now().strftime("%Y-%m-%d")
         print(clr(f"  Session log \u2192 {_today_dir}", "dim"))
 
-        active_flags = []
-        if config.get("verbose"):
-            active_flags.append("verbose")
-        if config.get("thinking"):
-            mode = config.get("thinking_mode", "extended")
-            active_flags.append(f"thinking:{mode}")
-        if config.get("_proactive_enabled"):
-            active_flags.append("proactive")
-        if config.get("telegram_token") and config.get("telegram_chat_id"):
-            active_flags.append("telegram")
-        if active_flags:
-            # `info` already prints and returns None — wrapping it in print()
-            # emitted a bare "None" line right under the banner.
-            info("Active: " + " · ".join(clr(f, "green") for f in active_flags))
+        print_active_flags(config)
         print()
+
+    # Titre du terminal pose DES le demarrage : sans sequence OSC initiale, VSCode
+    # (onglet suivant ${sequence}) retombe sur le nom du processus du shell.
+    from bouzecode.ui.terminal_title import set_terminal_status
+    set_terminal_status("idle")
 
     query_lock = threading.RLock()
 
@@ -341,16 +426,27 @@ def repl(config: dict, initial_prompt: str = None):
         nonlocal verbose
         with query_lock:
             verbose = config.get("verbose", False)
-            system_prompt = build_system_prompt(config)
-            if is_background and not config.get("_telegram_incoming"):
+            # Process resté vivant après un `integrate` (TUI, pool chaud) : le tour suivant
+            # n'a pas de respawn donc pas de rehome serveur — on ré-isole ici.
+            from bouzecode.backend.tools import environment as _environment_tool
+            _reisolation = _environment_tool.reisoler_avant_tour(config)
+            if _reisolation and isinstance(user_input, str):
+                user_input = f"{_reisolation}\n\n{user_input}"
+            # Moitié stable seulement : dispatch ajoute le contexte de session EN DERNIER.
+            # L'état de contexte de la session y fige la mémoire (memoire_figee.py).
+            system_prompt = build_stable_system_prompt(
+                {**config, "_context_state": state.context_state})
+            if is_background:
                 print(clr("\n\n[Background Event Triggered]", "yellow"))
-            config["_in_telegram_turn"] = config.pop("_telegram_incoming", False)
-            print(clr("\n\u256d\u2500 bouz\u00e9code ", "dim") + clr("\u25cf", "green")
+            print(clr("\n\u256d\u2500 bouzecode ", "dim") + clr("\u25cf", "green")
                   + clr(" \u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500", "dim"))
 
             thinking_started = False
             spinner_shown = True
             _start_tool_spinner()
+            from bouzecode.ui.terminal_title import set_terminal_status
+            _final_answer_before = config.get("_final_answer")
+            set_terminal_status("running")
             _pre_tool_text = []
             _post_tool = False
             _post_tool_buf = []
@@ -462,9 +558,7 @@ def repl(config: dict, initial_prompt: str = None):
                         _change_spinner_phrase()
                         _start_tool_spinner()
                         spinner_shown = True
-                        sf = config.get("_session_file")
-                        if sf:
-                            _save_session_checkpoint(state, sf, config.get("_session_id"), config.get("_session_path"), model=config.get("model"))
+                        _persister_a_la_frontiere(event, state, config)
                     elif isinstance(event, TurnDone):
                         _stop_tool_spinner()
                         spinner_shown = False
@@ -477,9 +571,7 @@ def repl(config: dict, initial_prompt: str = None):
                             thinking_started = False
                         _turn_thinking = flush_thinking(
                             _thinking_chunks, state.turn_count, state.thinking_log)
-                        sf = config.get("_session_file")
-                        if sf:
-                            _save_session_checkpoint(state, sf, config.get("_session_id"), config.get("_session_path"), model=config.get("model"))
+                        _persister_a_la_frontiere(event, state, config)
                         last_llm = next((t for t in reversed(state.timing_entries) if t["phase"] == "llm"), None)
                         if last_llm and last_llm.get("duration", 0.0) > 0.05:
                             flush_response()
@@ -518,8 +610,17 @@ def repl(config: dict, initial_prompt: str = None):
                                 parts.append("+%s in" % " +".join(_in_parts))
                             else:
                                 parts.append(f"+{_fmt_tok_compact(event.input_tokens)} in")
-                            parts.append(f"+{_fmt_tok_compact(event.output_tokens)} out")
+                            if getattr(event, "input_estimated", False):
+                                parts[-1] = "~" + parts[-1].lstrip("+") + " (estimé)"
+                            _out = f"+{_fmt_tok_compact(event.output_tokens)} out"
+                            if getattr(event, "output_estimated", False):
+                                _out = "~" + _out.lstrip("+") + " (estimé)"
+                            parts.append(_out)
                             print(clr(f"  ⏱  {' · '.join(parts)}", "dim"))
+                    elif isinstance(event, StreamRestart):
+                        flush_response()
+                        print(clr("\n  ⟳ connexion coupée : réponse régénérée depuis le début "
+                                  "(le texte ci-dessus est abandonné)", "yellow"))
                     elif isinstance(event, EnforcementWarning):
                         _stop_tool_spinner()
                         flush_response()
@@ -535,16 +636,11 @@ def repl(config: dict, initial_prompt: str = None):
                         _start_tool_spinner()
                         spinner_shown = True
                     elif isinstance(event, CheckpointReady):
-                        sf = config.get("_session_file")
-                        if sf:
-                            _save_session_checkpoint(state, sf, config.get("_session_id"), config.get("_session_path"), model=config.get("model"))
-                        try:
-                            save_progressive(state, config)
-                        except Exception:
-                            pass
+                        _persister_a_la_frontiere(event, state, config)
             except KeyboardInterrupt:
                 _stop_tool_spinner()
                 flush_response()
+                set_terminal_status("idle")
                 raise
             except PausedForInput as pause:
                 _stop_tool_spinner()
@@ -556,9 +652,10 @@ def repl(config: dict, initial_prompt: str = None):
             except DeferredChecks as deferred:
                 _stop_tool_spinner()
                 flush_response()
-                _persist_deferred_and_exit(deferred, state, config)
+                _traiter_cloture_differee(deferred, state, config)
             except Exception as e:
                 _stop_tool_spinner()
+                set_terminal_status("crashed")
                 # Fatal provider error (marked by loop.run): persist the checkpoint
                 # so the disk session carries close_reason='api_error' before the
                 # process dies. Without this re-save, the last checkpoint predates
@@ -574,6 +671,9 @@ def repl(config: dict, initial_prompt: str = None):
 
             _stop_tool_spinner()
             flush_response()
+            _fa_now = config.get("_final_answer")
+            set_terminal_status(
+                "done" if _fa_now and _fa_now is not _final_answer_before else "idle")
 
     
 
@@ -601,17 +701,25 @@ def repl(config: dict, initial_prompt: str = None):
                     print(clr(f"  {' | '.join(parts)}", "dim"))
                 _total_cr = getattr(state, "total_cache_read_tokens", 0)
                 _total_cw = getattr(state, "total_cache_creation_tokens", 0)
-                # Anthropic's `usage.input_tokens` is ONLY the fresh/non-cached
-                # tokens. `cache_read_input_tokens` and `cache_creation_input_tokens`
-                # are SEPARATE and ADDITIVE. So:
-                #   total_prompt = Σ input_tokens + Σ cache_read + Σ cache_create
-                #   uncached     = Σ input_tokens (already fresh-only)
-                _cumulated = state.total_input_tokens + _total_cr + _total_cw
+                # Convention de la chaîne (registry.anthropic_input_includes_cache_write) :
+                # input_tokens = prompt NON lu en cache, écriture de cache COMPRISE ;
+                # cache_read est à part. Donc :
+                #   total_prompt = Σ input_tokens + Σ cache_read
+                #   fresh        = Σ input_tokens − Σ cache_create
+                # La parenthèse liste trois parts DISJOINTES dont la somme fait le total.
+                _cumulated = state.total_input_tokens + _total_cr
                 _cum_str = f"{_cumulated:,} cumulated in"
                 if _total_cr or _total_cw:
-                    _uncached = state.total_input_tokens
-                    _cum_str += f" ({_total_cr:,} cached, {_total_cw:,} cache-write, {_uncached:,} uncached)"
+                    from bouzecode.backend.agent.providers.registry import fresh_input_tokens
+                    _fresh_total = fresh_input_tokens(state.total_input_tokens, _total_cw)
+                    _cum_str += (f" ({_fresh_total:,} fresh, {_total_cr:,} cache read,"
+                                 f" {_total_cw:,} cache write)")
                 tok_parts = [f"{_q_distinct:,} distinct in", f"{_q_out:,} out", _cum_str]
+                from bouzecode.ui.cost_label import total_session_label
+                tok_parts.append(total_session_label(
+                    config.get("model"), state.total_input_tokens,
+                    getattr(state, "total_output_tokens", 0), _total_cr, _total_cw,
+                    registre=config.get("_tui_agents")))
                 _last_followup_saved = next(
                     (e.get("tokens_est_saved", 0) for e in reversed(getattr(state, "compaction_log", []))
                      if e.get("event") == "followup_compact" and e.get("turn") == state.turn_count),
@@ -626,19 +734,6 @@ def repl(config: dict, initial_prompt: str = None):
 
             if is_background:
                 print(clr(f"\n[{Path.cwd().name}] \u00bb ", "yellow"), end="", flush=True)
-                is_tg_turn = config.get("_in_telegram_turn", False)
-                ttok = config.get("telegram_token")
-                tchat = config.get("telegram_chat_id")
-                if not is_tg_turn and ttok and tchat:
-                    if state.messages and state.messages[-1].get("role") == "assistant":
-                        ans_content = state.messages[-1].get("content", "")
-                        if isinstance(ans_content, list):
-                            parts = [b["text"] if isinstance(b, dict) else str(b)
-                                     for b in ans_content
-                                     if (isinstance(b, dict) and b.get("type") == "text") or isinstance(b, str)]
-                            ans_content = "\n".join(parts)
-                        if ans_content:
-                            _tg_send(ttok, tchat, ans_content)
 
         sys.stdout.flush()
         sys.stderr.flush()
@@ -677,31 +772,6 @@ def repl(config: dict, initial_prompt: str = None):
         config["_last_interaction_time"] = time.time()
 
     config["_run_query_callback"] = lambda msg: run_query(msg, is_background=True)
-
-    def _handle_slash_from_telegram(line: str):
-        result = handle_slash(line, state, config)
-        if not isinstance(result, tuple):
-            return "simple"
-        if result[0] == "__worker__":
-            _, worker_tasks = result
-            for i, (line_idx, task_text, prompt) in enumerate(worker_tasks):
-                print(clr(f"\n  \u2500\u2500 Worker ({i+1}/{len(worker_tasks)}): {task_text} \u2500\u2500", "yellow"))
-                run_query(prompt)
-        return "query"
-
-    config["_handle_slash_callback"] = _handle_slash_from_telegram
-
-    global _telegram_thread, _telegram_stop
-    if config.get("telegram_token") and config.get("telegram_chat_id"):
-        if not (_telegram_thread and _telegram_thread.is_alive()):
-            config["_state"] = state
-            _telegram_stop = threading.Event()
-            _telegram_thread = threading.Thread(
-                target=_tg_poll_loop,
-                args=(config["telegram_token"], config["telegram_chat_id"], config),
-                daemon=True,
-            )
-            _telegram_thread.start()
 
     _ctrl_c_times = []
 
@@ -768,9 +838,17 @@ def repl(config: dict, initial_prompt: str = None):
         state.total_cache_creation_tokens = _resumed.get("total_cache_creation_tokens", 0)
         state.distinct_base = _resumed.get("distinct_base", 0)
         state.compaction_log = _resumed.get("compaction_log", [])
+        from bouzecode.backend.core.version_session import historique_de_session
+        state.versions_successives = historique_de_session(_resumed)
         _gc_data = _resumed.get("context_state")
         if _gc_data:
-            state.context_state.notes = _gc_data.get("notes", {})
+            # Notes ET contexte de session figé : la reprise envoie le même bloc (cache intact).
+            from bouzecode.backend.context_manager.state import restaurer_le_contexte
+            restaurer_le_contexte(state.context_state, _gc_data)
+        # Réveil web : même liste d'outils qu'au dernier appel (outils navigateur compris),
+        # sinon tout ce qui suit les outils (note, historique) sort du cache.
+        from bouzecode.backend.chrome_devtools.launcher import reprendre_les_outils_de_la_session
+        reprendre_les_outils_de_la_session(_resumed)
         resumed_sid = _resumed.get("session_id")
         if resumed_sid:
             session_id = resumed_sid
@@ -781,10 +859,15 @@ def repl(config: dict, initial_prompt: str = None):
         resumed_path = _resumed.get("session_path")
         if resumed_path:
             config["_session_path"] = resumed_path
-        if not initial_prompt and not resume_auto:
+        if not initial_prompt and not resume_auto and not messages_en_attente:
             initial_prompt = "Continue."
 
     if initial_prompt or resume_auto:
+        # Run NON interactif (`-p`, web, Rundeck, sous-agent en terminal) : FinalAnswer est le
+        # seul acte terminal. Une réponse en prose relance le modèle (même mécanisme et même
+        # plafond que le web, `loop_turn.handle_no_tools`) puis clôt en
+        # `final_answer_never_called` — jamais livrée (cf. `cloture_cli`).
+        config["close_requires_final_answer"] = True
         web_agent_dir = config.get("_web_agent_dir")
         if web_agent_dir:
             from ..web_v2.runtime import ipc as _ipc
@@ -797,6 +880,10 @@ def repl(config: dict, initial_prompt: str = None):
             # process. Consommer là-bas volerait la demande à la garde de tête de
             # `loop.run`, seule à savoir clore proprement (`close_reason='cancelled'`).
             config["_cancel_peek"] = lambda: _ipc.is_cancelled(_ipc_paths)
+            # Messages écrits PENDANT le tour (utilisateur, assistant du Bureau, manager) :
+            # `loop.run` les relève à la frontière de tour suivante, sans attendre la fin.
+            config["_inbox_pop"] = lambda: _ipc.relever_messages(_ipc_paths)
+            config["_inbox_peek"] = lambda: _ipc.a_du_courrier(_ipc_paths)
             # Stamp the IPC per-turn (turn=N, not the hardcoded turn=1) and — on a
             # graceful close — write FINISHED + close_reason BEFORE _fire_completion's
             # on_completion hook runs. That hook http_posts the test-gate synchronously
@@ -832,36 +919,30 @@ def repl(config: dict, initial_prompt: str = None):
         except KeyboardInterrupt:
             _track_ctrl_c()
             print()
-        plan_path = config.get("_plan_output")
-        result_path = config.get("_result_file")
-        if (plan_path or result_path) and state.messages:
-            for msg in reversed(state.messages):
-                if msg.get("role") == "assistant":
-                    content = msg.get("content", "")
-                    if isinstance(content, list):
-                        content = "\n".join(
-                            b["text"] for b in content
-                            if isinstance(b, dict) and b.get("type") == "text"
-                        )
-                    if content:
-                        if plan_path:
-                            Path(plan_path).write_text(content, encoding="utf-8")
-                        if result_path:
-                            Path(result_path).write_text(content, encoding="utf-8")
-                    break
-        return
+        from .cloture_cli import conclure  # réponse FinalAnswer, fiche de clôture, code de sortie
+        return conclure(state, config)
 
     from .paste_input import read_input_with_paste_blocks as _paste_input
+    # TUI interactif : sous-agents en process + barre du bas (ui/barre_agents). None sinon.
+    from .barre_agents import installer as _installer_barre_agents
+    _ecran_agents = _installer_barre_agents(state, config)
 
     def _read_input(prompt: str) -> str:
-        raw = _paste_input(prompt) if sys.stdin.isatty() else input(prompt)
+        if _ecran_agents is not None:
+            raw = _ecran_agents.saisir(prompt)
+        else:
+            raw = _paste_input(prompt) if sys.stdin.isatty() else input(prompt)
         return _strip_surrogates(raw)
 
     from .repl_sentinels import process_sentinel_result
 
+    from .assistant_tui import afficher_alertes as _afficher_alertes_assistant
+
     while True:
+        _print_code_drift_notice()
+        _afficher_alertes_assistant()
         try:
-            _print_background_notifications()
+            _print_background_notifications(config)
         except Exception as _bg_err:
             print(clr(f"\n  \u2717 background-notifications failed: {type(_bg_err).__name__}: {_bg_err}", "red"))
             print(clr(traceback.format_exc().rstrip(), "dim"))
@@ -869,7 +950,11 @@ def repl(config: dict, initial_prompt: str = None):
             cwd_short = Path.cwd().name
             prompt = clr(f"\n[{cwd_short}] ", "dim") + clr("\u00bb ", "cyan", "bold")
             sys.stdout.flush()
-            user_input = _read_input(prompt)
+            if messages_en_attente:  # prompt de lancement : traite comme s'il etait tape
+                user_input = messages_en_attente.pop(0)
+                annoncer_le_premier_message(prompt, user_input)
+            else:
+                user_input = _read_input(prompt)
         except KeyboardInterrupt:
             print()
             _track_ctrl_c()

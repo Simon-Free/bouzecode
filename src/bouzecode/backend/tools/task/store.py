@@ -2,6 +2,7 @@
 """Thread-safe task store: in-memory dict persisted to .bouzecode/tasks.json."""
 from __future__ import annotations
 
+from bouzecode.paths import project_dir as bouzecode_project_dir
 import json
 import threading
 import uuid
@@ -23,7 +24,7 @@ _loaded = False
 # ── persistence ───────────────────────────────────────────────────────────────
 
 def _tasks_file() -> Path:
-    return Path.cwd() / ".bouzecode" / "tasks.json"
+    return bouzecode_project_dir(Path.cwd()) / "tasks.json"
 
 
 def _load() -> None:

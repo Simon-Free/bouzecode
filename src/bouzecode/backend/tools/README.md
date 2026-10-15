@@ -5,7 +5,7 @@ Built-in agent tools (Read, Write, Edit, Bash, Grep, Glob, WebFetch, etc.), thei
 
 ## Usage
 - `schemas.py` — `TOOL_SCHEMAS` (list of dicts)
-- `state.py` — `_track_read`, `_stale_edit_warning`, `_tg_thread_local`, `_is_in_tg_turn`, `clear_file_state`
+- `state.py` — `_track_read`, `_stale_edit_warning`, `clear_file_state`
 - `interaction.py` — `_ask_user_question`, `ask_input_interactive`, `drain_pending_questions`, `_sleeptimer`
 - `plan_mode.py` — plan-mode tool gating
 - `plan_mode_schema.py` — `hide_write_tools` / `restore_write_tools` (Write/Edit leave the schema during plan mode)

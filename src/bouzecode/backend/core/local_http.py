@@ -1,5 +1,5 @@
 # [desc] Sanctioned HTTP client for the LOCAL bouzecode server: never proxied, actionable errors. [/desc]
-"""Appels HTTP vers le serveur bouzecode LOCAL (BouzéqUI, boucle locale).
+"""Appels HTTP vers le serveur bouzecode LOCAL (bouzeui, boucle locale).
 
 POURQUOI CE MODULE EXISTE — panne du 2026-07-28 : le dispatch d'un manager est parti dans
 le proxy d'entreprise et a reçu `HTTP Error 407: Proxy Authentication Required`, deux fois,
@@ -41,7 +41,14 @@ class LocalServerError(RuntimeError):
     """Un appel au serveur bouzecode LOCAL a échoué, avec un diagnostic exploitable.
 
     Le message distingue toujours les trois causes que « 407 » seul confondait :
-    requête partie dans un proxy, serveur qui refuse, serveur injoignable."""
+    requête partie dans un proxy, serveur qui refuse, serveur injoignable.
+    `status` et `corps` portent la réponse du serveur (0 et {} s'il n'a pas répondu) : un
+    client peut ainsi lire le `code` machine d'une erreur au lieu de parser le message."""
+
+    def __init__(self, message: str, status: int = 0, corps: dict | None = None):
+        super().__init__(message)
+        self.status = status
+        self.corps = corps or {}
 
 
 def proxy_vars_in_env(env: dict | None = None) -> list[str]:
@@ -74,29 +81,46 @@ def no_proxy_opener() -> urllib.request.OpenerDirector:
 
 
 def local_json(method: str, url: str, body: dict | None = None,
-               timeout: int = 60) -> dict:
+               timeout: int = 60, headers: dict | None = None) -> dict:
     """Appel JSON vers le serveur LOCAL, SANS jamais traverser de proxy.
 
     Renvoie le corps décodé ({} si la réponse est vide). Toute erreur remonte en
-    `LocalServerError` porteuse d'un diagnostic actionnable."""
+    `LocalServerError` porteuse d'un diagnostic actionnable. `headers` : en-têtes en plus
+    (`Idempotency-Key`, jeton propre au run…)."""
+    from .jeton_local import en_tetes_du_jeton
     data = json.dumps(body, ensure_ascii=False).encode("utf-8") if body is not None else None
+    #  Le jeton local est exigé par le serveur sur toute mutation (spec ticketing B8) ; il est
+    #  relu à CHAQUE appel : un serveur qui a créé son jeton après le lancement de l'agent passe.
     request = urllib.request.Request(
         url, data=data, method=method,
-        headers={"Content-Type": "application/json; charset=utf-8"})
+        headers={"Content-Type": "application/json; charset=utf-8", **en_tetes_du_jeton(),
+                 **(headers or {})})
     try:
         with no_proxy_opener().open(request, timeout=timeout) as response:
             raw = response.read().decode("utf-8", errors="replace")
     except urllib.error.HTTPError as exc:
-        raise LocalServerError(_http_error_message(exc, url)) from exc
+        brut = exc.read().decode("utf-8", errors="replace").strip()
+        raise LocalServerError(_http_error_message(exc, url, brut), status=exc.code,
+                               corps=_corps_json(brut)) from exc
     except urllib.error.URLError as exc:
         raise LocalServerError(
             f"Serveur local INJOIGNABLE sur {url} ({exc.reason}) : personne n'écoute. "
-            "Ce n'est ni un refus applicatif ni un proxy — le serveur BouzéqUI est arrêté "
+            "Ce n'est ni un refus applicatif ni un proxy — le serveur bouzeui est arrêté "
             "ou sur un autre port.") from exc
     return json.loads(raw) if raw.strip() else {}
 
 
-def _http_error_message(exc: urllib.error.HTTPError, url: str) -> str:
+def _corps_json(brut: str) -> dict:
+    if not brut.startswith("{"):
+        return {}
+    try:
+        corps = json.loads(brut)
+    except ValueError:
+        return {}
+    return corps if isinstance(corps, dict) else {}
+
+
+def _http_error_message(exc: urllib.error.HTTPError, url: str, brut: str) -> str:
     """Message qui nomme le COUPABLE : le proxy, ou le serveur local lui-même."""
     if exc.code == 407:
         offenders = ", ".join(proxy_vars_in_env()) or "(aucune)"
@@ -110,15 +134,26 @@ def _http_error_message(exc: urllib.error.HTTPError, url: str) -> str:
             f"que l'appel n'est pas passé par backend.core.local_http.")
     return (
         f"Le serveur local a REFUSÉ l'appel {url} : HTTP {exc.code} {exc.reason}"
-        f"{_server_detail(exc)}. La requête a bien ATTEINT le serveur — aucun proxy en "
+        f"{_server_detail(brut)}. La requête a bien ATTEINT le serveur — aucun proxy en "
         f"cause, corrige l'appel lui-même.")
 
 
-def _server_detail(exc: urllib.error.HTTPError) -> str:
+def _server_detail(brut: str) -> str:
     """Motif renvoyé par le serveur, extrait de son corps JSON quand il y en a un."""
-    raw = exc.read().decode("utf-8", errors="replace").strip()
-    if not raw:
+    if not brut:
         return ""
-    if raw.startswith("{") and '"error"' in raw:
-        return f" — {json.loads(raw)['error']}"
-    return f" — {raw[:200]}"
+    corps = _corps_json(brut)
+    if "error" in corps:
+        return f" — {message_d_erreur(corps)}"
+    return f" — {brut[:200]}"
+
+
+def message_d_erreur(corps: dict) -> str:
+    """Le motif d'une réponse d'erreur du serveur, quelle que soit sa forme : la forme unique
+    `{"error": {"code", "message"}}` (spec ticketing §9) ou l'ancienne `{"error": "..."}`."""
+    erreur = corps.get("error")
+    if isinstance(erreur, dict):
+        code = erreur.get("code") or ""
+        message = erreur.get("message") or ""
+        return f"{message} [{code}]" if code else message
+    return str(erreur)

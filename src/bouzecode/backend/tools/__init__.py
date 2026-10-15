@@ -4,7 +4,7 @@
 from .state import (
     _read_files, _file_mtime, _file_content_cache,
     _track_read, _stale_edit_warning, _update_mtime_after_write,
-    clear_file_state, _tg_thread_local, _is_in_tg_turn,
+    clear_file_state,
 )
 from .schemas import TOOL_SCHEMAS
 from .interaction import (

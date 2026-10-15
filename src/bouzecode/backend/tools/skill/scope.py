@@ -15,11 +15,10 @@ skill file's own directory, so a project skill travels with its repo).
 
 Same-named skills are resolved **most specific first**: the deepest scope wins, storage
 priority only breaks ties. Losers are *shadowed*, never silently dropped — they are
-reported on stderr once each and listed by ``SkillList()``.
+reported on stderr once each (shadow_report.py) and listed by ``SkillResearch()``.
 """
 from __future__ import annotations
 
-import sys
 from dataclasses import dataclass, field
 from pathlib import Path
 
@@ -27,10 +26,12 @@ SCOPE_SEPARATOR = ":"
 
 # Storage priority, used only to break a tie between two skills of equal specificity.
 # Mirrors the order _get_skill_paths() has always returned.
-_SOURCE_RANK = {"extra": 4, "project": 3, "user": 2, "claude": 1, "builtin": 0}
+# "plugin" sits below every file store: an installed plugin must not override a skill
+# the user or the project wrote.
+_SOURCE_RANK = {"extra": 5, "project": 4, "user": 3, "claude": 2, "plugin": 1, "builtin": 0}
 _DEFAULT_RANK = _SOURCE_RANK["user"]
 
-_SKILL_STORE_PARENTS = (".bouzecode", ".claude")
+_SKILL_STORE_PARENTS = (".bouzecode", ".bouzecode", ".claude")
 
 
 def global_stores() -> set[Path]:
@@ -84,7 +85,33 @@ def scope_anchors(cwd: Path) -> list[Path]:
     main_root = _main_worktree_root(resolved)
     if main_root is not None and main_root not in anchors:
         anchors.append(main_root)
+    for root in _loaded_project_roots():
+        if root not in anchors:
+            anchors.append(root)
     return anchors
+
+
+def _loaded_project_roots() -> list[Path]:
+    """Projects the agent explicitly loaded (LoadProjectConfig), as scope anchors.
+
+    A skill filed in ``<project>/.bouzecode/skills`` is scoped to ``<project>``. When the
+    agent runs from the parent monorepo, the only anchor used to be the cwd — the scope
+    was a CHILD of the anchor, `covers()` said no, and the project's skills silently
+    vanished from SkillResearch and from Skill(name=...). Loading a project declares "I also
+    work in there", so its root becomes an anchor too.
+
+    Extra dirs named ``.bouzecode``/``.claude`` count as well: that is how a project is
+    wired as a skill source (add_extra_dir), including persisted ``--extra-dir`` ones.
+    """
+    from ...core.paths import get_extra_dirs, get_loaded_projects
+    roots = list(get_loaded_projects())
+    roots += [d.parent for d in get_extra_dirs() if d.name in _SKILL_STORE_PARENTS]
+    unique: list[Path] = []
+    for root in roots:
+        resolved = Path(root).resolve()
+        if resolved not in unique:
+            unique.append(resolved)
+    return unique
 
 
 def _main_worktree_root(cwd: Path) -> Path | None:
@@ -178,23 +205,3 @@ def resolve(candidates: list, cwd: Path) -> SkillResolution:
             winner.qualified_name = f"{winner.scope_label}{SCOPE_SEPARATOR}{name}"
     winners = [s for s in in_scope if best.get(s.name) is s]
     return SkillResolution(winners=winners, shadowed=shadowed, ambiguous=ambiguous)
-
-
-_REPORTED_SHADOWS: set[tuple[str, str, str]] = set()
-
-
-def report_shadows(resolution: SkillResolution) -> None:
-    """One stderr line per newly observed shadowing. Costs zero context tokens.
-
-    Deduplicated for the life of the process: skills are reloaded several times per tool
-    call, and a warning repeated 40 times is a warning nobody reads.
-    """
-    for name in sorted(resolution.shadowed):
-        winner = resolution.by_name(name)
-        for loser in resolution.shadowed[name]:
-            key = (name, winner.file_path, loser.file_path)
-            if key in _REPORTED_SHADOWS:
-                continue
-            _REPORTED_SHADOWS.add(key)
-            print(f"[skill] '{name}' ({loser.file_path}) masquée par ({winner.file_path})",
-                  file=sys.stderr)

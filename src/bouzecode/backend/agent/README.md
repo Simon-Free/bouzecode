@@ -10,6 +10,7 @@ The agent package implements the core turn loop: stream LLM → execute tools �
 |----------|------|-------------|
 | `run()` | `loop.py` | Main generator — one full conversation turn cycle |
 | `resume_paused()` | `loop.py` | Resume after `AskUserQuestion` or `WritePlan` validation pause |
+| `cache_courant(state)` | `cache_courant.py` | Prefixe en cache apres le DERNIER appel (lu + ecrit, lu sur `llm_call`) et son expiration (TTL fil 5 min) |
 
 ---
 
@@ -83,12 +84,8 @@ stream_llm_turn(state, config, system_prompt, ctx, cancel_check)
  │    │    → yields StreamStarted, TextChunk, ThinkingChunk, ToolCallParsed, AssistantTurn
  │    └── [on cancel] raise _CancelledTurn         [loop.py]
  │
- ├── [timing computation: ttft, thinking_dur, streaming_dur, tokens/sec]
- │   → state.timing_entries.append(...)
- │
- └── [if thinking_parts]
-      └── ThinkingDisciplineMonitor().analyze(text)  [thinking_parser.py]
-           → state.thinking_log.append(violations)
+ └── [timing computation: ttft, thinking_dur, streaming_dur, tokens/sec]
+     → state.timing_entries.append(...)
 ```
 
 ---
@@ -326,6 +323,8 @@ ToolCallLoopDetector(max_cycle_size=8, min_repeats=3)
 | `loop.py` | 281 | Orchestrator: `run()`, `resume_paused()`, `_complete_pending_tool_calls()`, `_resolve_pending_from_state()`, `_get_bouzecode_commit()`, `_CancelledTurn` |
 | `loop_context.py` | 32 | `LoopContext` dataclass (mutable per-loop state) + `TurnAction` enum (CONTINUE/BREAK/PROCEED) |
 | `loop_turn.py` | 392 | Extracted loop body: `_interruptible_iter()`, `stream_llm_turn()`, `handle_no_tools()`, `enforce_methodology()`, `execute_tool_calls()` |
+| `refusal_fallback.py` | 177 | Chaîne de repli sur refus (`content_filter`) : `refusal_chain()` suit `REFUSAL_FALLBACK` (registry, opus-5-5 -> sonnet-5-5 -> opus-5, sans boucle, bornée), surcharge `config["refusal_fallback"]` / `BOUZECODE_REFUSAL_FALLBACK` (modèle, liste ou `a,b` ; `none`) ; `serve_on_chain()` rejoue d'abord le tour refusé avec la note compactée sur la même marche (`context_manager/note_compactee.py`, une fois par tour, `variante: note_compactee` dans turns.jsonl, événement `refus_note_compactee`), puis sur la marche suivante, une tentative par marche |
+| `repli_collant.py` | 117 | Repli collant : les tours suivants partent de la dernière marche qui a répondu (un refus y glisse sur la suivante) ; levé par /clear, compaction de la note (`ContextState.allegements`), changement de modèle, ressonde tous les `RESSONDE_TOUS_LES_N_TOURS` (10) tours ou chaîne épuisée ; un nouveau message part de la marche collée ; marqué `repli_collant` dans turns.jsonl |
 | `dag.py` | 224 | DAG construction + execution: `_coerce_list()`, `_build_alias_map()`, `_build_dag_levels()`, `_compute_downstream()`, `_add_implicit_write_deps()`, `_inject_write_bash_deps()`, `_execute_level()`, `_run_parallel()` |
 | `permissions.py` | 83 | `_check_permission()`, `_permission_desc()`, `_propagate_denials()` |
 | `id_uniquify.py` | 71 | `_collect_used_ids()`, `_pick_fresh_id()`, `uniquify_tool_call_ids()` |
@@ -347,7 +346,6 @@ ToolCallLoopDetector(max_cycle_size=8, min_repeats=3)
 | `tools/enforcement_hooks` | `check_enforcement()`, `get_unsnippeted_reads()`, `check_test_enforcement()` |
 | `minimal_payload` | `build_messages_for_api()` |
 | `compaction` | `estimate_tokens()` |
-| `thinking_parser` | `ThinkingDisciplineMonitor` |
 | `context_manager/methodology` | `append_user_msg_to_methodology()`, `append_ask_user_question_to_methodology()` |
 | `mcp/tools` | `wait_ready()` |
 | `config` | `CONFIG_DIR` |

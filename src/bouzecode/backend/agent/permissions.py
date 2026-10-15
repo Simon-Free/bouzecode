@@ -57,10 +57,11 @@ def _check_permission(tc: dict, config: dict) -> bool:
         return False
 
     if perm_mode == "plan":
-        # Methodology/Snippet are working-memory tools, not file writes. They MUST
+        # Methodology/Snippet (and ResetContext, which archives the note next to the
+        # session) are working-memory tools, not file writes. They MUST
         # stay allowed in plan mode, otherwise per-turn enforcement (which requires
         # a Methodology every turn) can never be satisfied → infinite bounce loop.
-        if name in ("Methodology", "Snippet"):
+        if name in ("Methodology", "Snippet", "ResetContext"):
             return True
         if name in ("Write", "Edit"):
             plan_file = config.get("_plan_file", "")

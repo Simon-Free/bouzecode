@@ -23,6 +23,12 @@ class LoopContext:
     nudge_count: int = 0
     test_enforcement_done: bool = False
     partial_stream: bool = False
+    last_usage: Any = None
+    # Numéro du dernier tour déjà compté par loop._account_llm_call (garde anti-double compte).
+    accounted_turn: int = -1
+    # Usage réellement compté pour ce tour (estimations comprises) : (in, out, cache lu,
+    # cache écrit, entrée estimée, sortie estimée). C'est lui que porte TurnDone.
+    accounted_usage: Any = None
     loop_detector: Any = None
     action: TurnAction = TurnAction.PROCEED
     assistant_turn: Any = None
@@ -42,6 +48,8 @@ class LoopContext:
     pending_tool_parsed: list = field(default_factory=list)
     _final_tool_calls: list[dict] = field(default_factory=list)
     system_blocks: list = field(default_factory=list)
+    # Empreintes du préfixe envoyé ce tour (SystemPayload), journalisées dans `llm_call`.
+    empreinte: Any = None
     interrupted: bool = False
     # --- Anti-premature-close fields (fix compliance/meta-only closures) ---
     # True once any productive tool (Write/Edit/Bash/RunPythonTest/…) executes in this session.
@@ -58,3 +66,11 @@ class LoopContext:
     # inert text by the XML parser). Re-prompt to re-emit raw; reset on any turn
     # that produces tool_calls. Capped so a model that keeps malforming still ends.
     swallowed_xml_nudges: int = 0
+    # Consecutive TOTALLY EMPTY turns (no text, no thinking, no tool call). Reset on
+    # any turn that produces tool_calls. Last-resort circuit breaker: whatever nudge
+    # path is taken above, a run must never chain N byte-identical sterile turns
+    # (observed 2026-08-26: three agents burned 184K-266K tokens at ~0.2s/turn on empty
+    # completions). Deliberately NOT counting text-only/thinking-only turns: those have
+    # a legitimate 10-nudge budget (MAX_FA_NUDGES) so a planning phase is never forced
+    # to close early.
+    sterile_turns: int = 0

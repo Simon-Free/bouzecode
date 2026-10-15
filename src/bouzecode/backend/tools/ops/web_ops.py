@@ -2,8 +2,8 @@
 """Web fetch and search operations.
 
 Corporate-proxy aware: tries httpx first (works in dev / no auth), then falls
-back to the native curl.exe, which handles Windows-integrated proxy auth via
-`--proxy-anyauth -U :` — no password to store, no extra pip dependency.
+back to the native curl.exe which handles Windows-integrated proxy auth
+(Negotiate/NTLM) via `--proxy-anyauth -U :` — no password, no extra pip dep.
 """
 import json
 import os

@@ -18,13 +18,20 @@ from typing import Any
 _DEFAULT_BASE_URL = "http://127.0.0.1:5056"
 
 
-def _http(method: str, url: str, body: dict | None, timeout: int = 60) -> dict:
+def _http(method: str, url: str, body: dict | None, timeout: int = 60,
+          headers: dict | None = None) -> dict:
     """Appel au serveur LOCAL via `core.local_http` : opener sans proxy, donc insensible à
     un `NO_PROXY` absent ou incomplet dans l'environnement hérité par l'agent. Avec
     `urlopen`, un hook de complétion pouvait voir son POST partir dans le proxy
     d'entreprise et revenir en 407 (panne du 2026-07-28)."""
     from ...core.local_http import local_json
-    return local_json(method, url, body, timeout=timeout)
+    return local_json(method, url, body, timeout=timeout, headers=headers)
+
+
+def _ticket_courant() -> tuple[str, str]:
+    """(slug, ticket_id) du ticket de CET agent, posés par le runner à son spawn."""
+    return (os.environ.get("BOUZECODE_TICKET_SLUG", ""),
+            os.environ.get("BOUZECODE_TICKET_ID", ""))
 
 
 @dataclass
@@ -44,31 +51,36 @@ class HookContext:
     def base_url(self) -> str:
         return os.environ.get("BOUZECODE_WEB_BASE_URL", _DEFAULT_BASE_URL)
 
-    def http_post(self, path: str, body: dict, timeout: int = 60) -> dict:
-        return _http("POST", self.base_url() + path, body, timeout=timeout)
+    def http_post(self, path: str, body: dict, timeout: int = 60,
+                  headers: dict | None = None) -> dict:
+        return _http("POST", self.base_url() + path, body, timeout=timeout, headers=headers)
 
     def http_get(self, path: str) -> dict:
         return _http("GET", self.base_url() + path, None)
 
     def ticket(self) -> dict:
         """Current ticket (with runs) this agent belongs to, or {} if unknown."""
-        slug = os.environ.get("BOUZECODE_TICKET_SLUG", "")
-        tid = os.environ.get("BOUZECODE_TICKET_ID", "")
+        slug, tid = _ticket_courant()
         if not (slug and tid):
             return {}
-        return self.http_get(f"/api/tickets/{slug}/{tid}")
+        return self.http_get(f"/api/projects/{slug}/tickets/{tid}")
 
     def continue_agent(self, agent_id: str, message: str) -> dict:
         """Resume an existing agent (same session/context) with a follow-up."""
-        return self.http_post(f"/api/agents/{agent_id}/continue", {"text": message})
+        return self.http_post(f"/api/agents/{agent_id}/messages", {"text": message})
 
-    def spawn_agent(self, prompt: str, typology: str = "",
-                    env: dict | None = None) -> str:
-        """Dispatch a new governed agent; returns the created ticket id."""
-        body: dict[str, Any] = {"prompt": prompt, "typology": typology}
+    def spawn_agent(self, prompt: str, typology: str = "", env: dict | None = None,
+                    isolation: str = "worktree") -> str:
+        """Create + launch a governed child ticket on THIS agent's project; returns its id.
+        The isolation is mandatory for an agent caller (400 `isolation_requise` otherwise)."""
+        slug, ticket_id = _ticket_courant()
+        body: dict[str, Any] = {"title": (prompt.strip().splitlines() or ["sous-agent"])[0][:120],
+                                "prompt": prompt, "typology": typology, "isolation": isolation,
+                                "parent": {"agent_id": self.self_id,
+                                           "ticket_id": ticket_id}}
         if env:
             body["env"] = env
-        return self.http_post("/api/dispatch", body).get("ticket_id", "")
+        return self.http_post(f"/api/projects/{slug}/tickets", body).get("ticket_id", "")
 
 
 def _extract_final_text(state) -> str:

@@ -21,7 +21,7 @@ state.
   so a hook never imports `services/work/*` or `web/runner` directly.
 - `completion.py` — the builtin `run_completion_chain` hook (event
   `on_completion`), wired by coder profiles. On graceful close it POSTs to
-  `/api/tickets/<slug>/<id>/completed`; the server advances the workflow state
+  `/internal/runs/<agent_id>/ended` (jeton propre au run); the server advances the workflow state
   machine.
 
 ## Events

@@ -15,7 +15,7 @@ import re
 import time
 
 from .state import ContextState, METHODOLOGY_NOTE, resolve_context_state
-from .compact_methodology import maybe_compact
+from .compact_methodology import NOTE_LOCK, maybe_compact
 
 
 _USER_BLOCK_RE = re.compile(r"(^## User(?:\s+@[^\n]*)?\n.*?)(?=\n## |\Z)", re.DOTALL | re.MULTILINE)
@@ -58,28 +58,39 @@ def _extract_user_blocks(methodology: str) -> str:
     return "\n\n".join(m.group(1).rstrip() for m in _USER_BLOCK_RE.finditer(methodology))
 
 
+# Lire-puis-réécrire la note n'est pas atomique : un lot de N `Agent` part désormais en
+# threads simultanés (dag `lot_simultane`) et chacun y ajoute son « Enfant lancé ». Sans
+# verrou, deux ajouts concurrents relisaient la même note et l'un effaçait l'autre. Même
+# verrou que la compaction avant expiration du cache (compact_precache), qui réécrit la note
+# depuis son fil minuteur : un message utilisateur ajouté pendant la passe n'est jamais perdu.
+_APPEND_LOCK = NOTE_LOCK
+
+
 def _append_block(context_state: ContextState | None, block: str) -> None:
     if context_state is None or not block:
         return
-    current = context_state.notes.get(METHODOLOGY_NOTE, "")
-    joiner = "\n\n" if current else ""
-    context_state.notes[METHODOLOGY_NOTE] = (current.rstrip() + joiner + block).strip()
+    with _APPEND_LOCK:
+        current = context_state.notes.get(METHODOLOGY_NOTE, "")
+        joiner = "\n\n" if current else ""
+        context_state.notes[METHODOLOGY_NOTE] = (current.rstrip() + joiner + block).strip()
 
 
 def _split_top_level_blocks(text: str) -> list[str]:
     """Split a methodology note into top-level blocks.
 
     A block starts at each line beginning with ``## `` (a top-level heading,
-    NOT ``### ``). Any preamble before the first ``## `` heading forms the
-    first block. Each block is stripped. Invariant preserved by the append
-    tools (which strip + join with ``\\n\\n``): ``"\\n\\n".join(blocks) == note``.
+    NOT ``### ``) or at a harness turn stamp ``### T<n>`` (see ``methodology_tool``):
+    without the latter, every stamped append would modify the PREVIOUS block, and the
+    timeline would journal a full replace of the note at every turn. Any preamble before
+    the first heading forms the first block. Each block is stripped. Invariant preserved
+    by the append tools (which strip + join with ``\\n\\n``): ``"\\n\\n".join(blocks) == note``.
     """
     if not text:
         return []
     blocks: list[str] = []
     current: list[str] = []
     for line in text.split("\n"):
-        if line.startswith("## "):
+        if line.startswith("## ") or _TURN_STAMP_RE.match(line):
             if current:
                 blk = "\n".join(current).strip()
                 if blk:
@@ -193,23 +204,80 @@ def _record_timeline(config: dict, context_state: ContextState) -> None:
     })
 
 
+#  Numéro de tour posé par le HARNAIS devant chaque ajout (demande du 2026-09-24) : le modèle
+#  n'a plus à numéroter ses tours — il se trompait de numéro et le recopiait dans la note.
+_TURN_STAMP_RE = re.compile(r"^### T(\d+)[ \t]*$")
+
+#  Contrôle mécanique de redite : au-delà de ce taux de lignes non triviales déjà présentes
+#  dans la note, le résultat de l'outil le signale. L'ajout n'est JAMAIS refusé.
+REDITE_SEUIL = 0.5
+_LIGNE_TRIVIALE_MAX = 15  # caractères : « [x] T3 », « ## Plan », « --- » ne comptent pas
+_PUCE_RE = re.compile(r"^(?:[-*+]\s+|\d+[.)]\s+)")
+
+
+def _turn_number(config: dict) -> int:
+    state = config.get("_state")
+    turn = getattr(state, "turn_count", 0) if state is not None else 0
+    return int(turn or config.get("_turn_count") or 0)
+
+
+def _stamp_turn(content: str, turn: int) -> str:
+    """Préfixe `### T<n>`, y compris sur un 2e appel du même tour : le tampon ouvre un bloc
+    de la note (`_split_top_level_blocks`), donc chaque ajout reste un pur ajout dans la
+    timeline au lieu d'y journaliser la note entière.
+
+    Un tampon que le modèle aurait écrit lui-même en tête est retiré : le seul numéro qui
+    fait foi est celui du harnais."""
+    lines = content.split("\n")
+    while lines and _TURN_STAMP_RE.match(lines[0].strip()):
+        lines.pop(0)
+    content = "\n".join(lines).strip("\n")
+    if not content or turn <= 0:
+        return content
+    # Ligne vide après le tampon : il forme son propre bloc, et `"\\n\\n".join(blocs)`
+    # reconstruit la note à l'identique quand l'ajout commence par un titre `## `.
+    return f"### T{turn}\n\n{content}"
+
+
+def _norm_line(line: str) -> str:
+    return " ".join(_PUCE_RE.sub("", line.strip()).split()).lower()
+
+
+def redite_ratio(addition: str, note: str) -> float:
+    """Part des lignes NON TRIVIALES de `addition` déjà présentes telles quelles dans `note`
+    (à la puce et aux espaces près). 0.0 quand l'ajout n'a aucune ligne non triviale."""
+    candidates = [n for n in (_norm_line(l) for l in addition.split("\n"))
+                  if len(n) > _LIGNE_TRIVIALE_MAX]
+    if not candidates or not note:
+        return 0.0
+    existing = {_norm_line(l) for l in note.split("\n")}
+    return sum(1 for n in candidates if n in existing) / len(candidates)
+
+
 def methodology_tool(params: dict, config: dict) -> str:
     context_state: ContextState | None = resolve_context_state(config)
     if context_state is None:
         return "Error: no context state available"
 
-    content = (params.get("content") or "").rstrip()
-    current = context_state.notes.get(METHODOLOGY_NOTE, "")
-    joiner = "\n\n" if current and content else ""
-    updated = (current.rstrip() + joiner + content).strip()
-
-    context_state.notes[METHODOLOGY_NOTE] = updated
+    raw = (params.get("content") or "").rstrip()
+    content = _stamp_turn(raw, _turn_number(config))
+    # Under the lock: the pre-expiration compaction may write the note back from
+    # its watchdog thread while this append runs.
+    with NOTE_LOCK:
+        current = context_state.notes.get(METHODOLOGY_NOTE, "")
+        redite = redite_ratio(raw, current)
+        joiner = "\n\n" if current and content else ""
+        updated = (current.rstrip() + joiner + content).strip()
+        context_state.notes[METHODOLOGY_NOTE] = updated
     removed = maybe_compact(context_state, METHODOLOGY_NOTE, config)
     _record_timeline(config, context_state)
     final_size = len(context_state.notes[METHODOLOGY_NOTE])
     msg = f"methodology append: now {final_size} chars"
     if removed:
         msg += f" (compacted: -{removed} chars)"
+    if redite >= REDITE_SEUIL:
+        msg += (f"\n⚠ {round(redite * 100)} % de ton ajout est déjà dans la note : "
+                "n'écris que le nouveau.")
     return msg
 
 
@@ -324,6 +392,24 @@ def append_plan_to_methodology(context_state: ContextState, plan_content: str) -
     _append_block(context_state, f"## Plan @{ts}\n{plan_content.strip()}\n")
 
 
+def append_final_answer_to_methodology(
+    context_state: ContextState, answer: str,
+) -> None:
+    """Persist the answer delivered by FinalAnswer into the note.
+
+    A TUI/repl session does NOT end at FinalAnswer: the user replies and a new
+    turn starts. The user's reply IS persisted (append_user_msg_to_methodology)
+    but the answer it replies TO only ever lived on the wire, so it is dropped
+    at the next turn -- leaving an answer with no referent. Measured on
+    session_081618_e59985ab (2026-09-07): the agent proposed 4 fixes, the user
+    answered "Ok for 1, for 2 say 2 minutes", and the agent had to refuse to
+    implement because the wording of its own proposals was gone."""
+    if not answer or not answer.strip():
+        return
+    ts = time.strftime("%Y-%m-%d %H:%M:%S")
+    _append_block(context_state, f"## FinalAnswer @{ts}\n{answer.strip()}\n")
+
+
 def append_overflow_summary_to_methodology(
     context_state: ContextState, summary: str,
 ) -> None:
@@ -352,3 +438,20 @@ def append_ask_user_question_to_methodology(
         context_state,
         f"## Q&A @{ts}\n**Q:** {question.strip()}\n**A:** {(answer or '').strip()}\n",
     )
+
+
+def append_child_launch_to_methodology(
+    context_state: ContextState | None, ticket_id: str, turn: int, name: str, prompt: str,
+) -> None:
+    """Auto-append a ## Enfant lancé block when the agent dispatches a child (Agent tool).
+
+    Written by the harness, not the model: the dispatch result leaves the wire at the next
+    turn, and a model that forgets to note it re-launches the same child (trial of
+    2026-09-25, root 6bafe9cd: 0f852f4d at turn 66, a139daa2 on the same scope at turn 68)."""
+    if not ticket_id:
+        return
+    quand = f" au tour {turn}" if turn else ""
+    nom = f" « {name.strip()} »" if (name or "").strip() else ""
+    objectif = " ".join((prompt or "").split())[:160]
+    _append_block(context_state, f"## Enfant lancé{quand} : ticket {ticket_id}{nom}\n"
+                                 f"Objectif : {objectif}\n")

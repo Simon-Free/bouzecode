@@ -22,17 +22,18 @@ def _make_png_1x1() -> bytes:
     return sig + ihdr + idat + iend
 
 
-def test__read_image_returns_sentinel():
+def test__read_image_returns_one_line_without_base64():
+    """Plus de sentinelle base64 : une ligne (chemin, taille, poids, ImageQuestion).
+    La conversion ci-dessous reste pour les sessions enregistrées avant ce changement."""
     png = _make_png_1x1()
     with tempfile.NamedTemporaryFile(suffix=".png", delete=False) as f:
         f.write(png)
         path = f.name
     try:
         out = _read(path)
-        assert out.startswith("__BOUZE_IMAGE__:image/png:"), out[:60]
-        _, media_type, b64 = out.split(":", 2)
-        assert media_type == "image/png"
-        assert base64.b64decode(b64) == png
+        assert out.startswith(f"[image : {path}, 1x1, 1 ko."), out[:80]
+        assert "ImageQuestion" in out
+        assert base64.b64encode(png).decode() not in out
     finally:
         Path(path).unlink(missing_ok=True)
 

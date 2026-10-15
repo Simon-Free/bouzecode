@@ -1,13 +1,35 @@
-# multi_agent/
+# multi_agent
 
 ## Purpose
-Sub-agent spawning and lifecycle: create a task, apply its profile, run it (in a thread, in a new terminal tab, or as a ticket on the local web server), and collect its result. Also registers the model-facing `Agent` tool family.
+Sous-agents : l'outil `Agent` et ses voisins (MessageAgent, SendMessage, CheckAgentResult,
+ListAgentTasks, ListAgentTypes, Fleet), les quatre chemins de lancement (TUI en process, fenêtre
+de terminal, ticket web gouverné, thread du `SubAgentManager`) et la relecture des enfants.
 
 ## Usage
-- `manager.py` — `SubAgentManager`: `create_task`, `spawn`, `wait`, `get_result`, `list_tasks`, `send_message`, `cancel`, `shutdown`. Enforces `max_concurrent` and `max_depth`, resolves and merges the requested profiles into the child's system prompt, and optionally isolates the child in a git worktree
-- `task.py` — `SubAgentTask` dataclass (status, result, thread, worktree) plus the worktree helpers `_git_root`, `_create_worktree`, `_remove_worktree`, and `_agent_run` / `_extract_final_text` used to drive one child turn loop
-- `tools.py` — registers `Agent`, `MessageAgent`, `SendMessage`, `CheckAgentResult`, `ListAgentTasks`, `ListAgentTypes` and `Fleet` into the tool registry; `get_agent_manager()` returns the per-process manager. Holds the three spawn backends (in-process thread, terminal tab, web ticket) and the ticket polling that waits for a child's verdict
-- `terminal.py` — `detect_terminal_app`, `build_terminal_command`, `spawn_in_terminal`: opens a child agent in a new terminal tab
-- `plugin_resolver.py` — `ensure_plugins(requirements)`: installs and enables a profile's required plugins at launch and returns the tool names they contribute
-- `subagent.py` — flat re-export of `task` and `manager`, including the private worktree helpers, for call sites that import them from one place
-- `__init__.py` re-exports `SubAgentTask` and `SubAgentManager`
+| Module | Rôle |
+|---|---|
+| `tools.py` | enregistre les 7 outils dans `core.tool_registry` (importé par `tools/registration.py`) |
+| `schema_agent.py`, `schemas.py` | schémas JSON exposés au modèle (`Agent` ; les six autres) |
+| `outil_agent.py` | `_agent_tool` : garde-fous puis aiguillage TUI / terminal / web / thread |
+| `appel_agent.py` | lu par tous les chemins : `_attend_l_enfant` (pause ou fond), refus manager→type générique, refus hors process sous `_tool_gate` |
+| `lancement_terminal.py` | `_spawn_terminal_agent` (fenêtre `-p --result-file`, suivi par `surveillance_terminal`) |
+| `lancement_web.py` | `_spawn_web_ticket_agent` : crée le ticket (`client_tickets`), rend les refus en `Error:`, attend ou rend la main |
+| `attente_web.py` | `_wait_for_child`, `AttenteInterrompue`, sondage réveillable (`_reveil`, `_dormir`) |
+| `travail_non_commite.py` | prévient parent et enfant des fichiers non commités du parent |
+| `outils_enfants.py` | MessageAgent, SendMessage, CheckAgentResult (attente, arrêt), ListAgentTasks |
+| `outils_flotte.py` | Fleet (lister / tuer), ListAgentTypes |
+| `enfants.py` | mes enfants vus par le serveur + garde-fous (clôture, destruction) |
+| `client_tickets.py` | routes tickets du serveur local (`_sur_le_serveur` suit `BOUZECODE_WEB_BASE_URL`) |
+| `gestionnaire.py` | `get_agent_manager()`, singleton du `SubAgentManager` (`manager.py`, `task.py`) |
+| `profondeur.py` | profondeur bornée (`max_agent_depth`) et isolation demandée |
+| `terminal.py`, `surveillance_terminal.py`, `resultat_terminal.py` | lanceur de fenêtre, suivi par PID, lecture du résultat |
+| `plugin_resolver.py` | plugins requis par un profil d'agent |
+
+Tests : remplacer une fonction dans le module qui la PORTE (`gestionnaire.get_agent_manager`,
+`outil_agent._is_terminal_mode`, `lancement_terminal._TERMINAL_WAIT_TIMEOUT`…) ; les appelants
+l'importent dans leurs fonctions, donc à l'appel.
+
+## Subfolders
+| Folder | Description |
+|--------|-------------|
+| `en_process/` | sous-agents du TUI dans le même process, visibles dans la barre du bas |

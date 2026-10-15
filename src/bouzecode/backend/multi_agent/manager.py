@@ -46,6 +46,7 @@ class SubAgentManager:
         if getattr(profile, "model", ""):
             config["model"] = profile.model
         config["require_recap"] = getattr(profile, "require_recap", False)
+        config["require_taches"] = getattr(profile, "require_taches", True)
         # Profiles that require a recap expect the STRUCTURED recap object (not the
         # legacy 6-section markdown). Coding sessions require all 4 recap fields.
         config["recap_expects_object"] = config["require_recap"]
@@ -65,7 +66,8 @@ class SubAgentManager:
         # Expose the CURRENT profile name so tools (e.g. Agent) can enforce
         # role-based rules — notably: a manager may only spawn specialized types.
         config["_agent_type"] = profile.name
-        extra = getattr(profile, "system_prompt_extra", "") or ""
+        from ..core.profile_extra import filter_platform_blocks
+        extra = filter_platform_blocks(getattr(profile, "system_prompt_extra", "") or "").strip()
         return f"{base_prompt}\n\n{extra}".rstrip() if extra else base_prompt
 
     def _resolve_profiles(self, names: list):
@@ -171,7 +173,7 @@ class SubAgentManager:
                     task.status = "cancelled"
                     task.result = None
                 else:
-                    task.result = _extract_final_text(state.messages)
+                    task.result = state.final_answer or _extract_final_text(state.messages)
                     task.status = "completed"
 
                 while not task._inbox.empty() and not task._cancel_flag:
@@ -186,7 +188,7 @@ class SubAgentManager:
                         if task._cancel_flag:
                             break
                     if not task._cancel_flag:
-                        task.result = _extract_final_text(state.messages)
+                        task.result = state.final_answer or _extract_final_text(state.messages)
                         task.status = "completed"
 
                 task.input_tokens = state.total_input_tokens

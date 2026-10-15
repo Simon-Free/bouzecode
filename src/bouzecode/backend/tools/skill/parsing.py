@@ -59,6 +59,11 @@ def _parse_skill_file(path: Path, source: str = "user") -> Optional["SkillDef"]:
 
     name = fields.get("name", "")
     if not name:
+        # On arrive ici uniquement si le fichier A une frontmatter (sinon `split` valait
+        # None plus haut) : un `.md` d'annexe sans en-tête reste donc silencieux, mais une
+        # skill à qui il ne manque QUE `name:` ne peut plus mourir sans bruit. Huit fichiers
+        # étaient dans ce cas, dont deux skills entières de demo_application.
+        print(f"[skill] ignorée, {path}: frontmatter sans champ 'name'", file=sys.stderr)
         return None
 
     # allowed-tools wins over tools if present
@@ -79,7 +84,10 @@ def _parse_skill_file(path: Path, source: str = "user") -> Optional["SkillDef"]:
         context = "inline"
 
     # Explicit scope beats the one deduced from where the file sits.
-    scope = resolve_declared_scope(fields.get("scope", ""), path) or implicit_scope_for_file(path)
+    declared_scope = resolve_declared_scope(fields.get("scope", ""), path)
+    if declared_scope:
+        _warn_if_scope_missing(name, declared_scope, path)
+    scope = declared_scope or implicit_scope_for_file(path)
     scope_label = fields.get("scope_label", "").strip() or (Path(scope).name if scope else "")
 
     return SkillDef(
@@ -96,9 +104,28 @@ def _parse_skill_file(path: Path, source: str = "user") -> Optional["SkillDef"]:
         user_invocable=user_invocable,
         context=context,
         source=source,
+        updated=fields.get("updated", "").strip(),
+        covers=_parse_list_field(fields.get("covers", "")) if fields.get("covers") else [],
         scope=scope,
         scope_label=scope_label,
     )
+
+
+_REPORTED_MISSING_SCOPES: set[tuple[str, str]] = set()
+
+
+def _warn_if_scope_missing(name: str, scope: str, path: Path) -> None:
+    """A `scope:` naming a directory absent from this machine makes the skill inactive.
+
+    `covers()` can never match a directory that does not exist, so the skill vanished
+    with no signal — typically an absolute path written on another workstation. One
+    stderr line per skill and scope for the life of the process (skills reload often).
+    """
+    if Path(scope).exists() or (name, scope) in _REPORTED_MISSING_SCOPES:
+        return
+    _REPORTED_MISSING_SCOPES.add((name, scope))
+    print(f"[skill] '{name}' inactive : scope '{scope}' introuvable sur ce poste ({path})",
+          file=sys.stderr)
 
 
 def substitute_arguments(prompt: str, args: str, arg_names: list[str]) -> str:

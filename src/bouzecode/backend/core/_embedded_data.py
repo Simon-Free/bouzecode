@@ -37,7 +37,6 @@ def _load_prompt(filename: str) -> str:
 SYSTEM_PROMPT_TEMPLATE: str = _load_prompt("01_main_system_prompt.txt")
 LOGO_TEXT: str = _load("logo.txt")
 
-THINK_OUT_LOUD_PROMPT: str = _load_prompt("02_think_out_loud.txt")
 WINDOWS_PLATFORM_HINTS: str = _load_prompt("04_windows_platform_hints.txt")
 PLAN_MODE_TEMPLATE: str = _load_prompt("05_plan_mode.txt")
 TOOL_EXAMPLES_XML: str = _load_prompt("07_tool_examples_xml.txt")

@@ -1,14 +1,16 @@
-# [desc] Central registry for tool plugins with thread-local overlays for concurrent conversations. [/desc]
+# [desc] Central registry for tool plugins with thread-local overlays for concurrent Focus conversations. [/desc]
 """Tool plugin registry for bouzecode.
 
 Provides a central registry for tool definitions, lookup, schema export,
 and dispatch with output truncation.  Supports thread-local overlays so
-concurrent conversations in one process each get an isolated view.
+concurrent Focus conversations each get an isolated view.
 """
 from __future__ import annotations
 
+import os
 import threading
 from dataclasses import dataclass
+from fnmatch import fnmatchcase
 from typing import Any, Callable, Dict, List, Optional
 
 
@@ -30,6 +32,13 @@ class ToolDef:
             line ranges via Snippet(...).
         snippet_key: which identifier the model passes to Snippet — "tool_id"
             (default) or "file" (file_path-keyed).
+        etat_externe: le résultat dépend d'un état tenu HORS de ce process (autres
+            agents, serveur) : il peut changer sans que CET agent n'écrive rien, donc un
+            appel identique n'est jamais servi depuis la mémoire anti-répétition.
+        lot_simultane: outil NON concurrent_safe (il reste à sa place dans la file
+            séquentielle, après un `Bash` qui le précède) dont les appels CONSÉCUTIFS d'un
+            même lot partent ensemble — ex. `Agent` : N enfants indépendants démarrent
+            d'un coup au lieu d'attendre chacun la fin du précédent.
     """
     name: str
     schema: Dict[str, Any]
@@ -39,6 +48,11 @@ class ToolDef:
     ends_turn: bool = False
     snippetable: bool = False
     snippet_key: Optional[str] = None
+    etat_externe: bool = False
+    lot_simultane: bool = False
+    #  Outil qui n'a de sens que sous bouzeui web (flotte de tickets gouvernés) : hors web il
+    #  n'est pas proposé au modèle (session 9d81964e : Fleet et MessageAgent appelés pour rien).
+    web_seulement: bool = False
 
 
 # --------------- framework vs work tools ---------------
@@ -48,17 +62,107 @@ class ToolDef:
 # planning, diffing and final-answer machinery the harness relies on. A
 # profile's `tools` list only ever whitelists the *work* tools (Read/Write/
 # Edit/Bash/Glob/Grep/Agent/…); it can never strip these.
-# AgentsMap/SymbolMap belong here for the same reason Skill/SkillList do: the
-# code-navigation protocol that names them lives in the SHARED noyau
-# (`context.get_readme_navigation_section`), which every agent receives whatever its
-# profile. A profile whitelist that could strip them would ship a prompt prescribing
-# tools the agent cannot call — the exact contradiction the conformity test forbids.
-# Both are strictly read-only on source: their only write is the derived map file.
+# FindCode/Tree (code navigation) belong here: LoadProjectConfig, which every agent
+# has, points at them, and a profile whitelist must never strip the way to locate
+# code. Both are deterministic and strictly read-only (no LLM, no file written).
+# ImageQuestion, pour la même raison : le schéma de Read (outil de tous les profils) et le
+# résultat d'une capture renvoient vers lui — une image n'entre plus jamais dans un résultat.
 FRAMEWORK_ALWAYS_ON = frozenset({
-    "Methodology", "Snippet", "FinalAnswer", "Skill", "SkillList",
+    "Methodology", "Snippet", "FinalAnswer", "Skill", "SkillResearch",
     "TaskList", "GetDiff", "WritePlan", "LoadProjectConfig", "AskUserQuestion",
-    "AgentsMap", "SymbolMap",
+    "FindCode", "Tree", "ImageQuestion",
+    #  Remontee NON bloquante d'un probleme (pendant d'AskUserQuestion) : tout agent, a toute
+    #  profondeur, doit pouvoir prevenir l'humain sans s'arreter (tools/signaler.py).
+    "Signaler",
+    #  Nettoyage du contexte quand la tache change (context_manager/context_reset.py) :
+    #  pendant de Methodology, tout agent doit pouvoir archiver sa note.
+    "ResetContext",
+    #  La TODO des chantiers du projet du ticket (tools/taches_projet.py) : tout agent doit
+    #  pouvoir voir et CLASSER (faite/doublon/caduque) ce qu'il vient de resoudre. Creer,
+    #  lancer, etc. restent a l'outil `Taches` du Bureau.
+    "TachesProjet",
 })
+
+
+# --------------- process-level deny list ---------------
+
+# Profil SERVEUR : quand bouzecode tourne pour une application hébergée (Demo),
+# aucun outil ne doit sortir sur Internet ni exécuter de commande, QUEL QUE SOIT le
+# profil d'agent chargé (un profil introuvable ou à `tools: []` rend TOUS les outils).
+# `BOUZECODE_SERVER_PROFILE=1` interdit la liste ci-dessous ; `BOUZECODE_DENIED_TOOLS`
+# (noms séparés par des virgules, motifs fnmatch acceptés : `mcp__*`) en ajoute.
+# Un outil interdit n'est ni annoncé au modèle, ni exécutable, ni réactivable par
+# `enable_tool()` : l'interdiction est relue dans l'environnement à chaque appel.
+from .server_profile import SERVER_PROFILE_ENV, server_profile_active  # noqa: E402
+
+DENIED_TOOLS_ENV = "BOUZECODE_DENIED_TOOLS"
+SERVER_DENIED_TOOLS = (
+    # Internet
+    "WebFetch", "WebSearch", "EnableChromeDevtools", "mcp__*",
+    "Mails", "Teams", "Canaux", "Brouillon", "Creneau", "Reunion",
+    # Exécution de commandes / de code
+    "Bash", "BashOutput", "RunPythonTest", "TestStatus", "Environment",
+)
+
+
+def denied_tool_patterns() -> tuple:
+    """Motifs des outils interdits à ce process (profil serveur + liste explicite)."""
+    patterns = []
+    if server_profile_active():
+        patterns.extend(SERVER_DENIED_TOOLS)
+    extra = os.environ.get(DENIED_TOOLS_ENV) or ""
+    patterns.extend(p.strip() for p in extra.split(",") if p.strip())
+    return tuple(patterns)
+
+
+def is_denied(name: str) -> bool:
+    """True si `name` est interdit au niveau du process."""
+    return any(fnmatchcase(name, pattern) for pattern in denied_tool_patterns())
+
+
+def denied_tool_message(name: str) -> str:
+    return (
+        f"Error: l'outil `{name}` est interdit sur ce serveur ({SERVER_PROFILE_ENV} / "
+        f"{DENIED_TOOLS_ENV}) : ni accès Internet ni exécution de commande. N'insiste pas, "
+        "rappeler cet outil échouera à l'identique ; poursuis avec tes autres outils ou "
+        "clôture par FinalAnswer en signalant le manque."
+    )
+
+
+# Écrire sous un `.bouzecode/` (plugins.json, plugins/, profiles/ à `requires_plugins`,
+# skills) revient à faire charger du code au process par un chemin détourné : Write +
+# Agent(subagent_type=...) ou LoadProjectConfig importaient ce code. En profil serveur,
+# les outils d'écriture de fichiers y sont refusés, quel que soit le chemin donné.
+SERVER_PROTECTED_WRITE_TOOLS = frozenset({"Write", "Edit", "NotebookEdit", "MultiEdit"})
+_PATH_PARAMS = ("file_path", "notebook_path", "path")
+
+
+def _touches_bouzecode_dir(raw: str) -> bool:
+    candidates = {raw, os.path.abspath(raw)}
+    try:
+        candidates.add(os.path.realpath(raw))
+    except (OSError, ValueError):
+        pass
+    for candidate in candidates:
+        parts = candidate.replace("\\", "/").lower().split("/")
+        if ".bouzecode" in parts or ".bouzecode" in parts:
+            return True
+    return False
+
+
+def server_write_refusal(name: str, params: Dict[str, Any]) -> Optional[str]:
+    """Refus explicite si, en profil serveur, `name` écrit sous un répertoire `.bouzecode/`."""
+    if name not in SERVER_PROTECTED_WRITE_TOOLS or not server_profile_active():
+        return None
+    for key in _PATH_PARAMS:
+        value = params.get(key)
+        if isinstance(value, str) and value.strip() and _touches_bouzecode_dir(value.strip()):
+            return (
+                f"Error: `{name}` refusé sur ce serveur ({SERVER_PROFILE_ENV}) : écrire sous un "
+                "répertoire `.bouzecode/` (plugins, profils, skills) ferait charger du code au "
+                "process. N'insiste pas ; écris ailleurs ou clôture par FinalAnswer."
+            )
+    return None
 
 
 # --------------- internal state ---------------
@@ -66,7 +170,7 @@ FRAMEWORK_ALWAYS_ON = frozenset({
 _registry: Dict[str, ToolDef] = {}
 _disabled: set = set()  # tool names currently disabled
 
-# Thread-local overlay for conversations running in parallel
+# Thread-local overlay for Focus conversations running in parallel
 _local = threading.local()
 
 
@@ -92,7 +196,7 @@ def push_local_overlay() -> None:
     and lookups check local first then fall through to global.
 
     Le registre GLOBAL est peuplé AVANT d'activer l'overlay, et ce n'est pas une commodité.
-    `registration` enregistre les 35 outils intégrés par EFFET DE BORD à l'import ; si cet
+    `registration` enregistre les 35 outils du gateway par EFFET DE BORD à l'import ; si cet
     import a lieu overlay actif, ils tombent dans `_local.registry` et `pop_local_overlay()`
     les JETTE. Le module restant dans `sys.modules`, plus aucun ré-import ne repeuple le
     global : il garde définitivement les seuls outils enregistrés hors overlay. Mesuré le
@@ -140,23 +244,13 @@ def get_all_tools() -> List[ToolDef]:
     return list(_registry.values())
 
 
-# Scheduling properties injected into every tool schema
+# Scheduling properties injected into every tool schema. TYPE ONLY: leur sens est expliqué
+# UNE fois dans le noyau (« # Un tour ») — répété dans chacun des ~40 schémas, il coûtait
+# ≈ 90 tokens par outil et par appel (audit du 2026-09-24). Le DAG (`agent/dag.py`) et
+# `execute_tool` les lisent/retirent sur n'importe quel outil, déclarés ou non.
 _SCHEDULING_PROPS: Dict[str, Any] = {
-    "depends_on": {
-        "type": "array",
-        "items": {"type": "string"},
-        "description": (
-            "List of tool_call_alias values that must complete before this tool runs. "
-            "Use to express execution order within a single batch."
-        ),
-    },
-    "tool_call_alias": {
-        "type": "string",
-        "description": (
-            "Optional short alias for this tool call (e.g. 'w1'). "
-            "Other tools can reference it in their depends_on."
-        ),
-    },
+    "depends_on": {"type": "array", "items": {"type": "string"}},
+    "tool_call_alias": {"type": "string"},
 }
 
 
@@ -204,6 +298,70 @@ def _coerce_params(params: Dict[str, Any], schema: Dict[str, Any]) -> None:
             params[key] = str(value)
 
 
+TOOL_GATE_KEY = "_tool_gate"
+
+
+def run_tool_gate(name: str, params: Dict[str, Any], config: Dict[str, Any]) -> Optional[str]:
+    """Hook pré-exécution fourni par l'application hôte.
+
+    `config["_tool_gate"]` : callable `(name, params, config) -> None | str`. None autorise
+    l'appel ; une chaîne le REFUSE et devient le résultat rendu au modèle (l'outil n'est
+    pas exécuté). Le hook peut aussi lever une exception : l'appel est alors refusé
+    (échec FERMÉ) avec un message explicite. Clé préfixée `_` : jamais persistée par
+    `save_config`. Sans hook, rien ne change.
+    """
+    gate = (config or {}).get(TOOL_GATE_KEY)
+    if gate is None:
+        return None
+    import logging
+
+    log = logging.getLogger(__name__)
+    try:
+        verdict = gate(name, params, config)
+    except Exception as exc:  # noqa: BLE001 — échec fermé
+        log.warning("tool_gate: %s refusé (erreur du point de contrôle : %s)", name, type(exc).__name__)
+        # Le détail de l'exception (règles, chemins, identifiants de la politique) reste
+        # dans le journal serveur : le modèle, ou une injection, n'en voit que le type.
+        log.debug("tool_gate: détail de l'erreur pour %s", name, exc_info=True)
+        return (f"Error: appel de `{name}` refusé par le point de contrôle des outils "
+                f"(erreur du contrôle : {type(exc).__name__}).")
+    if verdict is None:
+        return None
+    log.info("tool_gate: %s refusé", name)
+    message = str(verdict).strip() or "refusé par le point de contrôle des outils"
+    return message if message.startswith("Error") else f"Error: appel de `{name}` refusé : {message}"
+
+
+# Clés privées (`_…`) qui DOIVENT suivre dans la config d'un sous-agent : les appels de
+# config enfants filtrent les clés `_`, ce qui retirait le point de contrôle de l'hôte à
+# tout sous-agent (Agent, relecteur de clôture).
+INHERITED_PRIVATE_KEYS = (TOOL_GATE_KEY,)
+
+
+def inherit_private(parent: Dict[str, Any], child: Dict[str, Any]) -> Dict[str, Any]:
+    """Recopie dans `child` les clés privées à hériter (dont `_tool_gate`) ; rend `child`."""
+    for key in INHERITED_PRIVATE_KEYS:
+        if (parent or {}).get(key) is not None:
+            child[key] = parent[key]
+    return child
+
+
+#  Flotte d'agents pilotable (Fleet, MessageAgent) : sous bouzeui web (tickets gouvernes) OU
+#  dans un TUI interactif qui heberge ses sous-agents en process (backend/multi_agent/en_process).
+_flotte_locale = False
+
+
+def activer_flotte_locale(active: bool = True) -> None:
+    """Le REPL interactif l'active : ses sous-agents en process forment une flotte."""
+    global _flotte_locale
+    _flotte_locale = active
+
+
+def flotte_disponible() -> bool:
+    """Les outils `web_seulement` ont-ils une flotte a piloter dans ce process ?"""
+    return _flotte_locale or bool(os.environ.get("BOUZECODE_WEB_IPC_DIR"))
+
+
 def get_tool_schemas() -> List[Dict[str, Any]]:
     """Return the schemas of all registered tools (for API tool parameter).
 
@@ -221,9 +379,10 @@ def get_tool_schemas() -> List[Dict[str, Any]]:
         disabled = _disabled
         tools_iter = _registry.values()
 
+    hors_web = not flotte_disponible()
     schemas = []
     for t in tools_iter:
-        if t.name in disabled:
+        if t.name in disabled or is_denied(t.name) or (hors_web and t.web_seulement):
             continue
         s = copy.deepcopy(t.schema)
         props = s.get("input_schema", {}).get("properties")
@@ -231,6 +390,33 @@ def get_tool_schemas() -> List[Dict[str, Any]]:
             props.update(_SCHEDULING_PROPS)
         schemas.append(s)
     return schemas
+
+
+def _memorisable(tool) -> bool:
+    """Un appel identique peut-il être servi depuis la mémoire anti-répétition ?"""
+    return getattr(tool, "read_only", False) and not getattr(tool, "etat_externe", False)
+
+
+def _parametres_vides(name: str, names: str, config: Dict[str, Any]) -> str:
+    """Erreur rendue au modèle pour un paramètre requis vide. Le conseil CDATA ne vaut que pour
+    le protocole XML : en function-calling natif, MiMo (xiaomi/fp8) rend parfois `{}` quand une
+    valeur contient du balisage — l'inviter à y mettre du CDATA aggravait le problème."""
+    from ..agent.providers.registry import model_uses_native_tools
+
+    tete = f"Error: required parameter(s) for {name} arrived empty or missing: {names}. "
+    if model_uses_native_tools(str(config.get("model") or ""), config):
+        return tete + (
+            "The function call arrived with empty arguments. The call was NOT executed. "
+            f"Please re-emit {name} with every required parameter filled, as plain JSON "
+            "string values: no XML tags and no <![CDATA[...]]> wrapper inside the arguments."
+        )
+    return tete + (
+        "This usually means the value was truncated during serialization — most "
+        "often because the value contained raw quotes (\") or angle brackets and "
+        "was not wrapped in <![CDATA[...]]>. The call was NOT executed. "
+        f"Please re-emit {name} with the parameter(s) filled. "
+        "Wrap values containing <, >, & or \" in <![CDATA[...]]>."
+    )
 
 
 def execute_tool(
@@ -288,6 +474,9 @@ def execute_tool(
     # taken from the registry this agent really has.
     from .tool_mentions import unavailable_tool_message
 
+    if is_denied(name):
+        return denied_tool_message(name)
+
     if name in disabled:
         return unavailable_tool_message(name, available_tool_names())
 
@@ -318,15 +507,7 @@ def execute_tool(
         or (isinstance(params[r], str) and not params[r].strip())
     ]
     if blank_required:
-        names = ", ".join(blank_required)
-        return (
-            f"Error: required parameter(s) for {name} arrived empty or missing: {names}. "
-            "This usually means the value was truncated during serialization — most "
-            "often because the value contained raw quotes (\") or angle brackets and "
-            "was not wrapped in .... The call was NOT executed. "
-            f"Please re-emit {name} with the parameter(s) filled and any value containing "
-            "<, > or \" wrapped in ...."
-        )
+        return _parametres_vides(name, ", ".join(blank_required), config)
 
     try:
         _coerce_params(params, tool.schema)
@@ -334,14 +515,66 @@ def execute_tool(
         valid = ', '.join(sorted(valid_params)) if valid_params else "(none)"
         return f"Error: invalid parameter format for {name}: {e}. Valid parameters: {valid}."
 
+    refus = server_write_refusal(name, params)
+    if refus is not None:
+        return refus
+
+    # Point de contrôle de l'hôte, APRÈS validation/coercition des paramètres et
+    # AVANT la mémoire anti-répétition : un résultat mémorisé ne doit pas le contourner.
+    refus = run_tool_gate(name, params, config)
+    if refus is not None:
+        return refus
+
+    # Rejouer un appel de LECTURE à l'identique alors que rien n'a été écrit entre-temps
+    # ne peut pas donner un autre résultat. On sert la mémoire, préfixée d'un rappel :
+    # une session observée a joué trois fois le même WebFetch pour recevoir trois fois la
+    # même page de login, sans jamais que rien ne lui dise qu'elle tournait en rond.
+    from . import repeat_guard
+
+    #  Sauf si le résultat dépend d'un état tenu ailleurs : un enfant qui finit, un serveur qui
+    #  change, n'écrivent rien dans CE process. Essai 3 (2026-09-24) : une FinalAnswer refusée
+    #  pour « enfant encore actif », rappelée à l'identique APRÈS l'avoir attendu, recevait la
+    #  mémoire de son refus.
+    reusable = _memorisable(tool)
+    if reusable:
+        memo = repeat_guard.recall(config, name, params)
+        if memo is not None:
+            return memo
+
     try:
-        result = tool.func(params, config)
+        # Sous-agent en process : son dossier et ses variables, pas ceux du process (dossier_agent).
+        from .dossier_agent import dans
+        with dans((config or {}).get("_atelier")):
+            result = tool.func(params, config)
     except Exception as e:
         from bouzecode.backend.tools.interaction import PausedForInput, DeferredChecks
         from bouzecode.backend.tools.plan_mode import PlanRejected
         if isinstance(e, (PausedForInput, DeferredChecks, PlanRejected)):
             raise
         return f"Error executing {name}: {e}"
+
+    #  Cette frontiere est annotee `-> str` et TOUT l'aval la croit : `results: dict[str, str]`
+    #  dans le DAG, `_compact_tool_result` qui passe le contenu tel quel, puis le `content`
+    #  d'un message `role=tool` que l'API du modele exige en chaine. Or un outil metier peut
+    #  rendre un dict (les huit outils du Bureau le font) : `len(dict)` comptant les CLES,
+    #  il ne declenchait ni troncature ni exception et traversait en SILENCE jusqu'au fil,
+    #  ou le tour mourait sans que l'assistant recoive ni resultat ni erreur. On serialise
+    #  ICI, une fois, pour toute la classe des outils metier plutot que dans chaque wrapper.
+    if not isinstance(result, str):
+        import json
+
+        try:
+            result = json.dumps(result, ensure_ascii=False, default=str)
+        except (TypeError, ValueError):
+            #  Un texte approximatif vaut mieux qu'un tour d'agent perdu en silence.
+            result = str(result)
+
+    if reusable:
+        repeat_guard.remember(config, name, params, result)
+    else:
+        # Un outil qui n'est pas déclaré read_only a pu changer le disque, l'état git,
+        # le réseau : plus rien ne garantit qu'un résultat mémorisé tient encore.
+        repeat_guard.invalidate(config)
 
     # Snippetable tools are handled by the snippet wire (numbered lines,
     # destroyed-next-turn, model snippets the ranges it needs). Truncating here
@@ -351,15 +584,15 @@ def execute_tool(
     if getattr(tool, "snippetable", False):
         return result
 
+    # `max_tool_output` (config) était défini mais lu nulle part (rapport docs/reduction_tokens
+    # §3.2) : un Read de 50 k car. ou une sortie MCP passaient entiers. Au-delà du plafond, la
+    # sortie complète part dans un fichier et le résultat garde tête + queue + le chemin.
+    max_output = int(config.get("max_tool_output", max_output))
     if len(result) > max_output:
-        first_half = max_output // 2
-        last_quarter = max_output // 4
-        truncated = len(result) - first_half - last_quarter
-        result = (
-            result[:first_half]
-            + f"\n[... {truncated} chars truncated ...]\n"
-            + result[-last_quarter:]
-        )
+        from ..tools.ops.truncation import truncate_tool_output
+        sans_limite = 10 ** 9
+        result = truncate_tool_output(result, name, max_lines=sans_limite, max_chars=max_output,
+                                      head_lines=sans_limite, tail_lines=sans_limite)
 
     return result
 
@@ -405,7 +638,9 @@ def available_tool_names() -> List[str]:
 
 
 def is_enabled(name: str) -> bool:
-    """Return True if tool is not in the disabled set."""
+    """Return True if tool is not in the disabled set (nor denied to the process)."""
+    if is_denied(name):
+        return False
     if _has_overlay():
         return name not in _local_disabled()
     return name not in _disabled
@@ -424,6 +659,25 @@ def reset_disabled() -> None:
         _local.disabled.clear()
     else:
         _disabled.clear()
+
+
+#  Outils que la liste blanche de `registration` coupe à l'import (outils Graph, outils hors
+#  profil de code…). `reset_disabled()` les rallume TOUS : c'est ce que faisait `/agent default`
+#  après `/assistant`, et un profil de code héritait alors de Mails/Teams/Reunion.
+_disabled_par_defaut: set = set()
+
+
+def figer_desactives_par_defaut() -> None:
+    """Mémorise l'état « par défaut » (appelé à la fin de `registration`)."""
+    _disabled_par_defaut.clear()
+    _disabled_par_defaut.update(_disabled)
+
+
+def restaurer_desactives_par_defaut() -> None:
+    """Revient à l'état par défaut ; un outil enregistré après (plugin, MCP) reste allumé."""
+    cible = _local.disabled if _has_overlay() else _disabled
+    cible.clear()
+    cible.update(_disabled_par_defaut)
 
 
 def clear_registry() -> None:
@@ -445,3 +699,9 @@ def is_concurrent_safe(name: str) -> bool:
     """Return True if the named tool has concurrent_safe=True."""
     tool = get_tool(name)
     return tool.concurrent_safe if tool else False
+
+
+def is_lot_simultane(name: str) -> bool:
+    """True si les appels consécutifs de cet outil, dans un même lot, partent ensemble."""
+    tool = get_tool(name)
+    return tool.lot_simultane if tool else False

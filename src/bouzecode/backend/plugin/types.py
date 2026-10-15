@@ -1,8 +1,7 @@
 # [desc] Plugin system types: manifest (tools/skills/deps), registry entry, and scope. [/desc]
 """Plugin system types: manifest, entry, scope.
 
-A bouzecode plugin is a pip-installable package (published on PyPI or a private
-package index) that
+A bouzecode plugin is a pip-installable package (published on Artifactory) that
 ships a ``plugin.json`` at its import root. The manifest lists the python modules
 exporting ``TOOL_DEFS`` and/or skill ``.md`` files, plus the pip ``dependencies``
 pulled in at install time so the plugin is self-contained.

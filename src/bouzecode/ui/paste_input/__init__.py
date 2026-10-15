@@ -113,14 +113,48 @@ class _BadgeProcessor(Processor):
         return Transformation(fragments)
 
 
-def _new_session(history: InMemoryHistory) -> PromptSession:
-    return PromptSession(
+def _new_session(history: InMemoryHistory, extra_bindings=None,
+                 session_class=PromptSession, **options) -> PromptSession:
+    from prompt_toolkit.key_binding import merge_key_bindings
+    bindings = merge_key_bindings([_bindings, extra_bindings]) if extra_bindings else _bindings
+    session = session_class(
         history=history,
         multiline=False,
-        key_bindings=_bindings,
+        key_bindings=bindings,
         input_processors=[_BadgeProcessor()],
-        style=_style,
+        style=options.pop("style", _style),
+        **options,
     )
+    session.app.before_render += _retrecir_si_plus_court
+    return session
+
+
+def _retrecir_si_plus_court(app) -> None:
+    """Le renderer de prompt_toolkit ne rend jamais moins de lignes que l'ecran precedent :
+    apres le rappel d'un message long puis d'un court, ou une barre qui raccourcit, il restait
+    un grand blanc sous la saisie. On efface la zone pour qu'elle reprenne sa vraie hauteur."""
+    renderer = app.renderer
+    ecran = renderer._last_screen
+    if app.full_screen or ecran is None or app.is_done:
+        return
+    taille = app.output.get_size()
+    voulue = app.layout.container.preferred_height(taille.columns, taille.rows).preferred
+    #  Le renderer rend max(_min_available_height, derniere hauteur, voulue) ; sous Windows
+    #  `_min_available_height` vaut TOUTES les lignes libres sous le curseur, relues apres chaque
+    #  effacement : un rendu collé a la saisie, le suivant étiré jusqu'en bas, effacé, etc. —
+    #  la barre des sous-agents sautait a chaque rafraichissement. On la borne a la hauteur
+    #  voulue (sans la remettre a 0 : la barre du bas exige une hauteur connue).
+    if renderer._min_available_height > voulue:
+        renderer._min_available_height = voulue
+    if voulue < min(ecran.height, taille.rows):
+        renderer.erase(leave_alternate_screen=False)
+        renderer._min_available_height = voulue
+
+
+def main_session_with(extra_bindings, session_class=PromptSession, **options) -> PromptSession:
+    """Main-REPL session (shared history, paste badges) plus extra key bindings and options —
+    the TUI agents bar (`ui/barre_agents`) adds its toolbar and navigation keys this way."""
+    return _new_session(_pt_history, extra_bindings, session_class, **options)
 
 
 def _get_session() -> PromptSession:
@@ -156,9 +190,11 @@ def expand_paste_blocks(text: str) -> str:
     return text
 
 
-def _read_with_badges(prompt: str, session: PromptSession) -> str:
+def _read_with_badges(prompt: str, session: PromptSession):
+    """Text with badges expanded — or, unchanged, a non-text result a key binding exited with."""
     _pending.clear()
-    return expand_paste_blocks(session.prompt(ANSI(prompt)))
+    result = session.prompt(ANSI(prompt))
+    return expand_paste_blocks(result) if isinstance(result, str) else result
 
 
 def read_input_with_paste_blocks(prompt: str) -> str:

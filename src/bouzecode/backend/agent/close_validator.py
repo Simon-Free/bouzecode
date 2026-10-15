@@ -1,37 +1,17 @@
-# [desc] Validates a FinalAnswer close against the Methodology note via one light LLM call (native models). [/desc]
-"""Closure gate for cheap native models (deepseek-*): when FinalAnswer is
-declared, ONE light LLM call checks the Methodology todolist + the task against
-the proposed answer. KO -> the close is refused with the missing items; the
-session continues. Best-effort: any infra failure ACCEPTS the close (the
-validator must never brick a session). Gated by config['close_validation']
-(default True) and only for native tool-calling models at depth 0."""
+# [desc] Deterministic FinalAnswer close gate: recap, mandatory task declarations, proven parcours. [/desc]
+"""Closure gate for FinalAnswer, fully deterministic (no LLM call).
+
+The LLM validator that re-read the Methodology against the answer was
+decommissioned (2026-10-08): it refused valid closes on free-text guesses.
+What remains: `taches_terminees` / `taches_restantes` are ALWAYS required (an
+explicit empty list is valid), the structured recap for profiles that set
+`require_recap`, and the proven-parcours gate. Disabled by
+config['close_validation'] = False."""
 from __future__ import annotations
 
 import logging
 
 logger = logging.getLogger(__name__)
-
-_VALIDATOR_SYSTEM = (
-    "Tu valides la clôture d'une session d'agent de code. On te donne la TÂCHE, "
-    "la note METHODOLOGY (todolist `[ ]`/`[x]` + découvertes) et la RÉPONSE "
-    "FINALE proposée. Réponds sur UNE ligne : « OK » si la tâche est entièrement "
-    "réalisée (aucun `[ ]` non justifié, la validation demandée — tests, commande "
-    "— a bien été exécutée avec succès) ; sinon « KO: » suivi de la liste courte "
-    "et concrète de ce qui manque. Rien d'autre.\n\n"
-    "ARTEFACTS DE TRAVAIL — NE PAS rendre KO là-dessus : (a) les fichiers écrits "
-    "en `temp=True` vivent dans un scratch dir HORS du worktree git (jamais trackés, "
-    "jamais committables, détruits en fin de session) — ils n'apparaissent donc "
-    "JAMAIS dans un diff ; (b) le lock d'orchestration `.agents.lock` est exclu "
-    "automatiquement du commit par le harvest de merge — il ne peut pas polluer la "
-    "livraison. Ne réclame donc pas leur suppression et ne bloque pas sur leur "
-    "présence supposée : le staging de merge s'en charge déjà."
-)
-
-_MAX_TOKENS = 200
-_MAX_SECTION_CHARS = 6000
-
-# Module-level reference for patching in tests (same pattern as task_classifier).
-dispatch_stream = None
 
 
 _RECAP_SECTION_MARKERS = ("## 1.", "## 2.", "## 3.", "## 4.", "## 5.", "## 6.")
@@ -47,6 +27,57 @@ def missing_recap_sections(answer: str) -> list[str]:
 # Retry cap for the structured-recap gate: after this many refusals the close is
 # ACCEPTED anyway (with recap_missing=True) so a session is never bricked forever.
 RECAP_RETRY_CAP = 3
+
+
+#  `recap.points_ouverts` a été RETIRÉ (§10.4) : un point que l'agent ne peut pas
+#  trancher se déclare dans `taches_restantes` avec `decision=true`. Deux chemins
+#  pour la même chose produisaient des doublons silencieux au Bureau.
+
+
+def missing_taches_fields(taches_terminees: object, taches_restantes: object) -> list[str]:
+    """Deterministic (no LLM) check of the two MANDATORY close declarations.
+
+    `taches_terminees` = what the agent declares finished, one string per task.
+    `taches_restantes` = what is left, one object per task carrying `titre` (the
+    short line, REQUIRED), an optional `corps` (the long brief) and an OPTIONAL
+    attachment to a macro-task: `macro_id` when known, else `macro_titre` (a proposal),
+    else nothing — the item then inherits the chantier of the ticket that launched the
+    agent (cloture_micros). An agent cannot know the ids: requiring one refused valid
+    closes in a loop (seen 2026-09-24 on DeepSeek).
+    An EXPLICIT empty list is a valid answer (« nothing left »); OMITTING the field
+    is not — telling « nothing to do » apart from « I did not answer » is the whole
+    point of making these fields required. Returns missing/ill-shaped labels.
+    """
+    missing: list[str] = []
+    if not isinstance(taches_terminees, list):
+        missing.append("taches_terminees")
+    else:
+        for i, item in enumerate(taches_terminees):
+            if not isinstance(item, str) or not item.strip():
+                missing.append(f"taches_terminees[{i}]")
+    if not isinstance(taches_restantes, list):
+        missing.append("taches_restantes")
+        return missing
+    for i, tache in enumerate(taches_restantes):
+        if not isinstance(tache, dict):
+            missing.append(f"taches_restantes[{i}].titre")
+            continue
+        if not str(tache.get("titre", "")).strip():
+            missing.append(f"taches_restantes[{i}].titre")
+        #  Rattachement OPTIONNEL (macro_id, macro_titre, ou rien → chantier hérité du
+        #  ticket) : l'exiger refusait des clôtures valides en boucle.
+        options = tache.get("options")
+        if options is not None and (
+            not isinstance(options, list)
+            or any(
+                not isinstance(opt, dict)
+                or not str(opt.get("key", "")).strip()
+                or not str(opt.get("label", "")).strip()
+                for opt in options
+            )
+        ):
+            missing.append(f"taches_restantes[{i}].options")
+    return missing
 
 
 def missing_recap_fields(recap: object, coding: bool) -> list[str]:
@@ -76,16 +107,42 @@ def missing_recap_fields(recap: object, coding: bool) -> list[str]:
     return missing
 
 
-def _should_validate(config: dict) -> bool:
-    if not config.get("close_validation", True):
-        return False
-    if config.get("_depth", 0) > 0:
-        return False
-    from .providers.registry import model_uses_native_tools
-    return model_uses_native_tools(config.get("model", ""), config)
+
+def _journal_avec_le_lot(state, config: dict) -> list:
+    """Les messages de la session PLUS les résultats déjà rendus par le lot en cours.
+
+    La boucle n'ajoute les résultats d'un lot à `state.messages` qu'une fois le lot fini ; or
+    FinalAnswer s'exécute DANS le lot. Essai du 2026-09-25 (racine 6bafe9cd, refus n° 4) : la
+    recette `bash /tmp/pe-pw/all.sh 8802` avait tourné juste avant FinalAnswer, dans le même
+    lot, et la porte la jugeait « échouée () » faute d'en voir le résultat."""
+    messages = list(getattr(state, "messages", None) or [])
+    lot = config.get("_resultats_du_lot") or {}
+    deja = {m.get("tool_call_id") for m in messages if m.get("role") == "tool"}
+    return messages + [{"role": "tool", "tool_call_id": tid, "content": contenu}
+                       for tid, contenu in lot.items() if tid not in deja]
 
 
-def validate_close(answer: str, config: dict, recap: object = None) -> tuple[bool, str]:
+def _agent_delegue() -> bool:
+    """Lancé par un autre agent (et non par l'utilisateur ou un dispatcher du serveur) ?
+
+    Une tâche du Bureau lancée par l'assistant a un parent (qui est prévenu de sa fin) mais son
+    prompt est la tâche de l'humain, pas un brief : `BOUZECODE_BRIEF_HUMAIN` (posé par
+    `runner._ticket_env`) la traite comme un lancement par l'utilisateur."""
+    import os
+    if os.environ.get("BOUZECODE_BRIEF_HUMAIN") == "1":
+        return False
+    parent = os.environ.get("BOUZECODE_PARENT", "").strip()
+    return bool(parent) and not parent.startswith("dispatcher:")
+
+
+def validate_close(
+    answer: str,
+    config: dict,
+    recap: object = None,
+    taches_terminees: object = None,
+    taches_restantes: object = None,
+    parcours_verifies: object = None,
+) -> tuple[bool, str]:
     """Return (accepted, feedback). Accepts on any failure, with a warning log.
 
     When `recap` (a structured object) is provided the deterministic gate validates
@@ -93,21 +150,26 @@ def validate_close(answer: str, config: dict, recap: object = None) -> tuple[boo
     falls back to the legacy 6-section markdown check on `answer` (backward compat).
     A retry cap (RECAP_RETRY_CAP) prevents bricking a session forever: past the cap
     the close is accepted and config['_recap_missing'] is flagged."""
-    # Deterministic recap gate (no LLM): profiles that set require_recap MUST
-    # deliver a complete recap. Checked BEFORE the native-model LLM gate so it
-    # applies regardless of the model backend.
-    if (
-        config.get("close_validation", True) is not False
-        and config.get("require_recap")
-        and config.get("_depth", 0) == 0
-    ):
-        coding = config.get("recap_coding", True)
-        if recap is not None or config.get("recap_expects_object"):
-            missing = missing_recap_fields(recap, coding)
-            label = "champs manquants"
-        else:
-            missing = missing_recap_sections(answer)
-            label = "sections manquantes"
+    if config.get("close_validation", True) is not False:
+        missing: list[str] = []
+        label = "champs manquants"
+        if config.get("require_recap") and config.get("_depth", 0) == 0:
+            coding = config.get("recap_coding", True)
+            if recap is not None or config.get("recap_expects_object"):
+                missing = missing_recap_fields(recap, coding)
+            else:
+                missing = missing_recap_sections(answer)
+                label = "sections manquantes"
+        #  Les deux DÉCLARATIONS de clôture sont exigées pour tout profil et toute
+        #  profondeur : ce qui n'est pas déclaré n'existe pas, et aucun LLM ne relit
+        #  la réponse pour le deviner. Une liste vide [] est valide, l'omission non.
+        #  EXCEPTION : un profil `require_taches: false` (bureau-assistant, qui tient
+        #  déjà la TODO via les outils Taches) peut les omettre ; fournies, elles
+        #  restent validées et consommées comme pour les autres profils.
+        if config.get("require_taches", True) is not False or (
+            taches_terminees is not None or taches_restantes is not None
+        ):
+            missing += missing_taches_fields(taches_terminees, taches_restantes)
         if missing:
             retries = int(config.get("_recap_retry_count", 0)) + 1
             config["_recap_retry_count"] = retries
@@ -115,46 +177,19 @@ def validate_close(answer: str, config: dict, recap: object = None) -> tuple[boo
                 # Never brick a session: accept after the cap, flag recap as missing.
                 config["_recap_missing"] = True
                 logger.warning(
-                    "close_validator: recap still incomplete after %d retries "
+                    "close_validator: close still incomplete after %d retries "
                     "(%s: %s) — accepting close with recap_missing=True",
                     retries - 1, label, " ; ".join(missing),
                 )
                 return True, ""
             return False, (
-                f"récap incomplet — {label} : " + " ; ".join(missing)
+                f"récap incomplet — {label} : " + " ; ".join(missing) + "\n"
+                "Fournis chaque champ nommé ci-dessus. Une liste vide [] est une "
+                "réponse VALIDE (« rien ne reste ») ; l'omettre ne l'est pas. "
+                "Chaque tâche restante porte un `titre` (la ligne courte, OBLIGATOIRE), "
+                "un `corps` optionnel (le brief long), éventuellement son chantier — `macro_id` "
+                "si tu le connais, sinon `macro_titre` ; sans rien, elle rejoint le chantier "
+                "de ta tâche — et "
+                "decision:true quand elle attend un arbitrage humain plutôt qu'un agent."
             )
-    if not _should_validate(config):
-        return True, ""
-    state = config.get("_state")
-    task = ""
-    if state is not None and getattr(state, "messages", None):
-        task = str(state.messages[0].get("content", ""))
-    from ..context_manager.state import METHODOLOGY_NOTE, resolve_context_state
-    cs = resolve_context_state(config)
-    methodology = (cs.notes.get(METHODOLOGY_NOTE, "") if cs is not None else "") or ""
-
-    prompt = (
-        f"TÂCHE :\n{task[:_MAX_SECTION_CHARS]}\n\n"
-        f"METHODOLOGY :\n{methodology[-_MAX_SECTION_CHARS:]}\n\n"
-        f"RÉPONSE FINALE PROPOSÉE :\n{answer[:_MAX_SECTION_CHARS]}"
-    )
-    try:
-        stream_fn = dispatch_stream
-        if stream_fn is None:
-            from .providers.backends.dispatch import stream as stream_fn
-        parts = []
-        for ev in stream_fn(
-            model=config["model"], system=_VALIDATOR_SYSTEM,
-            messages=[{"role": "user", "content": prompt}], tool_schemas=[],
-            config={**config, "max_tokens": _MAX_TOKENS, "thinking_mode": "off",
-                    "task_classification": False, "_depth": 1, "_context_state": None},
-        ):
-            if hasattr(ev, "text"):
-                parts.append(ev.text)
-        verdict = "".join(parts).strip()
-    except Exception as exc:
-        logger.warning("close_validator: validation failed (%s) — accepting close", exc)
-        return True, ""
-    if verdict.upper().startswith("KO"):
-        return False, verdict[2:].lstrip(":— ").strip() or "todolist incomplète"
     return True, ""

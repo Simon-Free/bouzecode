@@ -99,8 +99,14 @@ def register_plugin_hooks(scope: PluginScope | None = None) -> int:
     return count
 
 
+_REPORTED_MISSING_SKILLS: set[Path] = set()
+
+
 def load_plugin_skills(scope: PluginScope | None = None) -> list[Path]:
-    """Return skill .md paths contributed by enabled plugins."""
+    """Return skill .md paths contributed by enabled plugins.
+
+    A declared skill whose file is absent is reported once on stderr, not skipped mutely.
+    """
     paths: list[Path] = []
     for entry in _enabled(scope):
         if not entry.manifest:
@@ -109,4 +115,8 @@ def load_plugin_skills(scope: PluginScope | None = None) -> list[Path]:
             skill_path = entry.import_root / skill_rel
             if skill_path.exists():
                 paths.append(skill_path)
+            elif skill_path not in _REPORTED_MISSING_SKILLS:
+                _REPORTED_MISSING_SKILLS.add(skill_path)
+                print(f"[plugin] '{entry.name}' : skill déclarée introuvable {skill_path}",
+                      file=sys.stderr)
     return paths

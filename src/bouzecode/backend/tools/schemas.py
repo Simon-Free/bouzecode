@@ -3,12 +3,18 @@
 import platform as _platform
 
 _BASH_BASE_DESCRIPTION = (
-    "Execute a shell command. Returns stdout+stderr. Stateless (no cd persistence). "
-    "On Windows, commands are executed via PowerShell (auto-encoded as Base64), "
-    "so ALWAYS write PowerShell-compatible syntax (e.g. Get-Content, Get-ChildItem, $env:VAR)."
+    "Execute a shell command. Returns stdout+stderr. Stateless (no cd persistence)."
+)
+# Rapport docs/reduction_tokens §2.1 : 5 tours perdus à écrire une sonde puis la lancer au tour
+# suivant. Le heredoc marche tel quel sous Linux/macOS (pas sous PowerShell).
+_SONDE_EN_UN_APPEL = (
+    " Une sonde jetable s'écrit ET s'exécute dans ce même appel : `python3 - <<'EOF'` … `EOF` "
+    "(ou Write(temp=True) puis Bash avec depends_on, dans le même lot)."
 )
 
-_WINDOWS_BASH_HINTS = """
+# Envoyé SEULEMENT sous Windows : sous Linux ce paragraphe coûtait des tokens à chaque appel
+# et invitait le modèle à écrire du PowerShell (audit du 2026-09-24).
+_WINDOWS_BASH_HINTS = """ On Windows, commands are executed via PowerShell (auto-encoded as Base64), so ALWAYS write PowerShell-compatible syntax (e.g. Get-Content, Get-ChildItem, $env:VAR).
 WINDOWS SHELL RULES (you are on Windows):
 - **CRITICAL**: NEVER use `&&` to chain commands — it DOES NOT WORK in PowerShell and causes a parse error. ALWAYS use `;` instead. Example: `cmd1 ; cmd2 ; cmd3`
 - `type file.txt` instead of `cat file.txt`
@@ -21,12 +27,13 @@ WINDOWS SHELL RULES (you are on Windows):
 - `copy` / `move` instead of `cp` / `mv`
 - Paths use backslashes `\\` but forward slashes `/` also work in most cases
 - NEVER use `python -c` -- write a temp_*.py file, run it, delete it
+- Commit messages: NEVER `git commit -m "..."` containing `$` or backticks (PowerShell silently replaces `$x` by nothing and `` `t `` by a TAB). Write the message with Write(temp=True), then `git commit -F <path>`. A bash heredoc (`<<'EOF'`) does not exist in PowerShell and is refused.
 - Multi-line PowerShell runs fine inline: a large/multi-line command is auto-spilled to a temp .ps1 and launched via -EncodedCommand, so there is no command-length limit and no quoting hassle. Just pass it in `command`."""
 
 _BASH_DESCRIPTION = (
     _BASH_BASE_DESCRIPTION + _WINDOWS_BASH_HINTS
     if _platform.system() == "Windows"
-    else _BASH_BASE_DESCRIPTION
+    else _BASH_BASE_DESCRIPTION + _SONDE_EN_UN_APPEL
 )
 
 TOOL_SCHEMAS = [
@@ -35,7 +42,10 @@ TOOL_SCHEMAS = [
         "description": (
             "Read a file's contents. Returns content with line numbers "
             "(format: 'N\\tline'). Use limit/offset for chunks, or symbol='name' "
-            "to read a specific function/class/method (Python, JS/TS)."
+            "to read a specific function/class/method (Python, JS/TS). Over 300 lines "
+            "without limit/offset/symbol: returns the file's outline (symbols + line "
+            "numbers) and its first 120 lines. An image returns one line with its path: "
+            "look at it with ImageQuestion."
         ),
         "input_schema": {
             "type": "object",
@@ -86,9 +96,9 @@ TOOL_SCHEMAS = [
             "type": "object",
             "properties": {
                 "command": {"type": "string"},
-                "timeout": {"type": "integer", "description": "Seconds before timeout (default 30). Use 120-300 for package installs (npm, pip, npx), builds, and long-running commands. Test suites (pytest) often need 120-600s; prefer RunPythonTest which has a dedicated long timeout."},
-                "deferred": {"type": "boolean", "description": "Si true, n'execute PAS la commande maintenant : l'empile pour execution APRES FinalAnswer (modele decharge). Pour les validations longues (suite complete, scan DB) qui depasseraient 3 min. Tu n'es re-invoque QUE si elle echoue."},
-                "background": {"type": "boolean", "description": "Si true, lance la commande en arriere-plan (non bloquant) et rend la main IMMEDIATEMENT avec un bash_id. Pour un process long ou persistant : serveur Flask, watcher, build live. Relis sa sortie/son statut avec BashOutput(bash_id). Permet de demarrer une app puis de la curl dans le meme tour, au lieu de bloquer ou timeouter."},
+                "timeout": {"type": "integer", "description": "Secondes (défaut 180, porté à l'attente écrite dans la commande si elle est plus longue ; 300-900 pour installs et builds ; pytest est refusé ici : RunPythonTest)."},
+                "deferred": {"type": "boolean", "description": "Exécute APRÈS FinalAnswer (commande > 3 min : suite complète, scan) ; tu n'es réveillé que si elle échoue."},
+                "background": {"type": "boolean", "description": "Lance sans bloquer et rend aussitôt un bash_id ; sert aux process qu'on laisse tourner pendant qu'on fait autre chose (serveur, watcher). Une commande dont on attend la fin (build, publication, install de quelques minutes) se lance plutôt au premier plan avec un `timeout` adapté ; sinon, attends-la avec BashOutput(wait_s=…)."},
             },
             "required": ["command"],
         },
@@ -98,6 +108,8 @@ TOOL_SCHEMAS = [
         "description": (
             "Lit la sortie (stdout+stderr) d'une commande lancee avec Bash(background=true), "
             "depuis la derniere lecture, avec son statut ([running] / [exited code=N]). "
+            "Pour attendre la suite au lieu de relire a chaque tour, passe wait_s : l'appel "
+            "rend des qu'une sortie arrive, que le process se termine, ou au bout de wait_s. "
             "Mets kill=true pour arreter le process et tout son arbre. "
             "Read-only : ne demande jamais de permission."
         ),
@@ -106,6 +118,8 @@ TOOL_SCHEMAS = [
             "properties": {
                 "bash_id": {"type": "string", "description": "L'id retourne par Bash(background=true)."},
                 "kill": {"type": "boolean", "description": "Si true, tue le process (et son arbre) puis renvoie la sortie restante."},
+                "wait_s": {"type": "integer", "description": "Secondes d'attente max (0 par defaut = rendu immediat, plafond 600) : rend a la premiere sortie nouvelle, a la fin du process, ou a l'expiration."},
+                "until_exit": {"type": "boolean", "description": "Avec wait_s, ignore la sortie intermediaire et n'attend que la fin du process (ou wait_s ; 600 s si wait_s absent). Pour un script qui affiche sa progression."},
             },
             "required": ["bash_id"],
         },
@@ -357,27 +371,19 @@ TOOL_SCHEMAS = [
     {
         "name": "Methodology",
         "description": (
-            "Persist text into the methodology note (the cached working-memory block "
-            "injected at the top of every future turn). This is your WORKING MEMORY — "
-            "use it to state what you are TRYING TO DO, what you DID this turn, and "
-            "what your NEXT STEP will be. You ALWAYS have something to write — even on "
-            "turn 1, state your goal and plan. Capture not just the WHAT but the "
-            "REASONING and the WHY behind decisions: hypotheses tested and discarded "
-            "(and why), constraints discovered, trade-offs, leads to explore, and any "
-            "reusable context (key signatures, paths, results) that a future turn would "
-            "otherwise have to re-derive. Length is free — favor information density "
-            "over padding. NEVER recopy what is already in the note (it is append-only "
-            "and re-read in full every turn). Also save plans, decisions, and extracted "
-            "facts here. For file regions, use the Snippet tool instead — it freezes "
-            "labeled line ranges from a file into the same note. "
-            "Tool_results from your current batch DISAPPEAR at the next turn, so save "
-            "what matters here BEFORE moving on. "
-            "Content is always appended to the existing note."
+            "Ajoute du texte à ta note de travail : append-only, relue en entier à chaque tour, "
+            "seule mémoire qui survit. N'écris QUE le delta de ce tour : fait mesuré, décision + "
+            "pourquoi, piste écartée + pourquoi, prochaine étape. Jamais la mission, la todolist "
+            "entière ni une décision déjà notée ; pour cocher un élément, écris seulement "
+            "« [x] <élément> ». Jamais une ligne déjà visible dans un snippet : cite-le (fichier "
+            "+ lignes, ou symbole). Un tour sans rien de neuf : une ligne courte suffit. Le "
+            "harnais préfixe chaque ajout par « ### T<n> » (numéro de tour réel) et signale un "
+            "ajout déjà présent dans la note. Pour garder du code, utilise Snippet."
         ),
         "input_schema": {
             "type": "object",
             "properties": {
-                "content": {"type": "string", "description": "Markdown text to append."},
+                "content": {"type": "string", "description": "Le delta du tour, en markdown."},
             },
             "required": ["content"],
         },
@@ -385,46 +391,119 @@ TOOL_SCHEMAS = [
     {
         "name": "FinalAnswer",
         "description": (
-            "End the session by delivering your final answer — the EXPLICIT close "
-            "signal. Call it when the task is fully done (tests green, todolist all "
-            "[x]) or your answer to the user is ready, in the SAME batch as your "
-            "last Methodology. The session closes immediately after this turn; no "
-            "further turns happen, so `answer` must be COMPLETE and self-contained "
-            "(result, files touched, validation evidence). Do NOT keep iterating "
-            "after success: validated task = call FinalAnswer now."
+            "Clôt la session (signal de fin), dans le même lot que ta dernière Methodology, "
+            "quand la tâche est finie (tests verts, todolist entièrement [x]) ou ta réponse "
+            "prête. Aucun tour ne suit : `answer` se suffit à lui-même (résultat, fichiers "
+            "touchés, preuves de validation)."
         ),
         "input_schema": {
             "type": "object",
             "properties": {
                 "answer": {
                     "type": "string",
-                    "description": "The complete final answer/result delivered to the user.",
+                    "description": (
+                        "The complete final answer/result delivered to the user. Après une "
+                        "clôture refusée ou suspendue, OMETS-LE si le texte reste juste : le "
+                        "harnais reprend celui de ta tentative (recap et parcours_verifies omis aussi)."
+                    ),
+                },
+                "taches_terminees": {
+                    "type": "array",
+                    "description": (
+                        "Obligatoire, même vide ([]), sauf pour le profil assistant de bureau "
+                        "(qui tient la TODO via les outils Taches) : ce qui est fait, une ligne "
+                        "par tâche. Hors assistant, l'omettre refuse la clôture. Sous-agent : "
+                        "tout aussi obligatoire, mais la liste va dans le rapport rendu à ton "
+                        "parent, jamais dans la TODO du Bureau."
+                    ),
+                    "items": {"type": "string"},
+                },
+                "taches_restantes": {
+                    "type": "array",
+                    "description": (
+                        "Obligatoire, même vide ([]), sauf pour le profil assistant de bureau "
+                        "(optionnel ; fourni, il est pris en compte) : ce qui reste, un objet "
+                        "par tâche, écrit "
+                        "en entier — `titre` (la ligne courte), `corps` optionnel (brief long : "
+                        "contexte, chemins, critère d'acceptation), chantier via `macro_id` sinon "
+                        "`macro_titre` (optionnel), `decision=true` si un humain doit trancher "
+                        "(avec `options` quand tu sais les nommer). Sous-agent : tout aussi "
+                        "obligatoire, mais rien n'est créé dans la TODO du Bureau : la liste va "
+                        "dans le rapport rendu à ton parent, qui consolide."
+                    ),
+                    "items": {
+                        "type": "object",
+                        "properties": {
+                            "macro_id": {"type": "string"},
+                            "macro_titre": {"type": "string"},
+                            "titre": {"type": "string"},
+                            "corps": {"type": "string"},
+                            "decision": {"type": "boolean"},
+                            "options": {
+                                "type": "array",
+                                "items": {
+                                    "type": "object",
+                                    "properties": {
+                                        "key": {"type": "string", "description": "Short stable key, e.g. 'garder_coalesce'."},
+                                        "label": {"type": "string", "description": "Wording shown to the user."},
+                                    },
+                                    "required": ["key", "label"],
+                                },
+                            },
+                        },
+                        "required": ["titre"],
+                    },
+                },
+                "parcours_verifies": {
+                    "type": "array",
+                    "description": (
+                        "Obligatoire si tu as écrit une interface (html/css/js…) : un objet par "
+                        "exigence de la demande — le parcours joué comme un utilisateur (ex. "
+                        "afficher → éditer → enregistrer → relire), l'`appel` qui le prouve "
+                        "(le tool_call_alias ou l'id de l'appel EXÉCUTÉ, vert, après ta dernière "
+                        "modification d'interface ; plusieurs si besoin, ex. [\"clic_edit\", "
+                        "\"snap_apres\"]) et sa `preuve` (ce que cet appel montre). Donne un "
+                        "tool_call_alias à tes appels de preuve pour pouvoir les désigner. Les "
+                        "appels des tours PRÉCÉDENTS comptent. Le harnais résout chaque `appel` "
+                        "dans tes appels réels ; sans `appel`, il recoupe le texte de `preuve`."
+                    ),
+                    "items": {
+                        "type": "object",
+                        "properties": {
+                            "exigence": {"type": "string"},
+                            "parcours": {"type": "string"},
+                            "preuve": {
+                                "type": "string",
+                                "description": "Ce que l'appel montre (sortie, état relu). "
+                                               "Sans `appel` : la commande exacte exécutée.",
+                            },
+                            "appel": {
+                                "type": "array",
+                                "items": {"type": "string"},
+                                "description": "tool_call_alias (ou id) des appels qui prouvent "
+                                               "ce parcours, ex. [\"e2e\"] ou [\"clic\", "
+                                               "\"snap\"] pour geste + constat.",
+                            },
+                        },
+                        "required": ["exigence", "parcours", "preuve"],
+                    },
                 },
                 "recap": {
                     "type": "object",
                     "description": (
-                        "Structured recap of the work — MANDATORY for coding sessions "
-                        "(a profile with require_recap). Assembled server-side into the "
-                        "merge/PR message; NO diffs here (server assembles them). "
-                        "Coding sessions need all 4 fields; non-coding (study/question) "
-                        "sessions only need symptoms+explanation.\n"
-                        "- symptoms: bug observed / feature requested, user POV, no jargon (2-4 sentences).\n"
-                        "- explanation: root cause OR implementation plan, vulgarised — "
-                        "understandable landing on the PR with no context.\n"
-                        "- tests: tests added/modified and what they prove (count + level + green status).\n"
-                        "- changes: ordered list of code files touched; ORDER = the narration.\n"
-                        "Example: {\"symptoms\": \"…\", \"explanation\": \"…\", \"tests\": "
-                        "\"24 vitest verts …\", \"changes\": [{\"file\": "
-                        "\"src/bouzecode/web_v2/static/js/conversations.js\", \"summary\": "
-                        "\"Conditionne la re-programmation du poller à l'état running …\"}]}"
+                        "Obligatoire pour un profil de code (clôture refusée sans lui) : "
+                        "symptoms (bug ou besoin vu par l'utilisateur, sans jargon), explanation "
+                        "(cause ou plan, vulgarisé), tests (combien, quel niveau, verts ?), changes "
+                        "(fichiers touchés dans l'ordre du récit, non vide). Pas de diff : le serveur "
+                        "les assemble. Un point que tu ne peux pas trancher va dans "
+                        "`taches_restantes` avec decision=true, pas ici."
                     ),
                     "properties": {
-                        "symptoms": {"type": "string", "description": "Bug observed / feature requested (user POV, ≤280 chars)."},
-                        "explanation": {"type": "string", "description": "Root cause or implementation plan, vulgarised (≤600 chars)."},
-                        "tests": {"type": "string", "description": "Tests added/modified and what they prove (≤300 chars)."},
+                        "symptoms": {"type": "string"},
+                        "explanation": {"type": "string"},
+                        "tests": {"type": "string"},
                         "changes": {
                             "type": "array",
-                            "description": "Ordered code files touched (order = narration).",
                             "items": {
                                 "type": "object",
                                 "properties": {
@@ -436,28 +515,42 @@ TOOL_SCHEMAS = [
                         },
                     },
                 },
+                "related_files": {
+                    "type": "array",
+                    "description": (
+                        "Fichiers produits ou à consulter par l'humain (rapport .html, .pptx, "
+                        ".pbix, export…) : chemins absolus, cliquables dans bouzeui. Renseigne-le "
+                        "dès que tu produis un livrable consultable : l'humain l'ouvre au lieu "
+                        "de relire le code."
+                    ),
+                    "items": {
+                        "type": "object",
+                        "properties": {
+                            "path": {"type": "string", "description": "Chemin ABSOLU du fichier."},
+                            "label": {"type": "string", "description": "Libellé court affiché."},
+                            "kind": {"type": "string", "description": "Type : rapport, présentation, export, tableau de bord…"},
+                        },
+                        "required": ["path"],
+                    },
+                },
             },
-            "required": ["answer"],
+            #  `answer` n'est plus requis par le registre : omis, il reprend la tentative
+            #  refusée (agent/cloture_reprise.py) ; vide sans tentative, `_final_answer` refuse.
+            #  taches_terminees / taches_restantes ne sont plus `required` au registre :
+            #  c'est validate_close qui les exige, selon le profil (require_taches ;
+            #  levé pour bureau-assistant, qui tient déjà la TODO via les outils Taches).
+            "required": [],
         },
     },
     {
         "name": "Snippet",
         "description": (
-            "Freeze labeled line range(s) into the methodology note. "
-            "TWO MODES: (1) symbol= — stores file_path + symbol name, RE-RESOLVED "
-            "dynamically at each turn (immune to staleness after Edits); prefer this "
-            "for functions/classes/methods. (2) ranges= — frozen line ranges (legacy). "
-            "HARD RULE: every snippetable tool_result MUST be either snippeted or "
-            "explicitly discarded the turn after you receive it. Snippetable results "
-            "are wrapped on the wire between '==== A SNIPPETER id: ... ====' and "
-            "'==== FIN DE L'ELEMENT A SNIPPETER ====' markers; the marker tells you "
-            "the exact id to use. "
-            "Two keys: for a file-backed result (Read/Skill/Grep and any other tool "
-            "whose result carries a marker 'id: file=...') pass file_path; "
-            "for an inline tool output (marker 'id: tool_id=...') pass tool_id — the "
-            "content is read back from the wrapped block, numbered 1..N for ranges. "
-            "Emit one Snippet call per region you want to keep. "
-            "PREFER symbol= over ranges= whenever a Python/JS/TS symbol is identifiable."
+            "Fige dans ta note une région d'un résultat, qui sinon meurt au tour suivant. "
+            "Obligatoire au tour qui suit chaque résultat marqué « A SNIPPETER » "
+            "(Read/Skill, Edit/Write longs, LoadProjectConfig, FindCode) : garde les régions "
+            "utiles, ou `discard=true`. `symbol=` (re-résolu à chaque tour, insensible aux Edit) "
+            "de préférence à `ranges=`. Clé : `file_path` pour un marqueur `id: file=…`, "
+            "`tool_id` pour `id: tool_id=…` (plages 1..N sur le bloc). Un appel par région."
         ),
         "input_schema": {
             "type": "object",
@@ -496,17 +589,26 @@ TOOL_SCHEMAS = [
     {
         "name": "LoadProjectConfig",
         "description": (
-            "Load a project's .bouzecode/ configuration (skills, MCP servers, plugins) "
-            "into the current session. The system prompt is regenerated on the next turn "
-            "to include the project's skills. Calls are cumulative — each new path adds "
-            "to the active configuration."
+            "Entrée dans un projet, une fois par projet, avant d'y travailler : rend ses skills "
+            "trouvables par SkillResearch, branche ses outils, dit comment parcourir son code. Hors projet, "
+            "liste les projets qu'il contient. Snippet le résultat, sinon il est perdu au tour "
+            "suivant."
         ),
         "input_schema": {
             "type": "object",
             "properties": {
                 "path": {
                     "type": "string",
-                    "description": "Absolute path to the project root (must contain a .bouzecode/ directory).",
+                    "description": "Absolute path to the directory you are about to work in.",
+                },
+                "cd": {
+                    "type": "boolean",
+                    "description": (
+                        "Déplace ton cwd dans ce dossier pour de bon (Bash, chemins relatifs). "
+                        "Requis si ce n'est pas ton dossier de départ, AVANT "
+                        "Environment(action='worktree'|'venv') qui provisionne depuis le cwd. "
+                        "Ne t'isole pas pour autant."
+                    ),
                 },
             },
             "required": ["path"],
@@ -515,9 +617,14 @@ TOOL_SCHEMAS = [
     {
         "name": "RunPythonTest",
         "description": (
-            "Run Python tests via pytest with automatic environment detection. "
-            "Finds the nearest pyproject.toml, loads .env, and uses uv run pytest. "
-            "Call with no targets to run all tests, or pass specific files/directories."
+            "Seul moyen de lancer pytest (le Bash le refuse). Sans `targets` : les tests impactés "
+            "par ta branche (git diff depuis develop, testmon, `.bouzecode/tests.yaml`) ; "
+            "`targets` pour cibler. Jamais la suite complète : un build nightly la joue sur "
+            "develop et alimente la comparaison. Run impacté : les échecs sont rejoués sur "
+            "develop ; ceux marqués pre-existing on base ne sont pas les tiens, ne corrige que "
+            "les NEW. Échecs identiques regroupés, remède pour les erreurs d'environnement, "
+            "chemin de la sortie complète. `show` pour en voir plus ; `wait=false` rend aussitôt "
+            "un job_id, à suivre avec TestStatus."
         ),
         "input_schema": {
             "type": "object",
@@ -525,15 +632,15 @@ TOOL_SCHEMAS = [
                 "targets": {
                     "type": "array",
                     "items": {"type": "string"},
-                    "description": "Test files or directories to run. Empty or omitted = all tests.",
+                    "description": "Fichiers, dossiers ou motifs (`tests/test_x*.py`) de test. Absent : tests impactés.",
                 },
                 "parallel": {
                     "type": "string",
-                    "description": "Parallelism: 'auto' (default, uses -n auto), 'off' (no xdist), or a number like '4'.",
+                    "description": "Workers xdist : '4' (défaut), '2' ou 'off'. 'auto' refusé.",
                 },
                 "marker": {
                     "type": "string",
-                    "description": "Pytest marker expression (-m). E.g. 'not slow'.",
+                    "description": "Expression -m. Remplace le -m des addopts du projet, qui peut écarter des marqueurs (ex. network) : marker='network' les lance.",
                 },
                 "keyword": {
                     "type": "string",
@@ -541,7 +648,7 @@ TOOL_SCHEMAS = [
                 },
                 "timeout": {
                     "type": "integer",
-                    "description": "Max seconds before killing the test process (default 300).",
+                    "description": "Max seconds before killing the test process (default 300). Un test seul est tué à 30 s (60 s navigateur, 300 s si lent).",
                 },
                 "extra_args": {
                     "type": "array",
@@ -550,10 +657,43 @@ TOOL_SCHEMAS = [
                 },
                 "no_sync": {
                     "type": "boolean",
-                    "description": "If true, pass --no-sync to uv run (prevents venv modifications). Required for bouzecode self-testing.",
+                    "description": "Sans effet (conservé) : un venv existant est exécuté tel quel, jamais synchronisé.",
+                },
+                "testmon": {
+                    "type": "boolean",
+                    "description": "pytest-testmon : 1er passage complet (construit sa base), puis seulement les tests affectés. Incompatible avec `marker` (borne avec `targets`) ; aveugle aux .html/.css/.js et fichiers de données.",
+                },
+                "show": {
+                    "type": "array",
+                    "items": {"type": "string", "enum": ["warnings", "durations", "passed", "full"]},
+                    "description": "Détail en plus du minimal : 'warnings' (tous, dédoublonnés), 'durations' (15 plus lents), 'passed' (tests passés), 'full' (sortie brute, tête+queue).",
+                },
+                "wait": {
+                    "type": "boolean",
+                    "description": "false : rend aussitôt un job_id (le run attend son tour dans la file de la machine) ; suis-le avec TestStatus.",
                 },
             },
             "required": [],
+        },
+    },
+    {
+        "name": "TestStatus",
+        "description": (
+            "État d'un run lancé par RunPythonTest(wait=false) : position en file ou n/N, échecs "
+            "avec extrait dès qu'ils arrivent, test le plus long en cours, puis le même rapport "
+            "final que RunPythonTest (NEW / pre-existing pour un run impacté)."
+        ),
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "job_id": {"type": "string"},
+                "wait_s": {
+                    "type": "integer",
+                    "description": "Attend jusqu'à la fin, un nouvel échec ou ce délai (max 600).",
+                },
+                "cancel": {"type": "boolean", "description": "Annule le run."},
+            },
+            "required": ["job_id"],
         },
     },
 ]

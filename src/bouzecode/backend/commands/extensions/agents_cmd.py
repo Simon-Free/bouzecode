@@ -7,7 +7,7 @@ from bouzecode.ui.ansi import clr, info
 
 def cmd_agents(_args: str, _state, config) -> bool:
     try:
-        from bouzecode.backend.multi_agent.tools import get_agent_manager
+        from bouzecode.backend.multi_agent.gestionnaire import get_agent_manager
         mgr = get_agent_manager()
         tasks = mgr.list_tasks()
         if not tasks:
@@ -23,10 +23,15 @@ def cmd_agents(_args: str, _state, config) -> bool:
     return True
 
 
-def _print_background_notifications():
-    """Print notifications for newly completed background agent tasks."""
+def _print_background_notifications(config: dict | None = None):
+    """Print notifications for newly completed background agent tasks.
+
+    Barre des sous-agents du TUI active (`_tui_agents`) : rien dans le fil de main. La barre
+    montre déjà ✓/✗, et la réponse finale se lit en ouvrant l'agent aux flèches."""
+    if config is not None and config.get("_tui_agents") is not None:
+        return
     try:
-        from bouzecode.backend.multi_agent.tools import get_agent_manager
+        from bouzecode.backend.multi_agent.gestionnaire import get_agent_manager
         mgr = get_agent_manager()
     except Exception:
         return

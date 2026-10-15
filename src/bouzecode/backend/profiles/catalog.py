@@ -1,4 +1,4 @@
-"""Remote shared agent catalog — backend layer.
+"""Remote shared agent catalog (demo_agents) — backend layer.
 
 Pulls a git repo of agent profiles on demand into ~/.bouzecode/agent_catalog/,
 then exposes the available/installed split. Shared foundation for CLI + UI.
@@ -20,28 +20,31 @@ CATALOG_DIR = CONFIG_DIR / "agent_catalog"
 PROFILES_SUBDIR = "profiles"
 
 _ENV_URL = "BOUZECODE_AGENT_CATALOG_URL"
-_ENV_CATALOG_PATH = "BOUZECODE_AGENT_CATALOG_PATH"
+_ENV_GITLAB = "GITLAB_DEMO_URL"
+_CATALOG_PATH = "/demo_plugins/demo_agents.git"
 
 
 def _catalog_url() -> str:
-    """Resolve the catalog repo URL. Nothing is hardcoded — you point bouzecode at
-    the git repo holding your shared agent profiles.
+    """Resolve the catalog repo URL. Never hardcoded.
 
-    Order: BOUZECODE_AGENT_CATALOG_URL, else the configured `gitlab_url` joined
-    with BOUZECODE_AGENT_CATALOG_PATH. Raises RuntimeError if neither resolves.
+    Order: BOUZECODE_AGENT_CATALOG_URL > GITLAB_DEMO_URL-derived >
+    settings.gitlab_url-derived. Raises RuntimeError if none available.
     """
     explicit = os.environ.get(_ENV_URL)
     if explicit:
         return explicit
-    from ..core.config import load_config
+    base = os.environ.get(_ENV_GITLAB)
+    if not base:
+        try:
+            from ..core.config import get_settings  # type: ignore
 
-    base = (load_config().get("gitlab_url") or "").rstrip("/")
-    path = os.environ.get(_ENV_CATALOG_PATH, "").strip("/")
-    if base and path:
-        return f"{base}/{path}"
+            base = getattr(get_settings(), "gitlab_url", "") or ""
+        except Exception:
+            base = ""
+    if base:
+        return base.rstrip("/") + _CATALOG_PATH
     raise RuntimeError(
-        f"Cannot resolve agent catalog URL: set {_ENV_URL} (or `gitlab_url` in "
-        f"the bouzecode config plus {_ENV_CATALOG_PATH})."
+        f"Cannot resolve agent catalog URL: set {_ENV_URL} or {_ENV_GITLAB}."
     )
 
 

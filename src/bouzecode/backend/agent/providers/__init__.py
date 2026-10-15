@@ -3,7 +3,7 @@ from .types import (
     sanitize_tool_name, _VALID_TOOL_NAME_RE, _INVALID_TOOL_NAME_PLACEHOLDER,
     _supports_adaptive_thinking, _ADAPTIVE_THINKING_MODELS,
     StreamStarted, TextChunk, ThinkingChunk, ToolCallParsed, ToolIdRemap,
-    SystemPayload, AssistantTurn,
+    SystemPayload, AssistantTurn, UsageSnapshot, StreamRestart,
 )
 from .registry import (
     PROVIDERS, COSTS, _PREFIXES, MODELS,

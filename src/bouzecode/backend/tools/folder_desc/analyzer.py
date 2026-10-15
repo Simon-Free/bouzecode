@@ -13,20 +13,33 @@ from ..folder_desc.desc_utils import (
 )
 
 
+def _progress(iterable, **kwargs):
+    """Barre de progression tqdm quand elle est installée, sinon l'itérable tel quel.
+
+    tqdm n'est pas une dépendance déclarée du projet (elle n'arrivait que par `openai`) :
+    son absence faisait échouer l'outil entier pour une barre purement décorative."""
+    try:
+        from tqdm import tqdm
+    except ImportError:
+        return iterable
+    return tqdm(iterable, **kwargs)
+
+
 def _call_llm_for_description(
     file_path: str, content: str, ext: str, config: dict | None = None,
 ) -> str | None:
-    """Generate a one-line description via the bouzecode provider stack.
+    """Generate a one-line description via the harness's common LLM path.
 
-    Routes through `providers.stream` so the same retry/httpx/SSL handling
-    used by the main chat applies here — avoids bypassing the gateway
-    handling that lives in `providers/backends/anthropic_stream.py`.
+    `get_streamer()` (dispatch.stream, interceptable) with the session's model
+    (`modele_annexe`): same provider, retry and SSL handling as the main chat.
     """
-    from ...agent.providers import stream, AssistantTurn
+    from ...agent.providers import AssistantTurn
+    from ...agent.providers.side_model import modele_annexe
+    from ...agent.stream_interceptor import get_streamer
     from ...core.config import load_config
 
     cfg = config if config is not None else load_config()
-    model = cfg.get("model") or "claude-haiku-4-5-20251001"
+    model = modele_annexe(cfg)
 
     filename = Path(file_path).name
     snippet = content[:4000] + "\n[...]" if len(content) > 4000 else content
@@ -40,10 +53,12 @@ def _call_llm_for_description(
     call_cfg = dict(cfg)
     call_cfg["max_tokens"] = 150
     call_cfg["thinking"] = False
+    call_cfg["_depth"] = 1  # side-call: no top-level agent profile
+    call_cfg["_context_state"] = None
 
     text = ""
     try:
-        for event in stream(
+        for event in get_streamer()(
             model=model,
             system="You write concise one-line file descriptions.",
             messages=[{"role": "user", "content": [{"type": "text", "text": user_msg}]}],
@@ -121,11 +136,9 @@ def _analyze_folder(params: dict, config: dict) -> str:
         fp.write_text("".join(new_lines), encoding="utf-8", newline="")
         return "added", f"added: {fp.relative_to(root)}"
 
-    from tqdm import tqdm
-
     with ThreadPoolExecutor(max_workers=20) as pool:
         futures = {pool.submit(_process, fp): fp for fp in files_without_desc}
-        progress = tqdm(
+        progress = _progress(
             as_completed(futures),
             total=len(files_without_desc),
             desc=f"Analyse automatique ({root.name})",
@@ -173,11 +186,9 @@ def _analyze_files(files: list[Path], root: Path, config: dict) -> str:
         fp.write_text("".join(new_lines), encoding="utf-8", newline="")
         return "added", f"added: {fp.relative_to(root)}"
 
-    from tqdm import tqdm
-
     with ThreadPoolExecutor(max_workers=20) as pool:
         futures = {pool.submit(_process, fp): fp for fp in files}
-        progress = tqdm(
+        progress = _progress(
             as_completed(futures),
             total=len(files),
             desc=f"Generating descriptions ({root.name})",

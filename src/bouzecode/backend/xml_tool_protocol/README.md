@@ -2,7 +2,7 @@
 
 ## Purpose
 
-Work around proxies that mishandle native Anthropic `tool_use` SSE blocks. The LLM emits tool calls as XML embedded in its text response; this package parses them locally and serializes them back for multi-turn history. Used only on the Anthropic provider path; OpenAI/Ollama keep native tool-calling.
+Bypass the corporate `gateway` proxy's mishandling of native Anthropic `tool_use` SSE blocks. The LLM emits tool calls as XML embedded in its text response; this package parses them locally and serializes them back for multi-turn history. Used only on the Anthropic provider path; OpenAI/Ollama keep native tool-calling.
 
 ## Usage
 

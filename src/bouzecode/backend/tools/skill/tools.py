@@ -1,4 +1,4 @@
-# [desc] Registers Skill, SkillList and SkillGrep tools for invoking, listing and searching reusable prompt-template skills. [/desc]
+# [desc] Registers Skill, SkillResearch and SkillGrep tools for invoking and searching reusable prompt-template skills. [/desc]
 """Skill tool: lets the model invoke skills by name via tool call."""
 from __future__ import annotations
 
@@ -7,6 +7,7 @@ from pathlib import Path
 
 from ...core.tool_registry import ToolDef, register_tool
 from .loader import find_skill, load_skills, resolve_skills, substitute_arguments
+from .research import SCHEMA as _SKILL_RESEARCH_SCHEMA, skill_research
 from .scope import SCOPE_SEPARATOR
 
 
@@ -14,7 +15,7 @@ _SKILL_SCHEMA = {
     "name": "Skill",
     "description": (
         "Invoke a named skill (reusable prompt template). "
-        "Use SkillList to see available skills and their triggers."
+        "Find skills by keyword with SkillResearch(query=...)."
     ),
     "input_schema": {
         "type": "object",
@@ -32,17 +33,6 @@ _SKILL_SCHEMA = {
         "required": ["name"],
     },
 }
-
-_SKILL_LIST_SCHEMA = {
-    "name": "SkillList",
-    "description": "List all available skills with their names, triggers, and descriptions.",
-    "input_schema": {
-        "type": "object",
-        "properties": {},
-        "required": [],
-    },
-}
-
 
 _SKILL_GREP_SCHEMA = {
     "name": "SkillGrep",
@@ -155,51 +145,22 @@ def _skill_tool(params: dict, config: dict) -> str:
     if skill is None:
         skill = find_skill(skill_name)
     if skill is None:
-        names = [s.name for s in resolution.winners]
-        return f"Error: skill '{skill_name}' not found. Available: {', '.join(names)}"
+        return (f"Error: skill '{skill_name}' not found.\n"
+                + skill_research({"query": skill_name.replace("-", " "), "limit": 5}, config))
 
     rendered = substitute_arguments(skill.prompt, args, skill.arguments)
-    return f"[Skill: {skill.name} | file: {skill.file_path}]\n\n{rendered}"
+    # Le bandeau de fraîcheur passe AVANT le contenu : lu après, il arriverait trop tard,
+    # l'agent ayant déjà pris la skill pour argent comptant. Vide quand rien n'a dérivé.
+    from .freshness import banner
+    from .conservation import conserver_dans_la_note
 
-
-def _shadowed_section(resolution, visible_names: set) -> str:
-    """Name every same-named skill that lost, with both paths. Never resolve in silence."""
-    rows = []
-    for name in sorted(resolution.shadowed):
-        if name not in visible_names:
-            continue
-        winner = resolution.by_name(name)
-        for loser in resolution.shadowed[name]:
-            rows.append(f"- **{name}**: {loser.file_path}\n  masquée par {winner.file_path}")
-    if not rows:
-        return ""
-    return ("\n\n## Masquées\n"
-            "Ces skills portent un nom déjà pris par une skill de portée plus spécifique. "
-            "Ce n'est pas une erreur — c'est une surcharge assumée.\n" + "\n".join(rows))
-
-
-def _skill_list_tool(params: dict, config: dict) -> str:
-    resolution = resolve_skills()
-    skills = resolution.winners
-    if not skills:
-        return "No skills available."
-
-    # If the active profile/agent declares specific skills, only show those.
-    profile_skills = (config.get("_profile_skills") if config else None) or []
-    if profile_skills:
-        allowed = set(profile_skills)
-        skills = [s for s in skills if s.name in allowed]
-        if not skills:
-            return f"No skills matched the profile filter ({', '.join(profile_skills)})."
-
-    lines = ["Available skills:\n"]
-    for s in skills:
-        triggers = ", ".join(s.triggers)
-        hint = f"  args: {s.argument_hint}" if s.argument_hint else ""
-        when = f"\n    when: {s.when_to_use}" if s.when_to_use else ""
-        label = s.qualified_name or s.name
-        lines.append(f"- **{label}** [{triggers}]{hint}\n  {s.description}{when}")
-    return "\n".join(lines) + _shadowed_section(resolution, {s.name for s in skills})
+    tete = f"[Skill: {skill.name} | file: {skill.file_path}]\n\n"
+    avis, deja_chargee = conserver_dans_la_note(skill, args, config)
+    if deja_chargee:
+        return f"{tete}{banner(skill)}{avis}"
+    if avis:
+        tete += f"{avis}\n\n"
+    return f"{tete}{banner(skill)}{rendered}"
 
 
 def _register() -> None:
@@ -209,11 +170,14 @@ def _register() -> None:
         func=_skill_tool,
         read_only=True,
         concurrent_safe=True,
+        #  Son résultat dépend de la note de travail (déjà conservée ou pas) : jamais
+        #  servi par la mémoire anti-répétition.
+        etat_externe=True,
     ))
     register_tool(ToolDef(
-        name="SkillList",
-        schema=_SKILL_LIST_SCHEMA,
-        func=_skill_list_tool,
+        name="SkillResearch",
+        schema=_SKILL_RESEARCH_SCHEMA,
+        func=skill_research,
         read_only=True,
         concurrent_safe=True,
     ))

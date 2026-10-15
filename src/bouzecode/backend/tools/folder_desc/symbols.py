@@ -33,7 +33,11 @@ def extract_symbols(file_path: str, content: str | None = None) -> list[Symbol]:
 def find_symbol(
     file_path: str, symbol_name: str, content: str | None = None,
 ) -> tuple[int, int] | None:
-    """Find symbol by name and return (start_line, end_line) 1-based inclusive."""
+    """Find symbol by name and return (start_line, end_line) 1-based inclusive.
+
+    Falls back on FindCode's extractor, so that every name FindCode shows reads back
+    with Read(symbol=...): module constants, functions of an inline `<script>` in a
+    .html, top-level const/let, and a bare method name when it is unique."""
     symbols = extract_symbols(file_path, content)
     parts = symbol_name.split(".", 1)
     for sym in symbols:
@@ -43,6 +47,21 @@ def find_symbol(
             for child in sym.children:
                 if child.name == parts[1]:
                     return child.start_line, child.end_line
+    return _findcode_symbol(file_path, symbol_name, content)
+
+
+def _findcode_symbol(file_path: str, symbol_name: str, content: str | None) -> tuple[int, int] | None:
+    from ..findcode.extract import CODE_EXTS, extract
+
+    if Path(file_path).suffix.lower() not in CODE_EXTS:
+        return None
+    if content is None:
+        content = Path(file_path).read_text(encoding="utf-8", errors="replace")
+    defs = extract(Path(file_path).name, content).defs
+    exact = [d for d in defs if d.qual == symbol_name]
+    named = exact or [d for d in defs if d.name == symbol_name]
+    if exact or len(named) == 1:
+        return named[0].start, named[0].end
     return None
 
 

@@ -11,23 +11,31 @@ from __future__ import annotations
 
 import logging
 import os
+import re
 
 from .providers import AssistantTurn
+from .providers.side_model import modele_annexe, signaler_echec
 from .stream_interceptor import get_streamer
 
 log = logging.getLogger(__name__)
 
+
 # Minimum chars of cut thinking before we bother summarizing.
 _MIN_CHARS_FOR_SUMMARY = 4000
 
+# Worded as "working notes", without the reasoning vocabulary nor `<thinking>` tags:
+# measured 2026-09-29, reasoning presented as such in TEXT trips claude-opus-5's
+# refusal classifier. Condensing those notes is still this call's whole purpose.
 _SUMMARY_SYSTEM = (
-    "Le texte suivant est un raisonnement (thinking) coupé car trop long. "
-    "Liste les CONCLUSIONS FINALES auxquelles il est arrivé (en FR) : conclusions "
+    "Le texte suivant contient des notes de travail interrompues car trop longues. "
+    "Condense-les en listant ce à quoi elles ABOUTISSENT (en FR) : conclusions "
     "atteintes, décisions prises, faits clés découverts, et la prochaine action "
     "envisagée. Résume librement, dans le format que tu juges le plus clair, sans "
     "limite de longueur imposée mais sans délayer. Pas de préambule, pas de "
     "reformulation de l'énoncé."
 )
+
+_TAG_RE = re.compile(r"</?thinking>", re.IGNORECASE)
 
 
 def summarize_overflow(thinking_text: str, config: dict) -> str | None:
@@ -46,8 +54,8 @@ def summarize_overflow(thinking_text: str, config: dict) -> str | None:
 
     try:
         return _do_summarize(thinking_text, config)
-    except Exception:
-        log.warning("thinking_summary side-call failed", exc_info=True)
+    except Exception as exc:  # noqa: BLE001 — un appel annexe ne tue jamais la session
+        signaler_echec("résumé de réflexion", modele_annexe(config), exc)
         return None
 
 
@@ -65,9 +73,9 @@ def _do_summarize(thinking_text: str, config: dict) -> str | None:
 
     result_text: str | None = None
     for ev in _stream(
-        model="claude-sonnet-4-6",
+        model=modele_annexe(config),
         system=_SUMMARY_SYSTEM,
-        messages=[{"role": "user", "content": thinking_text}],
+        messages=[{"role": "user", "content": _TAG_RE.sub("", thinking_text).strip()}],
         tool_schemas=[],
         config=side_config,
     ):

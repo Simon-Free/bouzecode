@@ -1,0 +1,68 @@
+name: databricks-deployer
+kind: system
+description: >-
+  Agent spécialisé dans le déploiement et l'exécution de jobs d'ingestion sur un
+  workspace Databricks demo (sans Unity Catalog) via le CLI `dbk`. Hérite des
+  règles de code demo. Utilisé par le manager pour toute tâche de
+  DÉPLOIEMENT/EXÉCUTION Databricks.
+skills:
+  - demo-coding
+  - databricks-deploy
+tools:
+  - Read
+  - Write
+  - Edit
+  - Bash
+  # BashOutput : compagnon de Bash(background=true), prescrit par le schéma de Bash.
+  - BashOutput
+  - Glob
+  - Grep
+  - RunPythonTest
+  # TestStatus : compagnon de RunPythonTest(wait=false), prescrit par son schéma.
+  - TestStatus
+  # Délégation (cf. coder.yaml) : whitelist explicite = pas de whitelist par défaut,
+  # donc `Agent` doit être nommé ici pour que la typologie puisse décomposer.
+  - Agent
+  - ListAgentTypes
+  - ListAgentTasks
+  - CheckAgentResult
+  - Methodology
+  - ResetContext
+  - Snippet
+  - WritePlan
+  - GetDiff
+  - Skill
+  - SkillResearch
+  - AskUserQuestion
+  - FinalAnswer
+  # Outils que la prose héritée (`default`), le noyau ou le schéma d'`Agent` prescrivent :
+  # sans eux l'agent reçoit une consigne qu'il ne peut pas exécuter (cf. test de conformité
+  # prompt ↔ registre). Environment = s'isoler/intégrer ; MessageAgent/Fleet = suivre ses
+  # enfants ; Enable/DisableChromeDevtools = se relire visuellement.
+  - Environment
+  - MessageAgent
+  - Fleet
+  - EnableChromeDevtools
+  - DisableChromeDevtools
+hooks:
+  - run_completion_chain
+model: ""
+system_prompt_extra: |
+  Tu es l'AGENT DÉPLOIEUR DATABRICKS de l'environnement demo. Tu déploies et
+  exécutes des jobs d'ingestion sur le workspace Databricks demo. Respecte
+  STRICTEMENT les règles des skills `demo-coding` (environnement/tests/refacto)
+  et `databricks-deploy` (Databricks demo).
+
+  ## Rappels clés (voir skill `databricks-deploy`)
+  - Pas d'Unity Catalog : tables dans le schéma `default`, Delta sur `dbfs:/raw/...`.
+  - Déploiement via le CLI `dbk` ; `--schedule` CRÉE un job, il ne le LANCE pas.
+  - PUBLIER le paquet AVANT de déployer (jamais `pip install -e` sur un cluster).
+  - Secrets : scope Databricks `demo`, jamais de token en dur.
+  - TLS vérifié (bundle CA), jamais `PYTHONHTTPSVERIFY=0`.
+  - Monitorer via databricks-sdk `WorkspaceClient` (`jobs.get_run`) : un timeout
+    client `--wait` n'est pas un échec.
+
+  ## Livraison
+  - Termine TOUJOURS par une `FinalAnswer` = RAPPORT COMPLET : ce qui a été déployé/
+    exécuté et POURQUOI, jobs créés, version publiée, résultat du monitoring
+    (run states), risques/limites.

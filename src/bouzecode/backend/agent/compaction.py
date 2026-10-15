@@ -177,58 +177,6 @@ def compact_messages(messages: list, config: dict, focus: str = "") -> list:
     return [summary_msg, ack_msg, *recent]
 
 
-# ── Main entry ────────────────────────────────────────────────────────────
-
-def maybe_compact(state, config: dict) -> bool:
-    """Check if context window is getting full and compress if needed.
-
-    Runs snip_old_tool_results first, then auto-compact if still over threshold.
-
-    Args:
-        state: AgentState with .messages list
-        config: agent config dict (must contain "model")
-    Returns:
-        True if compaction was performed
-    """
-    model = config.get("model", "")
-    limit = get_context_limit(model)
-    threshold = limit * 0.7
-    est = estimate_tokens(state.messages)
-
-    if est <= threshold:
-        return False
-
-    import time
-    entry = {
-        "event": "compaction_start",
-        "timestamp": time.time(),
-        "est_tokens_before": est,
-        "threshold": int(threshold),
-        "context_limit": limit,
-        "message_count_before": len(state.messages),
-    }
-
-    # Layer 1: snip old tool results
-    snip_old_tool_results(state.messages)
-    est2 = estimate_tokens(state.messages)
-    entry["est_tokens_after_snip"] = est2
-
-    if est2 <= threshold:
-        entry["result"] = "snip_sufficient"
-        state.compaction_log.append(entry)
-        return True
-
-    # Layer 2: auto-compact
-    state.messages = compact_messages(state.messages, config)
-    state.messages.extend(_restore_plan_context(config))
-    est3 = estimate_tokens(state.messages)
-    entry["est_tokens_after_compact"] = est3
-    entry["message_count_after"] = len(state.messages)
-    entry["result"] = "full_compact"
-    state.compaction_log.append(entry)
-    return True
-
-
 # ── Plan context restoration ─────────────────────────────────────────────
 
 def _restore_plan_context(config: dict) -> list:

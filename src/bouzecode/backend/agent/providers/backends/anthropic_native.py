@@ -1,11 +1,12 @@
 # [desc] Native Anthropic tool_use: schema conversion, wire messages with typed blocks, streamed input_json_delta accumulation. [/desc]
 """Native `tool_use` helpers for the Anthropic backend.
 
-The XML tool protocol (`xml_tool_protocol/`) exists because a corporate LLM gateway
-was assumed to mangle native `tool_use` SSE blocks. That assumption was re-tested on
-2026-07-27 and refuted. These helpers are the native alternative: schemas go through
-the API `tools` param and arguments come back as server-produced JSON, which removes
-the whole XML-parsing failure class.
+The XML tool protocol (`xml_tool_protocol/`) exists because the model was assumed
+unable to emit native `tool_use` SSE blocks through the internal LLM gateway. That assumption
+was re-tested on 2026-07-27 and refuted — see
+`docs/investigations/gateway_native_tool_use_retest.md`. These helpers are the native
+alternative: schemas go through the API `tools` param and arguments come back as
+server-produced JSON, which removes the whole XML-parsing failure class.
 
 Only the WIRE changes. The neutral message format bouzecode persists (role/
 tool_calls/tool_call_id) is untouched, so compaction, minimal_payload, snippet_wire
@@ -16,6 +17,7 @@ import json
 
 from ..conversion import sanitize_messages, _find_current_loop_start
 from .openrouter_native import _SCHEDULING_PROPS
+from .encapsulation import notes_du_harnais_suivantes
 
 # Anthropic rejects empty text/tool_result content; use a visible stand-in instead.
 _EMPTY_CONTENT_STUB = "(no output)"
@@ -125,14 +127,20 @@ def messages_to_anthropic_native(messages: list, cache_last: bool = True) -> lis
             tool_id = tool_msg.get("tool_call_id")
             if tool_id and tool_id not in declared:
                 blocks.append({"type": "tool_use", "id": tool_id,
-                               "name": tool_msg.get("name") or "Methodology", "input": {}})
+                               "name": tool_msg.get("name") or "Methodology",
+                               "input": tool_msg.get("call_input") or {}})
                 declared.add(tool_id)
 
         result.append({"role": "assistant",
                        "content": blocks or [{"type": "text", "text": "."}]})
         if tool_msgs:
-            result.append({"role": "user",
-                           "content": [_tool_result_block(t) for t in tool_msgs]})
+            content = [_tool_result_block(t) for t in tool_msgs]
+            # <harness_notes> : bloc text en fin du message qui porte les tool_result.
+            harness_notes = notes_du_harnais_suivantes(messages, i)
+            if harness_notes:
+                content.append({"type": "text", "text": harness_notes})
+                i += 1
+            result.append({"role": "user", "content": content})
 
     if cache_last and len(result) >= 2:
         loop_start = _find_current_loop_start(messages)
@@ -146,7 +154,7 @@ def messages_to_anthropic_native(messages: list, cache_last: bool = True) -> lis
 class NativeToolUseAccumulator:
     """Accumulates streamed `tool_use` content blocks, keyed by block index.
 
-    The API interleaves concurrent blocks: the re-test observed three parallel
+    The API interleaves concurrent blocks: the gateway re-test observed three parallel
     calls whose `input_json_delta` events arrive mixed together, distinguished only
     by `index`. Each index therefore accumulates its own argument JSON, which is
     parsed once `content_block_stop` closes the block.

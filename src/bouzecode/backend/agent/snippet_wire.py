@@ -1,32 +1,32 @@
-# [desc] Wrap snippetable tool_results on the wire with markers + line numbers. [/desc]
-"""Wire-level wrapping of snippetable tool_results.
+# [desc] Snippetable tool_results on the wire: line numbers in the result, the "A SNIPPETER" instruction apart (for <harness_notes>). [/desc]
+"""Wire-level marking of snippetable tool_results.
 
-Tools flagged ``snippetable`` with ``snippet_key='tool_id'`` have their results
-wrapped between markers that tell the model the exact id to pass to
-``Snippet(tool_id=...)``. Lines are numbered 1..N over the raw content so the
-model's ranges line up with ``resolve_snippet_from_result`` (which slices the
-same raw content stored unwrapped in the history).
+Tools flagged ``snippetable`` with ``snippet_key='tool_id'`` get their lines numbered
+1..N over the raw content so the model's ranges line up with
+``resolve_snippet_from_result`` (which slices the same raw content stored unnumbered in
+the history). File-keyed tools (Read, Skill, Edit, Write) are keyed by ``file=<path>``.
 
-File-keyed tools (Read, Skill) are wrapped with ``id: file=<path>`` markers so
-the model knows both the file_path AND that it must Snippet or discard.
+The instruction (« A SNIPPETER id: … — Snippet(…) ou discard ») is returned APART from
+the result: it travels in the turn's ``<harness_notes>`` block, after the tool_results.
+Written inside a tool_result, harness instructions read as an injection to the gateway's
+classifier (claude-opus-5-5, content_filter refusals measured on 2026-10-07).
 """
 from __future__ import annotations
 
-# Minimum line count for a tool result to be wrapped with snippet markers
-# and subject to snippet enforcement. Results below this threshold are left
-# unwrapped and do NOT trigger enforcement violations.
+# Minimum line count for a tool result to be marked to snippet and subject to snippet
+# enforcement. Results below this threshold are left as is and do NOT trigger
+# enforcement violations.
 SNIPPET_MIN_LINES = 50
 
-_SNIPPET_OPEN = "==== A SNIPPETER id: tool_id={tool_id} ===="
-_FILE_SNIPPET_OPEN = "==== A SNIPPETER id: file={file_path} ===="
-_SNIPPET_CLOSE = "==== FIN DE L'ELEMENT A SNIPPETER ===="
+# Key of a wire `role: tool` message holding its harness instruction (never sent as is:
+# dispatch moves it into <harness_notes>, the converters ignore unknown keys).
+HARNESS_NOTE_KEY = "_harness_note"
 
 _FILE_SNIPPET_TOOLS = {"Read", "Skill", "Edit", "Write"}
 
-# Tools whose results must NEVER be wrapped with snippet markers,
-# regardless of length. (Empty: Edit/Write are now file-keyed snippetable so
-# their post-edit diff can be frozen like a Read — this kills the post-edit
-# doubt / re-Read amnesia where the edited state never survived in context.)
+# Tools whose results must NEVER be marked to snippet, regardless of length. (Empty:
+# Edit/Write are file-keyed snippetable so their post-edit diff can be frozen like a
+# Read — this kills the post-edit doubt / re-Read amnesia.)
 _SNIPPET_EXEMPT_TOOLS = frozenset()
 
 
@@ -46,7 +46,7 @@ def is_snippetable_tool_id(tool_name: str | None) -> bool:
 
 
 def is_file_snippetable(tool_name: str | None) -> bool:
-    """True if *tool_name* is Read or Skill (file-keyed snippetable tools)."""
+    """True if *tool_name* is a file-keyed snippetable tool (Read, Skill, Edit, Write)."""
     if tool_name in _SNIPPET_EXEMPT_TOOLS:
         return False
     return bool(tool_name and tool_name in _FILE_SNIPPET_TOOLS)
@@ -59,39 +59,39 @@ def _line_count(content: str) -> int:
     return content.count("\n") + 1
 
 
-def wrap_snippetable(content: str, tool_id: str) -> str:
-    """Wrap a snippetable tool_result with markers + 1-indexed line numbers.
+def _numbered(content: str) -> str:
+    return "\n".join(f"{i}\t{line}" for i, line in enumerate(content.split("\n"), 1))
 
-    Returns content unchanged if it has fewer than SNIPPET_MIN_LINES lines.
-    """
+
+def mark_snippetable(content: str, tool_id: str) -> tuple[str, str]:
+    """(numbered result, instruction) for a tool_id-keyed result; unchanged and no
+    instruction below SNIPPET_MIN_LINES."""
     if _line_count(content) < SNIPPET_MIN_LINES:
-        return content or ""
-    lines = (content or "").split("\n")
-    numbered = "\n".join(f"{i}\t{line}" for i, line in enumerate(lines, 1))
-    return (
-        f"{_SNIPPET_OPEN.format(tool_id=tool_id)}\n"
-        f"[SYSTEM] Détruit au prochain tour. Garde les passages utiles via "
-        f'Snippet(tool_id="{tool_id}", ranges=[[a,b]]) ou discard.\n'
-        f"{numbered}\n"
-        f"{_SNIPPET_CLOSE}"
+        return content or "", ""
+    return _numbered(content), (
+        f"A SNIPPETER id: tool_id={tool_id} — détruit au prochain tour. Garde les passages "
+        f'utiles via Snippet(tool_id="{tool_id}", ranges=[[a,b]]) ou discard.'
     )
 
 
-def wrap_file_snippetable(content: str, file_path: str) -> str:
-    """Wrap a Read/Skill tool_result with file-keyed markers + line numbers.
-
-    Returns content unchanged if it has fewer than SNIPPET_MIN_LINES lines.
-    The marker tells the model the exact file_path to pass to
-    Snippet(file_path=..., ranges=[[a,b]]).
-    """
+def mark_write_snippetable(content: str, file_path: str, tool_id: str) -> tuple[str, str]:
+    """Write/Edit result: NOT renumbered — its echo already carries the file's REAL line
+    numbers (renumbering 1..N would point Snippet ranges at the wrong lines on disk)."""
     if _line_count(content) < SNIPPET_MIN_LINES:
-        return content or ""
-    lines = (content or "").split("\n")
-    numbered = "\n".join(f"{i}\t{line}" for i, line in enumerate(lines, 1))
-    return (
-        f"{_FILE_SNIPPET_OPEN.format(file_path=file_path)}\n"
-        f"[SYSTEM] Détruit au prochain tour. Garde les passages utiles via "
-        f'Snippet(file_path="{file_path}", ranges=[[a,b]]) ou discard=true.\n'
-        f"{numbered}\n"
-        f"{_SNIPPET_CLOSE}"
+        return content or "", ""
+    return content, (
+        f"A SNIPPETER id: file={file_path} (résultat {tool_id}) — détruit au prochain tour. "
+        f"Numéros = lignes réelles du fichier : garde les passages utiles via "
+        f'Snippet(file_path="{file_path}", ranges=[[a,b]]) ou discard=true.'
+    )
+
+
+def mark_file_snippetable(content: str, file_path: str, tool_id: str) -> tuple[str, str]:
+    """(numbered result, instruction) for a Read/Skill result, keyed by file_path."""
+    if _line_count(content) < SNIPPET_MIN_LINES:
+        return content or "", ""
+    return _numbered(content), (
+        f"A SNIPPETER id: file={file_path} (résultat {tool_id}) — détruit au prochain tour. "
+        f'Garde les passages utiles via Snippet(file_path="{file_path}", ranges=[[a,b]]) '
+        f"ou discard=true."
     )

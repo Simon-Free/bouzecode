@@ -17,6 +17,7 @@ it stays visible text (see _is_prose_mention).
 """
 from __future__ import annotations
 
+import json
 import logging
 import re
 
@@ -33,14 +34,48 @@ CDATA_END = "]]>"
 TOOL_RESULT_OPEN_PREFIX = "<tool_result"
 TOOL_RESULT_CLOSE = "</tool_result>"
 
+# Batch wrapper. Every tool_use of a turn lives inside one <tool_calls> block, and
+# TOOL_CALLS_STOP is sent to the API as a stop sequence: generation is cut at the
+# closing tag, so the model physically cannot write a "Tool result" of its own
+# invention afterwards (the failure mode of session 178666a6).
+TOOL_CALLS_OPEN = "<tool_calls>"
+TOOL_CALLS_CLOSE = "</tool_calls>"
+TOOL_CALLS_STOP = TOOL_CALLS_CLOSE
+
+# Any suffix of these tags is held back until the next chunk resolves it: a
+# wrapper tag split across SSE chunks — even the lone "<" — must never leak
+# into visible text (session f52cb5297f4f: 115+ messages with "ool_calls>"
+# fragments). A pending that never resolves is flushed as plain text by
+# finalize(), so ordinary prose ending on "<" is not swallowed.
+_WRAPPER_TAGS = (TOOL_CALLS_OPEN, TOOL_CALLS_CLOSE)
+
+# A turn that produced no tool call, yet looks like the model *believed* it called
+# one: markdown/JSON imitation of the native protocol, or a fabricated result.
+_FAKE_CALL_MARKERS = ("**tool call:**", "**tool result:**", "**tool_call:**")
+_FAKE_JSON_BLOCK_RE = re.compile(r"```(?:json)?\s*\{.*?\}\s*```", re.DOTALL)
+_FAKE_ARG_KEYS = ('"args"', '"arguments"', '"parameters"', "'args'", "'arguments'")
+_SEEN_TEXT_LIMIT = 20_000
+
+_FAKE_FORMAT_ERROR = (
+    "No tool was called this turn, but your text imitates a tool call "
+    "(markdown/JSON block, `**Tool call:**`, or a `**Tool result:**` you wrote "
+    "yourself). Prose executes NOTHING and a result you write is a hallucination. "
+    "Re-emit the call as XML inside the batch wrapper: "
+    '<tool_calls><tool_use name="ToolName" id="x1"><param name="key">value</param>'
+    "</tool_use></tool_calls> — then stop and wait for the real result."
+)
+
 # An attribute value is a quoted string, a bare JSON array, or a JSON array that
 # the model wrapped in quotes anyway — depends_on="["w1"]", by far its most
 # frequent slip (family I.a of docs/investigations/xml_tool_call_failures.md).
 # The quoted-array alternative MUST come first: on depends_on="["w1"]" the plain
 # "[^"]*" alternative matches only `"["` and leaves `w1"]"` dangling, which is
 # precisely why the whole call used to be rejected.
+# The last alternative recovers an UNTERMINATED bare array (depends_on=["w1"
+# with the closing ] lost before >): it stops before any > so it can never run
+# past the end of the opening tag, and _parse_attributes closes it back.
 _ATTR_RE = re.compile(
-    r"""([A-Za-z_][\w-]*)\s*=\s*("\[[^\]]*\]"|"[^"]*"|'[^']*'|\[[^\]]*\])"""
+    r"""([A-Za-z_][\w-]*)\s*=\s*("\[[^\]]*\]"|"[^"]*"|'[^']*'|\[[^\]]*\]|\[[^\]>]*)"""
 )
 
 # A real <param> tag inside a block body — the marker that tells a genuine tool
@@ -425,12 +460,21 @@ def _parse_attributes(attr_str: str):
             continue
         m = _ATTR_RE.match(attr_str, pos)
         if m is None:
-            return None
+            # One unparsable fragment must NOT cost the whole tool call: skip it
+            # up to the next whitespace and keep reading the other attributes.
+            # 'name' stays required in _parse_block, so prose is still filtered.
+            while pos < len(attr_str) and not attr_str[pos].isspace():
+                pos += 1
+            continue
         raw = m.group(2)
         # A bare [..] keeps its brackets; every quoted form drops its quotes, so
         # depends_on=["w1"] and depends_on="["w1"]" both yield the string ["w1"]
-        # that _coerce_list already knows how to read.
-        out[m.group(1)] = raw if raw[0] == "[" else raw[1:-1]
+        # that _coerce_list already knows how to read. An unterminated bare list
+        # keeps the bracket it lost, so it stays readable all the same.
+        if raw[0] == "[":
+            out[m.group(1)] = raw if raw.endswith("]") else raw + "]"
+        else:
+            out[m.group(1)] = raw[1:-1]
         pos = m.end()
     return out
 
@@ -533,6 +577,35 @@ def _is_prose_mention(block: str) -> bool:
     )
 
 
+def _coerce_sched_list(raw):
+    """Turn a scheduling attribute into a real list of aliases.
+
+    ``depends_on`` is documented as a JSON array, but it reaches us as raw text
+    (_parse_attributes stays type-agnostic on purpose). Leaving the string in the
+    call ``input`` made the TUI print ``depends_on="["w1"]"`` while the DAG worked,
+    because dag._coerce_list re-decoded it much later. Decoding here gives every
+    consumer the same value; _coerce_list already accepts a list unchanged.
+    """
+    if isinstance(raw, list):
+        return raw
+    if not isinstance(raw, str):
+        return raw
+    text = raw.strip()
+    if not text.startswith("["):
+        # A bare attribute list (depends_on="push1,w1") names several aliases: split it.
+        # Only a malformed ARRAY is left unsplit (see below).
+        return [part.strip() for part in text.split(",") if part.strip()]
+    try:
+        decoded = json.loads(text)
+    except ValueError:
+        # An unreadable array must stay READABLE as text: inventing aliases by
+        # splitting on commas would fabricate dependencies that never existed.
+        return raw
+    if isinstance(decoded, list):
+        return [str(item) for item in decoded if str(item).strip()]
+    return [str(decoded)]
+
+
 def _parse_block(block: str):
     """Parse '<tool_use ...>...</tool_use>' into a tool call dict.
 
@@ -571,8 +644,213 @@ def _parse_block(block: str):
         )
     for sched_key in ("depends_on", "tool_call_alias"):
         if sched_key in attrs and sched_key not in input_params:
-            input_params[sched_key] = attrs[sched_key]
+            value = attrs[sched_key]
+            if sched_key == "depends_on":
+                value = _coerce_sched_list(value)
+            input_params[sched_key] = value
     return {"id": tool_id, "name": name, "input": input_params}
+
+
+def _top_level_spans(text: str) -> tuple[list[tuple[int, int]], bool]:
+    """Split text into the spans that sit OUTSIDE any tool_use block.
+
+    Everything inside a ``<tool_use ...>...</tool_use>`` block is payload the
+    model authored on purpose — including a literal mention of the batch wrapper
+    inside a param body or a CDATA section — and must survive verbatim.
+    ``_find_tool_close`` already skips CDATA and param bodies, and returns -1
+    when the block is still open, in which case the tail is left untouched and
+    the caller is told a call is open (second element of the tuple).
+    """
+    spans: list[tuple[int, int]] = []
+    i, n = 0, len(text)
+    while i < n:
+        j = text.find(TOOL_OPEN_PREFIX, i)
+        if j == -1:
+            spans.append((i, n))
+            return spans, False
+        if j > i:
+            spans.append((i, j))
+        close = _find_tool_close(text, j + len(TOOL_OPEN_PREFIX))
+        if close == -1:
+            return spans, True
+        i = close + len(TOOL_CLOSE)
+    return spans, False
+
+
+def _drop_wrapper_tag(seg: str, tag: str, before: str) -> str:
+    """Remove ``tag`` from ``seg`` except where a backtick right before it says it is
+    CODE the model is citing (`` `</tool_calls>` ``): erasing it there left an empty
+    pair of backticks, read as an unclosed inline code span that swallowed the calls
+    written after it."""
+    out, i = [], 0
+    while True:
+        j = seg.find(tag, i)
+        if j == -1:
+            out.append(seg[i:])
+            return "".join(out)
+        prev = seg[j - 1] if j > 0 else before
+        out.append(seg[i:j])
+        if prev == "`":
+            out.append(tag)
+        i = j + len(tag)
+
+
+def _strip_wrapper_tags(text: str, offset: int = 0, before: str = "") -> tuple[str, str, bool]:
+    """Remove the batch wrapper tags OUTSIDE tool calls, holding a partial tail.
+
+    The wrapper is pure framing: it is never visible text and never a tool call.
+    But a wrapper tag quoted INSIDE a call (a Write param carrying protocol
+    documentation, a test, a regex) is content: stripping it there corrupted the
+    param silently. So the removal is now contextual, and the closing tag only
+    counts as "the batch ended" when it is seen at top level.
+
+    ``text`` may start with already-parsed residue (the parser buffer) so that an
+    open call is visible; ``offset`` says where the NEW text begins. Only that
+    part is returned.
+    Returns (cleaned_new_text, pending_suffix_for_next_chunk, closed_at_top).
+    """
+    spans, call_open = _top_level_spans(text)
+    pieces: list[str] = []
+    closed = False
+    prev = offset
+    for start, end in spans:
+        if end <= offset:
+            continue
+        start = max(start, offset)
+        pieces.append(text[prev:start])
+        seg = text[start:end]
+        if TOOL_CALLS_CLOSE in seg:
+            closed = True
+        seg_before = text[start - 1] if start > 0 else before
+        for tag in _WRAPPER_TAGS:
+            if tag in seg:
+                seg = _drop_wrapper_tag(seg, tag, seg_before)
+        pieces.append(seg)
+        prev = end
+    pieces.append(text[prev:])
+    cleaned = "".join(pieces)
+    if call_open:
+        # A trailing '<' belongs to the call being written, not to the wrapper.
+        return cleaned, "", closed
+    hold = 0
+    for tag in _WRAPPER_TAGS:
+        n = _max_prefix_suffix(cleaned, tag)
+        if n >= 1 and n > hold:
+            hold = n
+    if not hold:
+        return cleaned, "", closed
+    return cleaned[:len(cleaned) - hold], cleaned[len(cleaned) - hold:], closed
+
+
+_QUOTE_OPENERS = "\"'«“‘`"
+_QUOTE_CLOSERS = "\"'»”’`"
+_QUOTE_GAP = "   "
+
+
+def _is_quoted(text: str, start: int, end: int) -> bool:
+    """True when text[start:end] sits between a quote pair (``"…"``, ``« … »``, ``'…'``,
+    ``“…”``), blanks allowed on each side: a tag QUOTED in prose, not written."""
+    i = start - 1
+    while i >= 0 and text[i] in _QUOTE_GAP and start - i <= 2:
+        i -= 1
+    j = end
+    while j < len(text) and text[j] in _QUOTE_GAP and j - end < 2:
+        j += 1
+    return (i >= 0 and text[i] in _QUOTE_OPENERS
+            and j < len(text) and text[j] in _QUOTE_CLOSERS)
+
+
+def _masked_calls(text: str) -> tuple[str, list[int]]:
+    """``text`` with every tool_use block blanked out (``x``, newlines kept) and the end
+    offsets of the COMPLETE blocks. Backticks, quotes or thinking tags inside a param
+    are payload: they must not decide whether the prose around the calls is code."""
+    spans, _ = _top_level_spans(text)
+    chars = list(text)
+    ends: list[int] = []
+    prev = 0
+    for start, end in spans + [(len(text), len(text))]:
+        for k in range(prev, start):
+            if chars[k] != "\n":
+                chars[k] = "x"
+        if start > prev and text.endswith(TOOL_CLOSE, 0, start):
+            ends.append(start)
+        prev = end
+    return "".join(chars), ends
+
+
+def _written_tag_positions(masked: str, tag: str) -> list[int]:
+    """Occurrences of ``tag`` that are WRITTEN, not cited: outside a thinking block,
+    outside code (inline backticks, fence, indented block), outside quotes."""
+    found = []
+    at = masked.find(tag)
+    while at != -1:
+        if (_is_in_thinking(masked, at) is None and _is_in_code(masked, at) is None
+                and not _is_quoted(masked, at, at + len(tag))):
+            found.append(at)
+        at = masked.find(tag, at + 1)
+    return found
+
+
+def _is_real_batch_close(raw: str) -> bool:
+    """A batch really closed in ``raw`` (the model's text so far): a written closing tag
+    preceded by a written opening tag — or, historical tolerance, by a complete call.
+
+    Session a3b38124: « arrêt volontaire sur </tool_calls> » in a <thinking> was taken
+    for the end of the batch; the client hung up mid-reasoning and the turn was lost."""
+    masked, call_ends = _masked_calls(raw)
+    closes = _written_tag_positions(masked, TOOL_CALLS_CLOSE)
+    if not closes:
+        return False
+    opens = _written_tag_positions(masked, TOOL_CALLS_OPEN)
+    return any(
+        any(o < c for o in opens) or any(e <= c for e in call_ends)
+        for c in closes
+    )
+
+
+def _drop_orphan_wrapper_suffix(text):
+    """Drop a wrapper tag TAIL that arrives with its head already gone.
+
+    The gateway applies our cut marker across two SSE deltas: it swallows the
+    delta holding the first characters of the closing wrapper tag, then forwards
+    the remainder alone (session 46cf0a617b4c: 5 assistant messages whose whole
+    visible text was that orphan remainder). The client never saw the tag start,
+    so no hold could apply and the leftovers leaked as prose. Only a suffix of at
+    least 5 chars is dropped, and every candidate ends on the closing chevron, so
+    ordinary prose can never match.
+    """
+    for tag in _WRAPPER_TAGS:
+        for k in range(len(tag) - 1, 4, -1):
+            if text.startswith(tag[-k:]):
+                return text[k:]
+    # The remainder does not always start the delta: the gateway forwards the end
+    # of the prose and the orphan tail together, so the residue sits at the END,
+    # alone on its line (TUI showed a bare "ool_calls>"). Requiring whitespace
+    # right before it keeps prose intact, and immunises a COMPLETE tag, whose
+    # suffixes are always preceded by '<' or '/'.
+    for tag in _WRAPPER_TAGS:
+        for k in range(len(tag) - 1, 4, -1):
+            if not text.endswith(tag[-k:]):
+                continue
+            head = text[: len(text) - k]
+            if head and not head[-1].isspace():
+                continue
+            return head
+    return text
+
+
+def _detect_fake_call(text: str) -> str | None:
+    """Return the offending excerpt when text imitates a tool call/result."""
+    lowered = text.lower()
+    for marker in _FAKE_CALL_MARKERS:
+        at = lowered.find(marker)
+        if at != -1:
+            return text[at:at + 500]
+    for match in _FAKE_JSON_BLOCK_RE.finditer(text):
+        block = match.group(0)
+        if '"name"' in block and any(key in block for key in _FAKE_ARG_KEYS):
+            return block[:500]
+    return None
 
 
 class XmlToolStreamParser:
@@ -580,6 +858,12 @@ class XmlToolStreamParser:
 
     def __init__(self):
         self._buffer = ""
+        # Partial <tool_calls>/</tool_calls> tag split across two chunks.
+        self._wrapper_pending = ""
+        # Visible text seen this turn (bounded) and whether a real call came out:
+        # together they tell a tool-less turn from a hallucinated one.
+        self._seen_text = ""
+        self._emitted_any = False
         self._in_fenced_block = False
         self._in_inline_code = 0  # 0 = not in inline code; >0 = backtick count to match
         self._in_thinking = False
@@ -587,9 +871,54 @@ class XmlToolStreamParser:
         # Human-readable note per malformation repaired at finalize() — a
         # recovery must stay observable, never silent.
         self.recovered_slips: list[str] = []
+        # True once the batch wrapper closed AT TOP LEVEL — never from a mention
+        # sitting inside a param body or a CDATA section. The stream backend
+        # stops reading on this flag, which is what lets us drop the API stop
+        # sequence: a turn is allowed to quote the protocol's own syntax.
+        self.batch_closed = False
+        # Last fed delta as the transcript must store it (see feed()).
+        self.history_delta = ""
+        # The model's raw text so far: a top-level close is only trusted after checking
+        # it is WRITTEN (not in thinking, code or quotes) and follows an opening.
+        self._raw = ""
 
     def feed(self, chunk: str) -> list[str | dict]:
         """Parse chunk, return interleaved list of visible text (str) and completed tools (dict)."""
+        # The wrapper strip must see the buffered head of an unfinished tool_use:
+        # judging the chunk alone would call a param body "top level" and erase a
+        # wrapper tag the model deliberately quoted inside it.
+        head = self._buffer
+        _, call_open = _top_level_spans(head)
+        if not self._wrapper_pending and not call_open:
+            chunk = _drop_orphan_wrapper_suffix(chunk)
+        # What the transcript should keep of this delta: the raw text minus an orphan
+        # wrapper tail (otherwise the leftover resurfaces from the stored message).
+        self.history_delta = chunk
+        # Character written just before this text (the held tag head included).
+        back = len(self._wrapper_pending) + 1
+        before = self._raw[-back] if not head and len(self._raw) >= back else ""
+        self._raw += chunk
+        chunk, self._wrapper_pending, closed_at_top = _strip_wrapper_tags(
+            head + self._wrapper_pending + chunk, offset=len(head), before=before
+        )
+        if closed_at_top and not self.batch_closed and _is_real_batch_close(self._raw):
+            # Top-level close of the batch: the turn is over. The stream layer
+            # reads this to hang up itself, instead of asking the API to stop on
+            # a literal the model must stay free to quote inside a param.
+            self.batch_closed = True
+        items = self._feed_inner(chunk)
+        self._note_items(items)
+        return items
+
+    def _note_items(self, items: list) -> None:
+        for item in items:
+            if isinstance(item, dict):
+                if item.get("name") != "_XmlParseError":
+                    self._emitted_any = True
+            elif len(self._seen_text) < _SEEN_TEXT_LIMIT:
+                self._seen_text += item
+
+    def _feed_inner(self, chunk: str) -> list[str | dict]:
         self._buffer += chunk
         result: list[str | dict] = []
 
@@ -850,6 +1179,26 @@ class XmlToolStreamParser:
         return result
 
     def finalize(self) -> list[dict]:
+        """Flush the tail, then refuse to end a turn on a hallucinated tool call."""
+        self._seen_text += self._buffer[:_SEEN_TEXT_LIMIT]
+        # A pending wrapper fragment that never resolved is ordinary prose
+        # (e.g. a turn ending on "3 <"): flush it as visible text, never drop it.
+        pending = self._wrapper_pending
+        self._wrapper_pending = ""
+        tail = self._finalize_tail()
+        if pending:
+            tail = [pending, *tail]
+        self._note_items(tail)
+        if tail:
+            return tail
+        if not self._emitted_any:
+            excerpt = _detect_fake_call(self._seen_text)
+            if excerpt:
+                _log.warning("xml: turn produced no tool call but imitates one")
+                return [_make_error(_FAKE_FORMAT_ERROR, excerpt)]
+        return []
+
+    def _finalize_tail(self) -> list[dict]:
         leftover = self._buffer
         self._buffer = ""
         if self._in_fenced_block:

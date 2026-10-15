@@ -7,6 +7,8 @@ try to redo.
 """
 from __future__ import annotations
 
+from .long_lines import ecourter_ligne
+
 _MAX_REGION_LINES = 40
 
 
@@ -32,7 +34,7 @@ def find_enclosing_symbol(file_path: str, line_no: int, content: str) -> str | N
 
 def build_edit_context(content: str, new_string: str, context_lines: int = 10) -> str:
     """Build numbered context around new_string in content. Truncate middle if huge."""
-    lines = content.split("\n")
+    lines = [ecourter_ligne(ligne) for ligne in content.split("\n")]
     new_norm = new_string.replace("\r\n", "\n")
     idx = content.find(new_norm)
     if idx == -1:

@@ -1,8 +1,8 @@
 # [desc] Helper to truncate large tool outputs and save full content to a readable file for later access. [/desc]
 from __future__ import annotations
+from bouzecode.paths import data_dir as bouzecode_data_dir
 
 import os
-import re
 import time
 from pathlib import Path
 
@@ -13,102 +13,9 @@ def _get_output_dir() -> Path:
     if custom:
         d = Path(custom)
     else:
-        d = Path.home() / ".bouzecode" / "tool_outputs"
+        d = bouzecode_data_dir() / "tool_outputs"
     d.mkdir(parents=True, exist_ok=True)
     return d
-
-
-_PYTEST_SUMMARY_RE = re.compile(
-    r"^=+ .*(passed|failed|error|skipped|warning|deselected).* in [\d.]+s.*=+$"
-)
-_PYTEST_SECTION_RE = re.compile(r"^=+ (FAILURES|ERRORS|warnings summary|short test summary info) =+$")
-_PYTEST_PROGRESS_RE = re.compile(r"^.+\.(py|pyx)::\S+.*(?:PASSED|FAILED|ERROR)|^.+\.py\s+[.FEsx]+\s+\[\s*\d+%\]")
-
-
-def compact_pytest_output(output: str) -> str:
-    """Compact pytest output, preserving failures/errors/warnings and summary.
-
-    If the output does not look like pytest output, return it unchanged.
-    """
-    lines = output.split("\n")
-
-    # Detect pytest output by looking for the summary line
-    summary_line = None
-    summary_idx = -1
-    for i, line in enumerate(lines):
-        if _PYTEST_SUMMARY_RE.match(line.strip()):
-            summary_line = line
-            summary_idx = i
-
-    # Also check for "test session starts" header
-    has_session_start = any("test session starts" in l for l in lines[:10])
-
-    if summary_line is None and not has_session_start:
-        # Not pytest output
-        return output
-
-    # Parse sections: find FAILURES, ERRORS, warnings summary, short test summary
-    sections: list[tuple[str, int, int]] = []  # (name, start, end)
-    i = 0
-    while i < len(lines):
-        line_stripped = lines[i].strip()
-        m = _PYTEST_SECTION_RE.match(line_stripped)
-        if m:
-            section_name = m.group(1)
-            section_start = i
-            # Find end of section (next === line that's not part of this section)
-            j = i + 1
-            while j < len(lines):
-                if _PYTEST_SUMMARY_RE.match(lines[j].strip()):
-                    break
-                if _PYTEST_SECTION_RE.match(lines[j].strip()):
-                    break
-                j += 1
-            sections.append((section_name, section_start, j))
-            i = j
-        else:
-            i += 1
-
-    # Determine if all green (no FAILURES or ERRORS section, summary has no "failed"/"error")
-    has_failures = any(s[0] in ("FAILURES", "ERRORS") for s in sections)
-
-    # Build compacted output
-    result_parts: list[str] = []
-
-    if has_failures:
-        # Keep FAILURES, ERRORS, short test summary info sections integrally
-        for section_name, start, end in sections:
-            if section_name in ("FAILURES", "ERRORS", "short test summary info", "warnings summary"):
-                result_parts.append("\n".join(lines[start:end]))
-    else:
-        # All green - check for warnings
-        for section_name, start, end in sections:
-            if section_name == "warnings summary":
-                result_parts.append("\n".join(lines[start:end]))
-
-        # If verbose output with <20 tests, list the test names
-        verbose_tests = []
-        for line in lines:
-            if "PASSED" in line and "::" in line:
-                # Extract test name from verbose line like "tests/test_a.py::test_one PASSED"
-                parts = line.strip().split()
-                if parts:
-                    test_path = parts[0]
-                    verbose_tests.append(test_path)
-        if 0 < len(verbose_tests) <= 20:
-            result_parts.append("Tests passed:")
-            for t in verbose_tests:
-                result_parts.append(f"  {t}")
-
-    # Always append the summary line
-    if summary_line:
-        result_parts.append(summary_line.strip())
-
-    if not result_parts:
-        # Fallback: just return summary
-        return summary_line.strip() if summary_line else output
-
-    return "\n".join(result_parts)
 
 
 def truncate_tool_output(
@@ -150,11 +57,18 @@ def truncate_tool_output(
         f'[Use Read(file_path="{saved_path}") to see the complete output]\n\n'
     )
 
-    # If head+tail would cover everything, don't slice lines (avoid duplicating
-    # lines); we still emit the marker because we may be over the char limit.
+    # Entre max_lines et head+tail lignes (201-240 par défaut), l'ancienne version ajoutait le
+    # marqueur SANS rien couper (T7 du rapport docs/reduction_tokens : 222 lignes, 12 285 car.
+    # envoyés en entier). On ramène alors tête + queue à max_lines, dans la même proportion.
     if head_lines + tail_lines >= total_lines:
-        return "\n".join(lines) + msg
-
-    head = "\n".join(lines[:head_lines])
-    tail = "\n".join(lines[total_lines - tail_lines:])
+        head_lines = max_lines * head_lines // max(head_lines + tail_lines, 1)
+        tail_lines = max_lines - head_lines
+    if head_lines + tail_lines < total_lines:
+        head = "\n".join(lines[:head_lines])
+        tail = "\n".join(lines[total_lines - tail_lines:]) if tail_lines else ""
+    else:  # peu de lignes mais trop de caractères : on coupe au caractère
+        head = tail = output
+    # Plafond de caractères appliqué dans tous les cas : 1/3 tête, le reste pour la queue.
+    head = head[:max_chars // 3]
+    tail = tail[len(tail) - (max_chars - len(head)):] if len(tail) > max_chars - len(head) else tail
     return head + msg + tail

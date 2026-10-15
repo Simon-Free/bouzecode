@@ -1,8 +1,6 @@
-# [desc] Provides user prompting, interactive input routing (terminal/Telegram), and a sleep timer utility. [/desc]
+# [desc] Provides user prompting, interactive terminal input, and a sleep timer utility. [/desc]
 """User interaction tools: questions, input, sleep timer."""
 import threading
-
-from .state import _is_in_tg_turn
 
 
 class PausedForInput(Exception):
@@ -52,8 +50,33 @@ class DeferredChecks(Exception):
         self.checks = checks or []
 
 
+#  Une réponse livrée AVANT ses vérifications différées le DIT, et le verdict prend la place
+#  de l'avis quand il arrive (web : drain du runner ; TUI : fil de fond). Sessions a5536ec2 et
+#  3f364511 : rapport « tests verts » livré pendant que la suite complète n'avait pas tourné,
+#  la seule trace étant « suite déférée à la fermeture » en fin de section.
+ANNONCE_DIFFEREE = "⏳ VÉRIFICATION NON FAITE"
+_SEPARATEUR = "\n\n---\n"
+
+
+def annonce_verifications_differees(checks: list[dict]) -> str:
+    """L'avis ajouté à la réponse livrée : ce qui n'a PAS encore été vérifié, et quand."""
+    commandes = "\n".join(f"- `{c.get('command', '')}`" for c in checks)
+    return (f"{_SEPARATEUR}{ANNONCE_DIFFEREE} au moment de cette réponse : "
+            f"{len(checks)} vérification(s) différée(s) tournent APRÈS la clôture :\n"
+            f"{commandes}\n"
+            "Leur verdict remplacera cet avis à son arrivée ; d'ici là, rien de ce qu'elles "
+            "doivent confirmer n'est acquis.")
+
+
+def remplacer_annonce(texte: str, verdict: str) -> str:
+    """Le verdict à la place de l'avis « non faite » (ajouté en fin s'il n'y en a pas)."""
+    marque = _SEPARATEUR + ANNONCE_DIFFEREE
+    base = texte.split(marque, 1)[0] if marque in texte else texte.rstrip()
+    return f"{base}{_SEPARATEUR}{verdict}"
+
+
 def is_web_ipc_active() -> bool:
-    """True when the subprocess runs under BouzéqUI (IPC dir set via env)."""
+    """True when the subprocess runs under bouzeui (IPC dir set via env)."""
     from bouzecode.web_v2.runtime import ipc
     return ipc.from_env() is not None
 
@@ -82,9 +105,22 @@ def _ask_user_question(
     web_answer = _ask_user_question_via_web_ipc(question, options, allow_freetext)
     if web_answer is not None:
         return web_answer
+    # Sous-agent du TUI : la question attend dans SA ligne de la barre, l'utilisateur y répond
+    # depuis sa vue — jamais un second `input()` qui disputerait le clavier au REPL.
+    poser_dans_la_barre = (config or {}).get("_tui_question")
+    if poser_dans_la_barre is not None:
+        reponse = poser_dans_la_barre(question, options, allow_freetext)
+        from ..context_manager.methodology import append_ask_user_question_to_methodology
+        from ..context_manager.state import resolve_context_state
+        append_ask_user_question_to_methodology(resolve_context_state(config), question, reponse)
+        return reponse
+    if personne_pour_repondre(config or {}):
+        return _sans_humain(question, config or {})
 
     from bouzecode.ui.spinner import _stop_tool_spinner
+    from bouzecode.ui.terminal_title import set_terminal_status
     _stop_tool_spinner()
+    set_terminal_status("question")
 
     print()
     print("\033[1;35m\u2753 Question from assistant:\033[0m")
@@ -133,6 +169,7 @@ def _ask_user_question(
 
     from bouzecode.ui.spinner import _start_tool_spinner
     _start_tool_spinner()
+    set_terminal_status("running")
 
     final_answer = raw or "(no answer)"
     from ..context_manager.methodology import append_ask_user_question_to_methodology
@@ -143,37 +180,52 @@ def _ask_user_question(
     return final_answer
 
 
+#  Session 9d81964e (2026-10-06) : le parent `-p` sans console recevait « No Windows console
+#  found » ; ses enfants `-p` dans un onglet de terminal attendaient une saisie que personne ne
+#  ferait (bloqués des heures, cf. py-spy). Un run `-p` ne pose JAMAIS de question.
+REPONSE_SANS_HUMAIN = (
+    "Pas d'humain disponible (exécution non interactive) : personne ne répondra. Décide "
+    "toi-même l'option la plus raisonnable, note l'hypothèse retenue dans Methodology, et "
+    "signale-la dans FinalAnswer (taches_restantes : « hypothèse à valider : … »).")
+
+
+def personne_pour_repondre(config: dict) -> bool:
+    """Run `-p` (non interactif) ou sans console : aucune saisie possible."""
+    return bool(config.get("_non_interactif")) or not _stdin_est_une_console()
+
+
+def _stdin_est_une_console() -> bool:
+    """Sous Windows, `isatty()` est vrai aussi pour NUL : seul GetConsoleMode dit si une
+    vraie console est attachée (c'est ce qui manquait à prompt_toolkit le 2026-10-06)."""
+    import sys
+    stdin = sys.stdin
+    if stdin is None or not stdin.isatty():
+        return False
+    if sys.platform != "win32":
+        return True
+    import ctypes
+    import msvcrt
+    mode = ctypes.c_uint32()
+    poignee = msvcrt.get_osfhandle(stdin.fileno())
+    return bool(ctypes.windll.kernel32.GetConsoleMode(poignee, ctypes.byref(mode)))
+
+
+def _sans_humain(question: str, config: dict) -> str:
+    from ..context_manager.methodology import append_ask_user_question_to_methodology
+    from ..context_manager.state import resolve_context_state
+    append_ask_user_question_to_methodology(
+        resolve_context_state(config), question, "(sans réponse : run non interactif)")
+    return REPONSE_SANS_HUMAIN
+
+
 def ask_input_interactive(prompt: str, config: dict, menu_text: str = None) -> str:
-    """Prompt the user for input, routing to Telegram if in a Telegram turn."""
-    is_tg = _is_in_tg_turn(config)
-    if is_tg and "_tg_send_callback" in config:
-        token = config.get("telegram_token")
-        chat_id = config.get("telegram_chat_id")
-        import re
-        clean_prompt = re.sub(r'\x1b\[[0-9;]*m', '', prompt).strip()
-
-        payload = ""
-        if menu_text:
-            clean_menu = re.sub(r'\x1b\[[0-9;]*m', '', menu_text).strip()
-            payload += f"{clean_menu}\n\n"
-        payload += f"\u2753 *Input Required*\n{clean_prompt}"
-
-        config["_tg_send_callback"](token, chat_id, payload)
-
-        evt = threading.Event()
-        config["_tg_input_event"] = evt
-        evt.wait()
-
-        text = config.pop("_tg_input_value", "").strip()
-        config.pop("_tg_input_event", None)
-        return text
-    else:
-        from bouzecode.ui.paste_input import read_answer_with_paste_blocks
-        try:
-            return read_answer_with_paste_blocks(prompt)
-        except (KeyboardInterrupt, EOFError):
-            print()
-            return ""
+    """Prompt the user for input on the console."""
+    from bouzecode.ui.paste_input import read_answer_with_paste_blocks
+    try:
+        return read_answer_with_paste_blocks(prompt)
+    except (KeyboardInterrupt, EOFError):
+        print()
+        return ""
 
 
 def drain_pending_questions(config: dict) -> bool:

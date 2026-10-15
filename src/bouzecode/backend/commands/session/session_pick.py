@@ -12,7 +12,7 @@ except ImportError:
 
 
 def restore_state(state, data: dict) -> None:
-    from bouzecode.backend.context_manager import ContextState
+    from bouzecode.backend.context_manager.state import ContextState, restaurer_le_contexte
     state.messages = data.get("messages", [])
     state.turn_count = data.get("turn_count", 0)
     state.user_loop_count = data.get("user_loop_count", 0)
@@ -22,8 +22,7 @@ def restore_state(state, data: dict) -> None:
     state.total_cache_creation_tokens = data.get("total_cache_creation_tokens", 0)
     state.compaction_log = list(data.get("compaction_log") or [])
     state.distinct_base = data.get("distinct_base", 0)
-    gc = data.get("context_state") or {}
-    state.context_state = ContextState(notes=dict(gc.get("notes") or {}))
+    state.context_state = restaurer_le_contexte(ContextState(), data.get("context_state") or {})
     state.notes_timeline = list(data.get("notes_timeline") or [])
     state.last_api_payload = data.get("last_api_payload", [])
     # Champs SAUVEGARDÉS mais jusqu'ici oubliés au reload → une session REPRISE paraissait
@@ -34,6 +33,12 @@ def restore_state(state, data: dict) -> None:
     state.thinking_log = list(data.get("thinking_log") or [])
     state.close_reason = data.get("close_reason", "")
     state.final_answer = data.get("final_answer", "")
+    # L'historique des versions, lui, se restaure : le run courant y AJOUTE son code.
+    from bouzecode.backend.core.version_session import historique_de_session
+    state.versions_successives = historique_de_session(data)
+    # Même liste d'outils qu'au dernier appel de la session : le préfixe reste en cache.
+    from bouzecode.backend.chrome_devtools.launcher import reprendre_les_outils_de_la_session
+    reprendre_les_outils_de_la_session(data)
 
 
 def _session_preview(meta: dict) -> str:

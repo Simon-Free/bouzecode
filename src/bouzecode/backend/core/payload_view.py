@@ -7,7 +7,7 @@ le côté écriture et la mesure qui a motivé le changement (219 Mo pour une se
 le dernier enregistrement — le seul complet — pèse 1 Mo).
 
 POURQUOI CE MODULE EST DANS `core` ET PAS À CÔTÉ DE L'ÉCRIVAIN : ses lecteurs sont le
-visualiseur de contexte de BouzéqUI, l'analyse de session et l'export wire. Importer
+visualiseur de contexte de bouzeui, l'analyse de session et l'export wire. Importer
 `backend.agent.payload_dump` depuis eux déclenche `backend/agent/__init__` → la boucle
 d'agent → le registre d'outils → le chargement des plugins. C'est une cascade entière pour
 lire un fichier, et elle casse dès qu'un appelant n'a pas l'environnement complet (constaté :

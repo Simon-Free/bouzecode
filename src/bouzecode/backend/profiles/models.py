@@ -14,8 +14,8 @@ class AgentProfile:
                      meta-agent, manager). Always present, listed under "Agents système".
       - "fragment" : a composable-only capability fragment (e.g. `deferred`) merged onto
                      every agent — never listed or switched to on its own.
-      - "app"      : a standalone end-user agent owned by a host app (e.g. a chatbot
-                     embedded in a web app). Its host loads it DIRECTLY by path and routes
+      - "app"      : a standalone end-user agent owned by a host app (e.g. `focus`, the
+                     Demo RM assistant). Its host loads it DIRECTLY by path and routes
                      to it as a single agent (no manager, no sub-agents). It shares the
                      unified profile FORMAT but is NOT a bouzecode dev typology: it must
                      never appear as a dispatchable typology or a switchable/spawnable agent.
@@ -39,6 +39,10 @@ class AgentProfile:
     # does not carry the 6 mandatory recap sections (`## 1.` .. `## 6.`). Off by
     # default; enabled on the coder profile.
     require_recap: bool = False
+    # `require_taches: false` lets FinalAnswer close without the
+    # taches_terminees / taches_restantes declarations (bureau-assistant: it already
+    # tracks the TODO through the Taches tools). Provided anyway, they are honoured.
+    require_taches: bool = True
     # `inherit_default: false` opts a profile OUT of the shared `default` PROSE layer
     # (code-discovery ladder, batching / depends_on rules, TDD). ON by default: a named
     # profile EXTENDS the default layer, it does not replace it. Only a profile whose

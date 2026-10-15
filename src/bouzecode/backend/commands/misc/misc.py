@@ -52,8 +52,8 @@ def cmd_export(args: str, state, config) -> bool:
     if arg:
         out_path = Path(arg)
     else:
-        export_dir = Path.cwd() / ".nano_claude" / "exports"
-        export_dir.mkdir(parents=True, exist_ok=True)
+        from ...core.harness_dir import dossier_harnais
+        export_dir = dossier_harnais("exports")
         ts = datetime.now().strftime("%Y%m%d_%H%M%S")
         out_path = export_dir / f"conversation_{ts}.md"
 
@@ -65,7 +65,8 @@ def cmd_export(args: str, state, config) -> bool:
             encoding="utf-8",
         )
     else:
-        lines = []
+        from ...core.version_entete import entete_markdown
+        lines = [entete_markdown(state, config)]
         for m in state.messages:
             role = m.get("role", "unknown")
             content = m.get("content", "")

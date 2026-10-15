@@ -23,20 +23,10 @@ def ask_permission_interactive(desc: str, config: dict) -> bool:
 
 
 def cmd_help(_args: str, _state, config) -> bool:
-    """List every dispatchable slash command, from the dispatcher's own table.
-
-    It used to print `bouzecode.__doc__` — the package docstring, which describes
-    the import layout and names no command at all. Reading `_CMD_META` means a
-    command cannot be dispatchable and invisible at the same time."""
-    from ..dispatcher import _CMD_META
-
-    print("Slash commands:")
-    for name in sorted(_CMD_META):
-        description, subcommands = _CMD_META[name]
-        line = f"  /{name:<14} {description}"
-        if subcommands:
-            line += f"  [{' | '.join(subcommands)}]"
-        print(line)
+    import bouzecode
+    print(bouzecode.__doc__)
+    from bouzecode.ui.barre_agents import AIDE
+    print("\n" + AIDE)
     return True
 
 
@@ -45,25 +35,31 @@ def cmd_clear(_args: str, state, config) -> bool:
     if state.messages:
         from ..session.session import save_latest
         save_latest("", state, config)
-    state.messages.clear()
-    state.turn_count = 0
-    state.user_loop_count = 0
-    state.total_tool_calls = 0
-    state.timing_entries.clear()
-    state.conversation_start = 0.0
-    state.total_input_tokens = 0
-    state.total_output_tokens = 0
-    state.total_cache_read_tokens = 0
-    state.total_cache_creation_tokens = 0
-    state.distinct_base = 0
-    state.compaction_log.clear()
-    state.context_state.notes.clear()
-    state.notes_timeline.clear()
-    state.thinking_log.clear()
+    #  TOUT l'état, clôture comprise : l'ancienne liste champ par champ oubliait close_reason,
+    #  final_answer, recap, tâches… hérités par la session suivante (001c222b, 6dc8170b).
+    state.repartir_de_zero()
     from bouzecode.backend.tools import clear_file_state
     clear_file_state()
+    #  Le registre d'outils est global au process : sans ceci, les 30 outils navigateur activés
+    #  par la conversation close restaient dans chaque appel de la suivante (d407d73d, ≈ 13 k
+    #  tokens). Après l'enregistrement ci-dessus, qui garde `outils_navigateur` pour une reprise.
+    from bouzecode.backend.chrome_devtools.nouvelle_conversation import repartir_sans_navigateur
+    navigateur = repartir_sans_navigateur()
+    if navigateur:
+        info(navigateur)
     config.pop("_session_path", None)
+    #  `config` survit au /clear. La tentative de clôture vit aujourd'hui dans la copie de
+    #  config propre à chaque `run()` (agent/loop.py) et meurt avec lui ; l'oublier ICI aussi
+    #  garantit qu'aucune conversation suivante ne la reprenne si cette copie disparaissait.
+    from ...agent.cloture_reprise import oublier_la_tentative
+    oublier_la_tentative(config)
     config["_session_id"] = uuid.uuid4().hex[:8]
+    #  Barre des sous-agents du TUI : les termines disparaissent, ceux en cours sont tues.
+    registre = config.get("_tui_agents")
+    if registre is not None and hasattr(registre, "vider"):
+        interrompus, effaces = registre.vider()
+        if interrompus or effaces:
+            info(f"Sous-agents : {interrompus} interrompu(s), {effaces} terminé(s) effacé(s).")
     ok("Conversation cleared.")
     return True
 

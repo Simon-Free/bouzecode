@@ -4,7 +4,6 @@ to honour the <200-lines-per-file charter)."""
 from __future__ import annotations
 
 from bouzecode.ui.ansi import info, ok, warn
-from bouzecode.ui.messages import msg
 
 
 def _catalog_split() -> tuple[dict, dict]:
@@ -13,7 +12,7 @@ def _catalog_split() -> tuple[dict, dict]:
     try:
         return catalog.installed_and_available()
     except Exception as exc:  # noqa: BLE001 — network/git can fail; never crash the listing
-        warn(msg("agent.catalog_unavailable", error=exc))
+        warn(f"Catalogue demo_agents indisponible : {exc}")
         return load_user_profiles(), {}
 
 
@@ -27,15 +26,15 @@ def _install(name: str, config: dict) -> None:
     from bouzecode.web_v2.services.profile_io import serialize
 
     if not name:
-        warn(msg("agent.install_usage"))
+        warn("Usage : /agent install <nom>. Tape /agent pour la liste.")
         return
 
     profiles = catalog.list_catalog_profiles()
     profile = profiles.get(name)
     if profile is None:
-        warn(msg("agent.unknown_in_catalog", name=name))
+        warn(f"Agent inconnu dans le catalogue : {name}.")
         if profiles:
-            info(msg("agent.available_label") + ", ".join(sorted(profiles)))
+            info("  Disponibles : " + ", ".join(sorted(profiles)))
         return
 
     dest_dir = core_config.CONFIG_DIR / "profiles"
@@ -43,15 +42,15 @@ def _install(name: str, config: dict) -> None:
     dest = dest_dir / f"{name}.yaml"
     dest.write_text(yaml.safe_dump(serialize(profile), sort_keys=False, allow_unicode=True),
                     encoding="utf-8")
-    ok(msg("agent.profile_written", name=name, destination=dest))
+    ok(f"Profil « {name} » écrit dans {dest}.")
 
     requires = list(getattr(profile, "requires_plugins", []))
     if requires:
         _, errors = plugin_resolver.ensure_plugins(requires)
         if errors:
-            warn(msg("agent.plugin_install_errors"))
+            warn("Erreurs lors de l'installation des plugins :")
             for err in errors:
                 warn(f"   - {err}")
         else:
-            ok(msg("agent.plugins_ready", count=len(requires)))
-    info(msg("agent.switch_to", name=name))
+            ok(f"Plugins requis prêts ({len(requires)}).")
+    info(f"Bascule : /agent {name}")

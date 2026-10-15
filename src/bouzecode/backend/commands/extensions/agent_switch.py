@@ -38,20 +38,27 @@ def _resolve_target(name: str):
 
 
 def _apply(profile, config: dict) -> None:
-    from bouzecode.backend.core.tool_registry import get_all_tools, reset_disabled, disable_tool
+    from bouzecode.backend.core.tool_registry import (FRAMEWORK_ALWAYS_ON, disable_tool,
+                                                      get_all_tools, reset_disabled,
+                                                      restaurer_desactives_par_defaut)
 
     if profile.model:
         config["model"] = profile.model
     config["require_recap"] = getattr(profile, "require_recap", False)
+    config["require_taches"] = getattr(profile, "require_taches", True)
     for hook in profile.hooks:
         key = hook[3:] if hook.startswith("no-") else hook
         flag = _HOOK_FLAGS.get(key)
         if flag is not None:
             config[flag] = not hook.startswith("no-")
 
-    reset_disabled()
-    if profile.tools:
-        keep = set(profile.tools) | _ESSENTIAL_TOOLS
+    if not profile.tools:
+        #  Profil sans liste (`default`) : l'état par défaut, PAS tout rallumé (outils Graph).
+        restaurer_desactives_par_defaut()
+    else:
+        reset_disabled()
+        #  Comme `--profile` (enabled_tools_for_profile) : les outils du cadre restent toujours.
+        keep = set(profile.tools) | _ESSENTIAL_TOOLS | FRAMEWORK_ALWAYS_ON
         for tool in get_all_tools():
             if tool.name not in keep:
                 disable_tool(tool.name)
@@ -59,14 +66,33 @@ def _apply(profile, config: dict) -> None:
     config["_agent_system_prompt_extra"] = profile.system_prompt_extra
     config["_profile_skills"] = list(profile.skills)
     config["_active_agent"] = profile.name
+    _aligner_sur_profile(profile, config)
+
+
+def _aligner_sur_profile(profile, config: dict) -> None:
+    """Ce que `--profile` applique et que `/agent` oubliait : `plan_mode: false` (jamais de
+    pause de validation de plan) et `inherit_default: false` (pas de calque `default` — TDD,
+    écriture de tests — sous un rôle qui ne code pas)."""
+    if getattr(profile, "plan_mode", True) is False:
+        config["_plan_mode_disabled"] = True
+    else:
+        config.pop("_plan_mode_disabled", None)
+    if getattr(profile, "inherit_default", True) is False:
+        config["agent_profile_extra"] = False
+        config["_agent_switch_sans_default"] = True
+    elif config.pop("_agent_switch_sans_default", None):
+        config.pop("agent_profile_extra", None)
 
 
 def _revert(config: dict) -> None:
-    from bouzecode.backend.core.tool_registry import reset_disabled
-    reset_disabled()
+    from bouzecode.backend.core.tool_registry import restaurer_desactives_par_defaut
+    restaurer_desactives_par_defaut()
     config.pop("_agent_system_prompt_extra", None)
     config.pop("_profile_skills", None)
     config.pop("_active_agent", None)
+    config.pop("_plan_mode_disabled", None)
+    if config.pop("_agent_switch_sans_default", None):
+        config.pop("agent_profile_extra", None)
 
 
 def _print_section(title: str, profiles: dict, active, *, installable: bool = False) -> None:
@@ -92,14 +118,14 @@ def _list(config: dict) -> None:
     # A system agent shadowed by a same-named user profile is shown once, under système.
     installed = {n: p for n, p in installed.items() if n not in system}
 
-    _print_section(msg("agent.section_system"), system, active)
-    _print_section(msg("agent.section_installed"), installed, active)
-    _print_section(msg("agent.section_available"), available, active, installable=True)
+    _print_section("Agents système", system, active)
+    _print_section("Agents installés", installed, active)
+    _print_section("Agents disponibles (catalogue demo_agents)", available, active, installable=True)
 
-    print(clr(msg("agent.switch_label"), "cyan") + msg("agent.switch_usage"))
-    print(clr(msg("agent.build_label"), "cyan"))
-    print(msg("agent.build_via_ui"))
-    print(msg("agent.build_via_meta"))
+    print(clr("\n  Basculer : ", "cyan") + "/agent <nom>   |   revenir : /agent default")
+    print(clr("  Construire/modifier un agent :", "cyan"))
+    print("   - UI : lance le serveur web (bouzeui2), onglet « Agents » (tools/skills/hooks + prompt)")
+    print("   - ou demande à l'agent méta : /agent meta-agent")
 
 
 def cmd_agent(args: str, state, config) -> bool:
@@ -114,7 +140,7 @@ def cmd_agent(args: str, state, config) -> bool:
         from bouzecode.backend.profiles import catalog
         try:
             catalog.refresh_catalog(force=True)
-            ok(msg("agent.catalog_refreshed"))
+            ok("Catalogue demo_agents rafraîchi.")
         except Exception as exc:  # noqa: BLE001 — surface, don't crash
             warn(msg("agent.catalog_refresh_failed", error=exc))
         _list(config)
@@ -143,4 +169,15 @@ def cmd_agent(args: str, state, config) -> bool:
         bits.append(msg("agent.model_summary", model=profile.model))
     suffix = f" ({', '.join(bits)})" if bits else ""
     ok(msg("agent.switched", name=profile.name, summary=suffix))
+    return True
+
+
+def cmd_assistant(args: str, state, config) -> bool:
+    """`/assistant` = `/agent bureau-assistant`, plus l'identité de parent `tui:<id>` qui lui
+    rattache les tâches qu'il lance (cf. ui/assistant_tui.py)."""
+    from bouzecode.ui.assistant_tui import PROFIL, armer_identite
+    identite = armer_identite()
+    cmd_agent(PROFIL, state, config)
+    info(clr(f"  Identité de suivi : {identite} — Flotte(attendre_s=N) pour suivre les tâches "
+             "lancées ; le serveur web (bouzeui) doit tourner pour en lancer.", "dim"))
     return True
