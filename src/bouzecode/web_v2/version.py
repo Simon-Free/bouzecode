@@ -22,7 +22,7 @@ BOOT_SOURCE_FINGERPRINT: str = ""
 # Volontairement PAS .css/.js : ceux-là sont servis depuis le disque à chaque requête
 # en no-cache, donc un édit y est déjà visible — les compter lèverait un faux drift.
 _SOURCE_SUFFIXES = (".py", ".html")
-# Ignorés : bytecode dérivé, vendor/ (≈1000 fichiers monaco immuables) et node_modules/.
+# Ignorés : bytecode dérivé, vendor/ (assets tiers immuables) et node_modules/.
 # node_modules pesait à lui seul 825 des 877 répertoires parcourus pour UN fichier .html
 # non chargé par le process : le sauter fait tomber le scan de 66 ms à 3,5 ms.
 _SKIP_DIRS = ("__pycache__", "vendor", ".git", "node_modules")

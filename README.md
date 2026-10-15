@@ -215,7 +215,7 @@ python -m bouzecode.web_v2 --port 5056  # same, as a module
 
 The server binds `127.0.0.1` and refuses to boot if the port is already served. The premise: **stdout is never parsed** — every view is rendered server-side from the structured session JSON, the agent IPC files and the payload dumps.
 
-Every page runs offline. No font, stylesheet or script is fetched from a third-party host: the CSS is local, the Monaco editor is vendored in the tree, and the typography is whatever your system provides. A developer tool that needs the public internet to render a diff is a developer tool that stops working at the wrong moment.
+Every page runs offline. No font, stylesheet or script is fetched from a third-party host: the CSS and scripts are local, and the typography is whatever your system provides. A developer tool that needs the public internet to render a diff is a developer tool that stops working at the wrong moment.
 
 The interface speaks English and French. The selector sits in the top bar, after the *Conversations* / *Agents* / *API* links; switching repaints the labels in place, with no reload and no loss of what is on screen, and the browser remembers the choice for the next visit. The labels quoted below are the English ones.
 
@@ -256,7 +256,7 @@ Click a conversation to open it as a tab in the right pane. Each tab carries a *
 `/sessions` lists every session ever recorded, and `/sessions/<key>` opens one in full, with four tabs:
 
 - **Conversation** — the feed of turns: the model's reasoning, then each tool call as an expandable block. Text streams in while the agent is still producing it;
-- **Changed files** — the diffs the run produced, rendered server-side, with a vendored Monaco editor for side-by-side reading (a `difflib` fallback covers the case where the vendor copy is absent);
+- **Changed files** — the diffs the run produced, rendered server-side with `difflib`;
 - **Turns (analysis)** — one row per LLM call: timestamp, Δ duration, tokens in/out, cache read and cache written, cache-hit %, tools called, and cost. Click a row and you get the drill-down: the exact payload sent for that call, item by item (system / user / assistant / tool result), each labelled **cached / new-cache / fresh** with estimated tokens and a readable preview, next to the model's rendered reply. That is how you diagnose a cache loss without opening a JSON file;
 - **Costs** — the cost aggregate for the run.
 
@@ -543,7 +543,7 @@ bouzecode/
 │   │       ├── services/             # business logic, Flask-free and independently testable
 │   │       ├── runtime/              # agent lifecycle: runner, IPC, warm pool, context viewer
 │   │       ├── templates/            # conversations, session, agent-builder
-│   │       └── static/               # dark-theme CSS, ES modules, vendored Monaco (no CDN)
+│   │       └── static/               # dark-theme CSS, ES modules (no CDN)
 │   └── system_prompts/               # the prompt fragments, shipped inside the wheel
 ├── memory/  mcp/  voice/  video/  plugin/  html_renderer/  …   # see Subsystems
 ├── readme_sync/                      # keeps the folder README maps in step with the code

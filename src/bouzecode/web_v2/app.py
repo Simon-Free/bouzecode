@@ -18,9 +18,8 @@ _BASE = Path(__file__).parent
 # Cache navigateur du statique
 # --------------------------------------------------------------------------------
 # L'ancien réglage `SEND_FILE_MAX_AGE_DEFAULT = 0  # no browser cache for dev` n'était
-# pas tenable : il s'appliquait à TOUT le statique, dont `static/vendor/monaco/` (copie
-# figée de monaco-editor 0.52.0, ~1000 fichiers dont un `tsWorker.js` de 47 000 lignes),
-# et forçait donc le navigateur à redemander l'éditeur entier à chaque chargement de
+# pas tenable : il s'appliquait à TOUT le statique, y compris d'éventuels assets tiers
+# figés sous `static/vendor/`, que le navigateur redemandait à chaque chargement de
 # `/sessions/<key>`. Le commentaire disait « for dev », mais `main()` appelle
 # toujours `create_app()` : il n'existe pas d'autre chemin d'exécution.
 #

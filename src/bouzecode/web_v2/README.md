@@ -37,4 +37,4 @@ Le cycle de vie des agents (`runner`, `ipc`, `pending`) et l'analyse de payload
 | `services/` | Logique métier sans Flask (sessions/, work/, skills, profils, plugins, rendu messages) |
 | `runtime/` | Cycle de vie des agents (runner, ipc, pending, warmpool) + rendu HTML et context_viewer |
 | `templates/` | Pages Jinja (base, conversations, session, agent_builder) |
-| `static/` | CSS thème sombre, `js/` vanilla (un fichier par page) et `vendor/monaco/` (aucun CDN) |
+| `static/` | CSS thème sombre, `js/` vanilla (un fichier par page), aucun CDN |

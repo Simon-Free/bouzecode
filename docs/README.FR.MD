@@ -213,7 +213,7 @@ python -m bouzecode.web_v2 --port 5056  # la même chose, en module
 
 Le serveur écoute sur `127.0.0.1` et refuse de démarrer si le port est déjà servi. Le principe : **on ne parse jamais le stdout** — toutes les vues sont rendues côté serveur depuis les JSON structurés (session, IPC des agents, dumps de payload).
 
-Toutes les pages fonctionnent hors ligne. Aucune police, feuille de style ou script n'est chargé depuis un hôte tiers : le CSS est local, l'éditeur Monaco est vendorisé dans l'arbre, et la typographie est celle du système. Un outil de développement qui a besoin d'Internet pour afficher un diff est un outil qui s'arrête au mauvais moment.
+Toutes les pages fonctionnent hors ligne. Aucune police, feuille de style ou script n'est chargé depuis un hôte tiers : le CSS et les scripts sont locaux, et la typographie est celle du système. Un outil de développement qui a besoin d'Internet pour afficher un diff est un outil qui s'arrête au mauvais moment.
 
 L'interface parle anglais et français. Le sélecteur est dans la barre du haut, après les liens *Conversations* / *Agents* / *API* ; la bascule repeint les libellés sur place, sans rechargement et sans rien perdre de l'écran, et le navigateur retient le choix pour la visite suivante. Les libellés cités ci-dessous sont ceux de l'anglais, la langue par défaut ; leur équivalent français est entre parenthèses.
 
@@ -254,7 +254,7 @@ Cliquez une conversation pour l'ouvrir en onglet dans le panneau de droite. Chaq
 `/sessions` liste toutes les sessions enregistrées, et `/sessions/<clé>` en ouvre une en grand, avec quatre onglets :
 
 - **Conversation** — le fil des tours : la réflexion du modèle, puis chaque appel d'outil en bloc dépliable. Le texte arrive au fil de l'eau pendant que l'agent produit encore ;
-- **Changed files** (*Fichiers modifiés*) — les diffs produits par le run, rendus côté serveur, avec un éditeur Monaco vendorisé pour une lecture côte à côte (un repli `difflib` couvre l'absence de la copie vendorisée) ;
+- **Changed files** (*Fichiers modifiés*) — les diffs produits par le run, rendus côté serveur avec `difflib` ;
 - **Turns (analysis)** (*Tours (analyse)*) — une ligne par appel LLM : horodatage, Δ durée, jetons in/out, cache lu et cache écrit, % de cache hit, outils appelés, coût. Un clic ouvre le détail : le payload exact envoyé pour cet appel, item par item (système / utilisateur / assistant / résultat d'outil), chacun étiqueté **cached / new-cache / fresh** avec jetons estimés et aperçu lisible, à côté de la réponse du modèle rendue proprement. C'est ainsi qu'on diagnostique une perte de cache sans ouvrir un JSON ;
 - **Costs** (*Coûts*) — l'agrégat de coût du run.
 
@@ -542,7 +542,7 @@ bouzecode/
 │   │       ├── runtime/              # cycle de vie des agents : runner, IPC, warm pool, contexte
 │   │       ├── templates/            # conversations, session, agent-builder
 │   │       └── static/               # CSS thème sombre, modules ES, dictionnaires i18n,
-│   │                                 #   Monaco vendorisé (aucun CDN)
+│   │                                 #   (aucun CDN)
 │   └── system_prompts/               # les fragments de prompt, livrés dans le wheel
 ├── memory/  mcp/  voice/  video/  plugin/  html_renderer/  …   # voir Sous-systèmes
 ├── readme_sync/                      # maintient les cartes README des dossiers en phase avec le code

@@ -137,7 +137,7 @@ web_v2/
 ├── services/     # the logic, Flask-free and independently testable
 ├── runtime/      # agent lifecycle: runner, IPC, warm pool, venv env, context viewer
 ├── templates/    # conversations, session, agent-builder, base
-└── static/       # dark-theme CSS, ES modules, i18n dictionaries, vendored Monaco (no CDN)
+└── static/       # dark-theme CSS, ES modules, i18n dictionaries (no CDN)
 ```
 
 Four invariants:
@@ -146,7 +146,7 @@ Four invariants:
 
 **The API schema is derived, never written.** `GET /api/schema` is built from `app.url_map`, so it cannot describe a route that no longer exists nor miss one that was added.
 
-**No CDN.** Monaco is vendored under `static/vendor/monaco`, with a `difflib` fallback when the vendor copy is absent. No font, stylesheet or script comes from a third-party host either: the whole UI renders with the machine offline. A developer tool that needs the public internet to render a diff is a developer tool that stops working at the wrong moment.
+**No CDN.** Diffs are rendered server-side with `difflib`. No font, stylesheet or script comes from a third-party host: the whole UI renders with the machine offline. A developer tool that needs the public internet to render a diff is a developer tool that stops working at the wrong moment.
 
 **The server stays monolingual.** Translation is a client concern: the server emits stable keys (`status.phase`, `node.activity`) and markup annotated with `data-i18n`, and `static/js/i18n/` holds one dictionary per language — English, the default and the fallback for any key missing elsewhere, and French. Switching language rewrites the annotated DOM in place; the choice lives in `localStorage`. Data that belongs to the user or to an open catalogue — project names, typology descriptions, isolation codes, server refusals — is never translated, because it is not interface vocabulary.
 
