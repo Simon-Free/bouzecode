@@ -1,184 +1,197 @@
 {% extends "base.html" %}
+{# Profils (SPEC §6) : maître / détail. À gauche la liste des profils (mes profils éditables,
+   profils fournis en lecture seule) ; à droite l'éditeur et, en colonne, l'aperçu EN DIRECT
+   du prompt que l'agent recevra. Le catalogue distant et la bibliothèque (skills, plugins)
+   s'ouvrent dans des tiroirs : ils ne concurrencent plus la tâche principale. Tout le
+   comportement est dans static/js/profils/ (module ES). #}
+{% block head %}
+<link rel="stylesheet" href="{{ url_for('static', filename='css/profils.css') }}">
+{% endblock %}
 {% block content %}
-<header class="session-header">
-  <h1 class="session-title">Agent builder</h1>
-  {#- La phrase est découpée en morceaux traduisibles parce qu'elle contient du balisage
-      (<b>, <code>) : `applyDom` écrit du texte, pas du HTML. Le découpage laisse aussi chaque
-      langue placer le mot en gras là où sa grammaire l'exige. -#}
-  <div class="muted"><span data-i18n="builder.intro_a">Three steps, in the order you think of
-    them: who this agent is, what it can do, what you tell it. The result is a</span>
-    <b data-i18n="builder.intro_global">global</b>
-    <span data-i18n="builder.intro_b">profile (~/.bouzecode/profiles) — switch it on in a session
-    with</span> <code data-i18n="builder.intro_cmd">/agent &lt;name&gt;</code>.</div>
-</header>
+<div class="pf-layout">
 
-<div class="tabs" id="ab-tabs">
-  <button class="tab active" data-panel="ab-panel-build" data-i18n="builder.tab_new">New agent</button>
-  <button class="tab" data-panel="ab-panel-catalog">Catalogue</button>
-  <button class="tab" data-panel="ab-panel-plugins">Plugins</button>
-  <button class="tab" data-panel="ab-panel-skills">Skills</button>
-</div>
+  <aside class="pf-side" aria-label="Profils">
+    <div class="pf-side__head">
+      <h1 class="pf-side__title">Profils</h1>
+      <button type="button" id="pf-new" class="btn btn--primary btn--sm">+ Nouveau profil</button>
+    </div>
+    <input type="search" id="pf-filter" class="input pf-side__filter" placeholder="Filtrer les profils…"
+           aria-label="Filtrer les profils" autocomplete="off">
+    <div id="pf-list" class="pf-list" aria-live="polite"></div>
+    <div class="pf-side__foot">
+      <button type="button" id="pf-catalog-open" class="btn btn--sm" aria-controls="pf-catalog">
+        Installer depuis le catalogue…</button>
+      <button type="button" id="pf-library-open" class="btn btn--ghost btn--sm" aria-controls="pf-library">
+        Bibliothèque : skills et plugins</button>
+    </div>
+  </aside>
 
-<section class="ab-panel" id="ab-panel-build">
-  <div class="ab-flow">
-
-    <section class="ab-step">
-      <h3 class="ab-head"><span class="ab-num">1</span>
-        <span data-i18n="builder.step_identity">Identity</span></h3>
-      <div class="ab-body ab-fields">
-        <label><span data-i18n="builder.field_name">Name</span>
-          <input id="b-name" data-i18n-placeholder="builder.name_placeholder"
-            placeholder="e.g. code-reviewer">
-        </label>
-        <label><span data-i18n="builder.field_base">Base — existing agent / profile</span>
-          <select id="b-existing"><option value="" data-i18n="builder.opt_new">— new —</option></select>
-        </label>
+  <section class="pf-editor" id="pf-editor" aria-labelledby="pf-title">
+    <header class="pf-bar">
+      <div class="pf-bar__title">
+        <h2 id="pf-title" class="pf-bar__name">Nouveau profil</h2>
+        <span id="pf-origin" class="chip" hidden></span>
+        <span id="pf-dirty" class="dirty-flag" aria-live="polite"></span>
       </div>
-      <p class="ab-hint" data-i18n="builder.hint_load">Loading an existing profile fills in the
-        three steps: that is how you edit an agent.</p>
-    </section>
-
-    <details class="ab-step" id="b-caps">
-      <summary class="ab-head"><span class="ab-num">2</span>
-        <span data-i18n="builder.step_capabilities">Capabilities</span>
-        <span class="ab-recap" id="b-caps-recap">—</span>
-        <span class="ab-caret">▸</span>
-      </summary>
-      <div class="ab-body">
-        <div class="builder-grid">
-          <div class="builder-col">
-            <h3>Tools <span class="muted" id="b-tools-count"></span></h3>
-            <input class="filter" id="b-tools-filter" data-i18n-placeholder="builder.filter_placeholder"
-              placeholder="filter…">
-            <div class="check-list" id="b-tools"><p class="muted" data-i18n="builder.loading">Loading…</p></div>
-          </div>
-          <div class="builder-col">
-            <h3>Skills <span class="muted" id="b-skills-count"></span></h3>
-            <input class="filter" id="b-skills-filter" data-i18n-placeholder="builder.filter_placeholder"
-              placeholder="filter…">
-            <div class="check-list" id="b-skills"></div>
-          </div>
-        </div>
-        <div class="builder-col ab-hooks">
-          <h3>Hooks</h3>
-          <div id="b-hooks"></div>
-        </div>
+      <div class="pf-bar__actions">
+        <a id="pf-use" class="btn btn--ghost btn--sm" href="/conversations" hidden>Utiliser ce profil</a>
+        <button type="button" id="pf-duplicate" class="btn btn--sm">Dupliquer</button>
+        <span class="menu"><button type="button" id="pf-more" class="btn btn--sm btn--icon"
+              aria-label="Plus d'actions">⋯</button></span>
+        <button type="button" id="pf-save" class="btn btn--primary btn--sm" disabled>Enregistrer</button>
       </div>
-    </details>
+    </header>
 
-    <section class="ab-step">
-      <h3 class="ab-head"><span class="ab-num">3</span>
-        <span data-i18n="builder.step_prompt">Prompt</span></h3>
-      <div class="ab-body">
-        <textarea id="b-prompt" class="builder-prompt"
-          data-i18n-placeholder="builder.prompt_placeholder"
-          placeholder="Instructions specific to this agent (added to the base prompt)…"></textarea>
-        <button id="b-preview" class="ab-disclosure" data-i18n="builder.preview_closed">▸ Computed
-          full prompt</button>
-        <div id="b-preview-out" hidden>
-          <div class="muted" id="b-preview-runtime"></div>
-          <pre id="b-preview-prompt" class="full-prompt"></pre>
-        </div>
-      </div>
-    </section>
-
-    <div class="builder-actions ab-submit">
-      <span id="b-banner" hidden></span>
-      <button id="b-delete" data-i18n="builder.delete">Delete</button>
-      <button id="b-save" class="primary" data-i18n="builder.save">Save</button>
+    <div id="pf-readonly" class="banner banner--info pf-readonly" hidden>
+      <span class="banner__text">Profil fourni — lecture seule.</span>
+      <span class="banner__detail">Duplique-le pour créer ton propre profil à partir de celui-ci.</span>
+      <button type="button" id="pf-fork" class="btn btn--primary btn--sm">Dupliquer pour modifier</button>
     </div>
 
-  </div>
-</section>
+    <div class="pf-cols">
+      <form id="pf-form" class="pf-form" autocomplete="off" novalidate>
+        <fieldset id="pf-fields" class="pf-fieldset">
+          <div class="pf-row">
+            <div class="field pf-field-name">
+              <label for="pf-name">Nom</label>
+              <input id="pf-name" class="input" name="name" placeholder="ex. code-reviewer"
+                     aria-describedby="pf-name-hint pf-name-error" spellcheck="false">
+              <div id="pf-name-hint" class="field__hint">Minuscules, chiffres, - et _.</div>
+              <div id="pf-name-error" class="field__error" role="alert"></div>
+            </div>
+            <div class="field pf-field-desc">
+              <label for="pf-desc">Description</label>
+              <input id="pf-desc" class="input" name="description"
+                     placeholder="À quoi sert cet agent, en une phrase">
+            </div>
+          </div>
 
-<section class="ab-panel" id="ab-panel-catalog" hidden>
-  <div class="ab-flow">
-    <section class="ab-step" id="cat-section">
-      <h3 class="ab-head"><span data-i18n="builder.agent_catalog">Agent catalogue</span>
-        <span class="ab-spacer"></span>
-        <span id="cat-banner" hidden></span>
-        <button id="cat-refresh" data-i18n="builder.refresh_catalog">Refresh catalogue</button>
-      </h3>
-      <p class="ab-hint">Agents <b data-i18n="builder.cat_hint_installed">installed</b>
-        <span data-i18n="builder.cat_hint_mid">(ready to use) vs</span>
-        <b data-i18n="builder.cat_hint_available">available</b>
-        <span data-i18n="builder.cat_hint_end">in the remote catalogue — “Install” writes the
-        profile to ~/.bouzecode/profiles and materialises its plugins.</span></p>
-      <div class="ab-body builder-grid">
-        <div class="builder-col">
-          <h3><span data-i18n="builder.installed">Installed</span>
-            <span class="muted" id="cat-installed-count"></span></h3>
-          <div class="check-list" id="cat-installed"><p class="muted" data-i18n="builder.loading">Loading…</p></div>
+          <section class="pf-section" aria-labelledby="pf-caps-title">
+            <h3 id="pf-caps-title" class="pf-section__title">Ce qu'il peut faire</h3>
+            <div id="pf-presets" class="seg" role="radiogroup" aria-label="Capacités"></div>
+            <p id="pf-caps-summary" class="pf-muted"></p>
+            <button type="button" id="pf-customize" class="btn btn--ghost btn--sm"
+                    aria-expanded="false" aria-controls="pf-tools-panel">Personnaliser les outils</button>
+            <div id="pf-tools-panel" class="pf-tools" hidden>
+              <input type="search" id="pf-tools-filter" class="input" placeholder="Filtrer les outils…"
+                     aria-label="Filtrer les outils" data-nodirty>
+              <div id="pf-tools" class="pf-checks"></div>
+            </div>
+          </section>
+
+          <section class="pf-section" aria-labelledby="pf-skills-title">
+            <h3 id="pf-skills-title" class="pf-section__title">Skills préchargées</h3>
+            <div id="pf-skills-chips" class="pf-chips" aria-live="polite"></div>
+            <div class="pf-combo">
+              <input type="search" id="pf-skills-search" class="input" placeholder="Ajouter une skill…"
+                     aria-label="Ajouter une skill" role="combobox" aria-expanded="false"
+                     aria-controls="pf-skills-suggest" aria-autocomplete="list" data-nodirty>
+              <div id="pf-skills-suggest" class="pf-suggest" role="listbox" hidden></div>
+            </div>
+          </section>
+
+          <section class="pf-section" aria-labelledby="pf-prompt-title">
+            <h3 id="pf-prompt-title" class="pf-section__title"><label for="pf-prompt">Instructions</label></h3>
+            <textarea id="pf-prompt" class="textarea pf-prompt" name="system_prompt_extra" rows="10"
+                      placeholder="Ce que cet agent doit savoir ou faire en plus du prompt de base…"></textarea>
+          </section>
+
+          <details class="pf-section pf-advanced" id="pf-advanced">
+            <summary class="pf-section__title">Avancé : garde-fous et modèle</summary>
+            <div id="pf-hooks" class="pf-hooks"></div>
+            <div class="field">
+              <label for="pf-model">Modèle</label>
+              <select id="pf-model" class="select" name="model"></select>
+            </div>
+          </details>
+        </fieldset>
+      </form>
+
+      <aside class="pf-preview" aria-labelledby="pf-preview-title">
+        <div class="pf-preview__head">
+          <h3 id="pf-preview-title" class="pf-section__title">Ce qu'il reçoit</h3>
+          <span id="pf-preview-state" class="pf-muted" role="status"></span>
         </div>
-        <div class="builder-col">
-          <h3><span data-i18n="builder.available">Available (catalogue)</span>
-            <span class="muted" id="cat-available-count"></span></h3>
-          <div class="check-list" id="cat-available"><p class="muted" data-i18n="builder.loading">Loading…</p></div>
-        </div>
+        <div id="pf-preview-meta" class="pf-preview__meta"></div>
+        <div id="pf-preview-body" class="pf-preview__body"></div>
+      </aside>
+    </div>
+  </section>
+</div>
+
+<aside id="pf-catalog" class="drawer" aria-labelledby="pf-catalog-title" aria-hidden="true" data-open="false">
+  <div class="drawer__head">
+    <h2 id="pf-catalog-title" class="drawer__title">Catalogue d'agents</h2>
+    <button type="button" id="pf-catalog-refresh" class="btn btn--sm">Rafraîchir</button>
+    <button type="button" class="btn btn--ghost btn--sm btn--icon" data-close aria-label="Fermer">×</button>
+  </div>
+  <div class="drawer__body">
+    <p class="pf-muted">Installer un agent écrit son profil dans tes profils et installe ses plugins.</p>
+    <h3 class="pf-section__title">Disponibles</h3>
+    <div id="pf-cat-available" class="pf-cat-list"></div>
+    <h3 class="pf-section__title">Déjà installés</h3>
+    <div id="pf-cat-installed" class="pf-cat-list"></div>
+  </div>
+</aside>
+
+<aside id="pf-library" class="drawer pf-drawer--wide" aria-labelledby="pf-library-title" aria-hidden="true" data-open="false">
+  <div class="drawer__head">
+    <h2 id="pf-library-title" class="drawer__title">Bibliothèque</h2>
+    <button type="button" class="btn btn--ghost btn--sm btn--icon" data-close aria-label="Fermer">×</button>
+  </div>
+  <div class="tabs" role="tablist" aria-label="Bibliothèque">
+    <button type="button" class="tab" role="tab" id="pf-lib-tab-skills" aria-selected="true"
+            aria-controls="pf-lib-skills">Skills</button>
+    <button type="button" class="tab" role="tab" id="pf-lib-tab-plugins" aria-selected="false"
+            aria-controls="pf-lib-plugins">Plugins</button>
+  </div>
+  <div class="drawer__body">
+    <section id="pf-lib-skills" role="tabpanel" aria-labelledby="pf-lib-tab-skills" class="pf-lib">
+      <div class="pf-lib__side">
+        <button type="button" id="pf-sk-new" class="btn btn--sm">+ Nouvelle skill</button>
+        <input type="search" id="pf-sk-filter" class="input" placeholder="Filtrer…" aria-label="Filtrer les skills">
+        <div id="pf-sk-list" class="pf-list pf-list--compact"></div>
+      </div>
+      <div class="pf-lib__main">
+        <div id="pf-sk-empty" class="pf-muted">Choisis une skill à gauche, ou crée-en une.</div>
+        <form id="pf-sk-form" class="pf-sk-form" hidden novalidate autocomplete="off">
+          <div class="pf-row">
+            <div class="field">
+              <label for="pf-sk-name">Nom de la skill</label>
+              <input id="pf-sk-name" class="input" spellcheck="false" aria-describedby="pf-sk-name-error">
+              <div id="pf-sk-name-error" class="field__error" role="alert"></div>
+            </div>
+            <span id="pf-sk-meta" class="pf-muted"></span>
+            <span id="pf-sk-dirty" class="dirty-flag"></span>
+          </div>
+          <textarea id="pf-sk-content" class="textarea pf-sk-content" rows="16"
+                    aria-label="Contenu de la skill (en-tête YAML + corps markdown)"></textarea>
+          <div class="btn-row">
+            <button type="button" id="pf-sk-delete" class="btn btn--danger btn--sm" hidden>Supprimer</button>
+            <span class="pf-spacer"></span>
+            <button type="submit" id="pf-sk-save" class="btn btn--primary btn--sm">Enregistrer la skill</button>
+          </div>
+        </form>
       </div>
     </section>
-  </div>
-</section>
-
-<section class="ab-panel" id="ab-panel-plugins" hidden>
-  <div class="ab-flow">
-    <section class="ab-step">
-      <h3 class="ab-head">Plugins</h3>
-      <p class="ab-hint" data-i18n="builder.plugins_hint">Install from GitLab (bundled tools +
-        skills) — or from the path of a local git folder.</p>
-      <div class="ab-body">
-        <div class="xdir-add">
-          <input id="xdir-input" data-i18n-placeholder="builder.plugin_input_placeholder"
-            placeholder="URL of a GitLab plugin repo — or path of a local git folder">
-          <button id="xdir-add-btn" data-i18n="builder.install">Install</button>
+    <section id="pf-lib-plugins" role="tabpanel" aria-labelledby="pf-lib-tab-plugins" class="pf-lib-plugins" hidden>
+      <form id="pf-plugin-form" class="pf-plugin-form" novalidate autocomplete="off">
+        <div class="field">
+          <label for="pf-plugin-input">Installer un plugin</label>
+          <input id="pf-plugin-input" class="input" aria-describedby="pf-plugin-error"
+                 placeholder="URL d'un dépôt GitLab, ou chemin d'un dossier git local">
+          <div id="pf-plugin-error" class="field__error" role="alert"></div>
         </div>
-        <div id="b-plugins" class="check-list"><p class="muted" data-i18n="builder.loading">Loading…</p></div>
-        <div class="builder-actions">
-          <button id="b-upgrade-agent" data-i18n="builder.upgrade_agent_plugins">Update the
-            selected agent's plugins</button>
-          <span id="b-plugins-banner" hidden></span>
-        </div>
-      </div>
+        <button type="submit" id="pf-plugin-install" class="btn btn--primary btn--sm">Installer</button>
+      </form>
+      <h3 class="pf-section__title">Installés</h3>
+      <div id="pf-plugins" class="pf-cat-list"></div>
     </section>
   </div>
-</section>
-
-<section class="ab-panel" id="ab-panel-skills" hidden>
-  <div class="ab-flow">
-    <section class="ab-step">
-      <h3 class="ab-head">Skills (.md)</h3>
-      <p class="ab-hint" data-i18n="builder.skills_hint">Create / edit skills — saved to
-        ~/.bouzecode/skills, global.</p>
-      <div class="ab-body">
-        <div class="ab-fields">
-          <label><span data-i18n="builder.existing_skill">Existing skill</span>
-            <select id="sk-list"><option value="" data-i18n="builder.opt_choose">— choose —</option></select>
-          </label>
-          <label><span data-i18n="builder.new_skill">New skill</span>
-            <input id="sk-new-name" data-i18n-placeholder="builder.skill_name_placeholder"
-              placeholder="e.g. my-skill">
-          </label>
-          <button id="sk-new" class="ab-field-btn" data-i18n="builder.new">New</button>
-        </div>
-        <div id="sk-meta" class="muted"></div>
-        <textarea id="sk-content" data-i18n-placeholder="builder.skill_content_placeholder"
-          placeholder="Markdown content (YAML front-matter + body)…"></textarea>
-        <div class="builder-actions">
-          <span id="sk-banner" hidden></span>
-          <button id="sk-delete" data-i18n="builder.delete">Delete</button>
-          <button id="sk-save" class="primary" data-i18n="builder.save_skill">Save skill</button>
-        </div>
-      </div>
-    </section>
-  </div>
-</section>
+</aside>
+<input type="file" id="pf-import-file" accept=".yaml,.yml,text/yaml" hidden>
 {% endblock %}
 
 {% block scripts %}
-<script src="{{ url_for('static', filename='js/agent_builder.js') }}"></script>
-<script src="{{ url_for('static', filename='js/agent_builder_form.js') }}"></script>
-<script src="{{ url_for('static', filename='js/agent_builder_preview.js') }}"></script>
-<script src="{{ url_for('static', filename='js/agent_builder_catalog.js') }}"></script>
-<script src="{{ url_for('static', filename='js/agent_builder_skills.js') }}"></script>
-<script src="{{ url_for('static', filename='js/agent_builder_plugins.js') }}"></script>
+<script type="module" src="{{ url_for('static', filename='js/profils/main.js') }}"></script>
 {% endblock %}

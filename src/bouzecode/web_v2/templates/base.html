@@ -1,154 +1,59 @@
 <!doctype html>
-<html lang="en">
+{% set page_titles = {"bureau": "Bureau", "conversations": "Agents", "agents": "Profils", "ds": "Design system"} %}
+<html lang="fr">
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>BouzéqUI v2</title>
+  <meta name="bouzecode-token" content="{{ bouzecode_token }}">
+  <title>{% block title %}{{ page_titles.get(page, "bouzeui") }}{% endblock %} — bouzecode</title>
+  {# Thème appliqué AVANT le premier rendu (pas de flash sombre → clair). #}
+  <script>try { if (localStorage.getItem("bz.theme.choix") === "dark") document.documentElement.dataset.theme = "dark"; } catch (e) {}</script>
+  <link rel="stylesheet" href="{{ url_for('static', filename='ds.css') }}">
   <link rel="stylesheet" href="{{ url_for('static', filename='app.css') }}">
   <link rel="stylesheet" href="{{ url_for('static', filename='pages.css') }}">
-  <link rel="stylesheet" href="{{ url_for('static', filename='performative-ui.css') }}">
-  {#- i18n : scripts CLASSIQUES chargés AVANT tout le reste, donc `window.i18n` existe pour
-      les scripts de page (classiques) comme pour les modules ES (différés). Le gabarit rend
-      l'ANGLAIS, langue par défaut : quand elle est active, rien n'est réécrit et il n'y a
-      donc aucun scintillement au premier rendu. -#}
-  <script src="{{ url_for('static', filename='js/i18n/core.js') }}"></script>
-  {%- for dict in ['common', 'state', 'pages', 'conv/sidebar', 'conv/panel', 'conv/composer'] %}
-  <script src="{{ url_for('static', filename='js/i18n/en/' + dict + '.js') }}"></script>
-  <script src="{{ url_for('static', filename='js/i18n/fr/' + dict + '.js') }}"></script>
-  {%- endfor %}
-  <script src="{{ url_for('static', filename='js/i18n/switcher.js') }}"></script>
+  {% block head %}{% endblock %}
 </head>
-<body class="pui-theme">
-<div id="env-sanity-banner" role="alert" hidden
-     style="display:none;background:#b30000;color:#fff;padding:.6em 1em;font-weight:700;text-align:center;">
-  <span id="env-sanity-headline" data-i18n="banner.env_ko">API env broken — agents cannot run.</span>
-  <span id="env-sanity-detail" style="font-weight:400;opacity:.85;"></span>
-  <button type="button" id="env-sanity-recheck" data-i18n="banner.recheck"
-          style="margin-left:.8em;font-weight:700;cursor:pointer;border:1px solid #fff;
-                 background:transparent;color:#fff;border-radius:3px;padding:.15em .7em;">
-    Recheck
-  </button>
-</div>
-<div id="version-drift-banner" role="status" hidden
-     style="display:none;background:#ffca28;color:#2b2b00;padding:.5em 1em;font-weight:600;
-            text-align:center;border-bottom:1px solid #c79100;">
-  <span data-i18n="banner.version_drift">Server drift: the booted code no longer matches the disk —
-  restart via bouzeui.ps1 to see your changes (running agents are unaffected).</span>
-  <span id="version-drift-detail" style="font-weight:400;opacity:.8;"></span>
-</div>
-<nav>
-  <span class="brand">bouzecode <b>v2</b></span>
-  <a href="/conversations" class="{{ 'active' if page == 'conversations' else '' }}"
-     data-i18n="nav.conversations">Conversations</a>
-  <a href="/agent-builder" class="{{ 'active' if page == 'agents' else '' }}"
-     data-i18n="nav.agents">Agents</a>
-  <a href="/api/schema" target="_blank" data-i18n="nav.api">API</a>
-  <select id="lang-switch" class="lang-switch" data-i18n-aria-label="nav.language" aria-label="Language">
-    <option value="en">EN</option>
-    <option value="fr">FR</option>
-  </select>
+<body data-page="{{ page }}">
+<a class="sr-only" href="#main">Aller au contenu</a>
+<nav class="nav" aria-label="Navigation principale">
+  <a class="nav__brand" href="/bureau">bouzecode</a>
+  <a class="nav__link" href="/bureau" {% if page == 'bureau' %}aria-current="page"{% endif %}>Bureau <span class="count" data-tone="warn" data-nav-count="a_moi" title="Points qui t'attendent"></span></a>
+  <a class="nav__link" href="/conversations" {% if page == 'conversations' %}aria-current="page"{% endif %}>Agents <span class="count" data-tone="info" data-nav-count="en_cours" title="Agents en cours"></span></a>
+  <a class="nav__link" href="/agent-builder" {% if page == 'agents' %}aria-current="page"{% endif %}>Profils</a>
+  <span class="nav__spacer"></span>
+  <button type="button" id="theme-toggle" class="btn btn--ghost btn--sm btn--icon" aria-label="Basculer le thème clair / sombre" aria-pressed="false"><svg width="16" height="16" viewBox="0 0 16 16" aria-hidden="true"><circle cx="8" cy="8" r="6.5" fill="none" stroke="currentColor" stroke-width="1.5"/><path d="M8 1.5a6.5 6.5 0 0 1 0 13z" fill="currentColor"/></svg></button>
 </nav>
-<main>
+<div id="banners">
+  <div id="env-sanity-banner" class="banner banner--danger" role="alert" hidden>
+    <span id="env-sanity-headline" class="banner__text">API indisponible — les agents ne peuvent pas tourner.</span>
+    <span id="env-sanity-detail" class="banner__detail"></span>
+    <span id="env-sanity-when" class="banner__detail" role="status"></span>
+    <button type="button" id="env-sanity-recheck" class="btn btn--sm">Revérifier</button>
+  </div>
+  <div id="version-drift-banner" class="banner banner--warn" role="status" hidden>
+    <span class="banner__text">Le code a changé depuis le démarrage du serveur.</span>
+    <span class="banner__detail">Redémarre-le pour voir les changements ; les agents en cours ne sont pas interrompus.</span>
+    <span id="version-drift-detail" class="banner__detail"></span>
+    <button type="button" id="server-restart" class="btn btn--sm" data-endpoint="/api/server/restart">Redémarrer</button>
+    <span id="server-restart-state" class="banner__detail" role="status"></span>
+  </div>
+  <div id="offline-banner" class="banner banner--danger" role="alert" hidden>
+    <span class="banner__text">Connexion au serveur perdue</span>
+    <span class="banner__detail">— <span data-offline-countdown>nouvel essai…</span></span>
+    <button type="button" class="btn btn--sm" data-offline-retry>Réessayer maintenant</button>
+  </div>
+  {% block banners %}{% endblock %}
+</div>
+<main id="main">
 {% block content %}{% endblock %}
 </main>
+{% block footer %}
+<footer class="site-foot"><a href="/api/schema" target="_blank" rel="noopener">API · schéma</a></footer>
+{% endblock %}
+<div id="toasts" class="toast-stack"></div>
+<script type="application/json" id="bz-lexique">{{ lexique_json|safe }}</script>
+<script type="module" src="{{ url_for('static', filename='js/lib/ui.js') }}"></script>
+<script type="module" src="{{ url_for('static', filename='js/chrome.js') }}"></script>
 {% block scripts %}{% endblock %}
-<script>
-(function () {
-  const t = (key, params) => window.i18n.t(key, params);
-  const banner = document.getElementById("version-drift-banner");
-  const detail = document.getElementById("version-drift-detail");
-  let lastDrift = null;
-
-  function renderDrift(data) {
-    lastDrift = data;
-    if (!data || !data.drift) {
-      banner.hidden = true;
-      banner.style.display = "none";
-      return;
-    }
-    const causes = [];
-    if (data.sha_drift) {
-      causes.push(t("banner.drift_sha", {
-        boot: (data.boot_sha || "").slice(0, 8), head: (data.current_head_sha || "").slice(0, 8),
-      }));
-    }
-    if (data.source_drift) causes.push(t("banner.drift_source"));
-    detail.textContent = causes.length ? " (" + causes.join(" ; ") + ")" : "";
-    banner.hidden = false;
-    banner.style.display = "block";
-  }
-
-  async function checkVersion() {
-    const resp = await fetch("/api/version", {cache: "no-store"}).catch(() => null);
-    if (!resp || !resp.ok) return; // réseau indispo : on retentera au prochain poll
-    renderDrift(await resp.json());
-  }
-  checkVersion();
-  setInterval(checkVersion, 40000);
-
-  const envBanner = document.getElementById("env-sanity-banner");
-  const envDetail = document.getElementById("env-sanity-detail");
-  const envHeadline = document.getElementById("env-sanity-headline");
-  const envRecheck = document.getElementById("env-sanity-recheck");
-  let lastEnv = null;
-
-  // Le détail du KO « env absente » est REDIT ici plutôt que repris du serveur : ses deux
-  // seuls faits (quelle variable manque) sont déjà servis, `base_url_present` et
-  // `key_present`. Le serveur garde sa phrase française pour ses logs et pour les agents de
-  // monitoring — il ne négocie pas de langue.
-  // Le détail « injoignable », lui, porte l'URL sondée et le nombre d'essais : ces données
-  // ne sont PAS servies à part, on rend donc la phrase du serveur telle quelle.
-  function envDetailText(data) {
-    if (!data.env_missing) return data.detail || "";
-    const missing = [];
-    if (!data.base_url_present) missing.push("ANTHROPIC_BASE_URL");
-    if (!data.key_present) missing.push("ANTHROPIC_API_KEY");
-    if (!missing.length) return data.detail || "";
-    return t("banner.env_missing_detail", {vars: missing.join(", ")});
-  }
-
-  function renderEnvSanity(data) {
-    lastEnv = data;
-    if (data.ok === false) {
-      // Deux KO très différents : env absente = relancer, injoignable = re-sonder.
-      const key = data.env_missing ? "banner.env_ko_missing" : "banner.env_unreachable";
-      envHeadline.setAttribute("data-i18n", key);
-      envHeadline.textContent = t(key);
-      const detail = envDetailText(data);
-      envDetail.textContent = detail ? " (" + detail + ")" : "";
-      envBanner.hidden = false;
-      envBanner.style.display = "block";
-    } else {
-      envBanner.hidden = true;
-      envBanner.style.display = "none";
-    }
-  }
-
-  async function checkEnvSanity() {
-    const resp = await fetch("/api/env-sanity", {cache: "no-store"}).catch(() => null);
-    if (!resp || !resp.ok) return; // réseau indispo : on retentera au prochain poll
-    renderEnvSanity(await resp.json());
-  }
-
-  envRecheck.addEventListener("click", async () => {
-    envRecheck.disabled = true;
-    envRecheck.textContent = t("banner.rechecking");
-    const resp = await fetch("/api/env-sanity/recheck", {method: "POST"}).catch(() => null);
-    if (resp && resp.ok) renderEnvSanity(await resp.json());
-    envRecheck.disabled = false;
-    envRecheck.textContent = t("banner.recheck");
-  });
-
-  checkEnvSanity();
-  setInterval(checkEnvSanity, 40000);
-
-  // Bascule de langue : les deux bandeaux composent leur détail en JavaScript, donc
-  // `applyDom` ne suffit pas — on les redessine à partir de la dernière réponse connue.
-  window.i18n.onChange(() => {
-    if (lastDrift) renderDrift(lastDrift);
-    if (lastEnv) renderEnvSanity(lastEnv);
-  });
-})();
-</script>
 </body>
 </html>

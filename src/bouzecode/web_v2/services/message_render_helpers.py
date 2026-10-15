@@ -1,4 +1,6 @@
-# [desc] Helpers d'échappement et mini-markdown pour le rendu serveur des messages (thinking, prose, troncature). [/desc]
+# [desc] Helpers d'échappement et mini-markdown pour le rendu serveur des messages (thinking, prose, troncature).
+# 
+# <tool_use name="FinalAnswer" id="fa1"><param name="text">Helpers d'échappement et mini-markdown pour le rendu serveur des messages (thinking, prose, troncature).</param></tool_use> [/desc]
 """Helpers texte/markdown pour le rendu serveur des messages.
 
 Extrait de message_view pour garder ce dernier sous 200 lignes. Tout texte est
@@ -10,6 +12,8 @@ from __future__ import annotations
 import html
 import re
 
+from bouzecode.backend.agent.thinking_parser import normalize_orphan_close_tags
+
 SUBAGENT_TOOLS = {"agent", "task", "subagent", "spawn_agent"}
 MARKDOWN_CONTENT_TOOLS = {"methodology", "writeplan", "write_plan", "todo_create"}
 INPUT_SUMMARY_KEYS = ("file_path", "path", "command", "pattern", "prompt", "description", "content")
@@ -18,6 +22,7 @@ MAX_INPUT_CHARS = 2000
 MAX_USER_CHARS = 6000
 
 _FENCE_RE = re.compile(r"```(\w*)\n(.*?)```", re.S)
+
 _THINKING_RE = re.compile(r"<thinking>\s*\n?(.*?)\n?\s*</thinking>", re.DOTALL)
 
 
@@ -27,7 +32,7 @@ def _render_thinking(content: str) -> str:
     Returns concatenated thinking HTML (empty if none). Content is escaped;
     newlines become <br>.
     """
-    blocks = _THINKING_RE.findall(content)
+    blocks = _THINKING_RE.findall(normalize_orphan_close_tags(content))
     if not blocks:
         return ""
     rendered = []
@@ -35,16 +40,29 @@ def _render_thinking(content: str) -> str:
         escaped = html.escape(block.strip()).replace("\n", "<br>")
         rendered.append(
             f'<details class="thinking pui-detail-thinking">'
-            f'<summary class="pui-bubble__thinking-pill" data-i18n="block.thinking">'
-            f'💭 thinking</summary>'
+            f'<summary class="pui-bubble__thinking-pill">réflexion</summary>'
             f'<em>{escaped}</em></details>'
         )
     return "".join(rendered)
 
 
+def _methodology_html(tool_call: dict) -> str:
+    """Le delta Methodology du tour, déplié hors du groupe d'outils : même pastille que
+    la réflexion, contenu en markdown. L'appel reste aussi dans le groupe (appariement)."""
+    tool_input = tool_call.get("input") if isinstance(tool_call.get("input"), dict) else {}
+    content = tool_input.get("content")
+    if not isinstance(content, str) or not content.strip():
+        return ""
+    return (
+        '<details class="methodology pui-detail-thinking" open>'
+        '<summary class="pui-bubble__thinking-pill">méthodologie</summary>'
+        f'<div class="methodology-body">{render_markdown(content.strip())}</div></details>'
+    )
+
+
 def _strip_thinking(content: str) -> str:
     """Remove <thinking>...</thinking> blocks from content."""
-    return _THINKING_RE.sub("", content).strip()
+    return _THINKING_RE.sub("", normalize_orphan_close_tags(content)).strip()
 
 
 def render_markdown(text: str) -> str:
@@ -77,9 +95,6 @@ def _render_prose(text: str) -> str:
 
 
 def _truncate(text: str, limit: int) -> str:
-    """Coupe le texte et le DIT. Ce marqueur reste en français : il est concaténé au contenu
-    lui-même, à l'intérieur d'un `<pre>`, et non rendu dans un élément propre — le client n'a
-    donc aucune prise pour le traduire sans découper le corps du message en fragments."""
     if len(text) <= limit:
         return text
     return text[:limit] + f"\n… (+{len(text) - limit} caractères tronqués)"

@@ -21,14 +21,22 @@ Aucun cas ne supprime réellement une vraie conversation utilisateur.
 """
 
 from __future__ import annotations
+from bouzecode.paths import data_dir as bouzecode_data_dir
 
 import json
 import re
 import shutil
-from datetime import datetime, timezone
 from pathlib import Path
 
-from bouzecode.web_v2.runtime import runner
+from bouzecode.web_v2.runtime.runner import (
+    agent_arret,
+    agent_etat,
+    agent_fiche,
+    agent_processus,
+    agent_registre,
+    agent_vivacite,
+)
+from bouzecode.web_v2.services.horodatage import age_s, maintenant_iso
 
 from . import store
 
@@ -40,10 +48,10 @@ from . import store
 # Couvre 'test typology', 'test ping', 'Test XYZ', 'test-foo', 'test:bar'.
 _TEST_RE = re.compile(r"^\s*test\b", re.IGNORECASE)
 
-TRASH_DIR = runner.AGENTS_DIR / "_trash"
+TRASH_DIR = agent_fiche.AGENTS_DIR / "_trash"
 
 
-def _agent_title(agent: runner.Agent) -> str:
+def _agent_title(agent: agent_fiche.Agent) -> str:
     return (agent.prompt or "").strip().split("\n")[0][:90] or agent.agent_id
 
 
@@ -53,11 +61,11 @@ def is_test_agent(title: str, prompt: str) -> bool:
     return bool(_TEST_RE.match(title or "")) or bool(_TEST_RE.match(first_prompt_line))
 
 
-def _is_running(agent: runner.Agent) -> bool:
-    status = runner.refresh_agent_status(agent)
+def _is_running(agent: agent_fiche.Agent) -> bool:
+    status = agent_etat.refresh_agent_status(agent)
     if isinstance(status, dict):
         return bool(status.get("running"))
-    return runner.is_running(agent)
+    return agent_vivacite.is_running(agent)
 
 
 # États qui prouvent qu'un agent n'a PAS fini : il travaille, il démarre, il attend une
@@ -67,14 +75,14 @@ def _is_running(agent: runner.Agent) -> bool:
 _ETATS_VIVANTS = ("running", "starting", "awaiting_input", "awaiting_plan_validation", "idle")
 
 
-def est_vivant(agent: runner.Agent) -> bool:
+def est_vivant(agent: agent_fiche.Agent) -> bool:
     """Cet agent est-il vivant ? Seul verdict autorisé à précéder un geste destructeur.
 
     `_is_running` ne peut PAS servir à cela, et c'est ce qui a détruit du travail réel le
     2026-07-28 : il appelle `refresh_agent_status`, qui ÉCRIT `returncode`/`finished_at`
     sur l'agent, puis interroge `runner.is_running`, qui lit `returncode is None`. Il
     répond donc « pas vivant » sur la foi du champ qu'il vient lui-même d'écrire. Trace
-    mesurée sur le manager `0123456789ab` : `finished_at` = 12:25:53.899, artefacts
+    mesurée sur le manager `9d0789f2fdca` : `finished_at` = 12:25:53.899, artefacts
     déplacés vers `_trash/` à 12:25:53.901 — deux millisecondes plus tard — alors que le
     process tournait encore et écrivait son log à 12:27.
 
@@ -87,9 +95,9 @@ def est_vivant(agent: runner.Agent) -> bool:
       * l'état déclaré : un agent qui attend une réponse humaine n'est pas un déchet, même
         process éteint. C'est le cas d'usage entier des conversations en pause.
     On ne conclut JAMAIS « mort » depuis `returncode`/`finished_at` seuls."""
-    if runner.session_process_running(agent.session_path):
+    if agent_processus.session_process_running(agent.session_path):
         return True
-    if runner.is_running(agent):
+    if agent_vivacite.is_running(agent):
         return True
     return store.agent_status(agent).get("state") in _ETATS_VIVANTS
 
@@ -97,7 +105,7 @@ def est_vivant(agent: runner.Agent) -> bool:
 def list_test_candidates() -> list[dict]:
     """Agents web détectés comme conversations de test ET non-running."""
     candidates = []
-    for agent in runner.list_agents():
+    for agent in agent_registre.list_agents():
         title = _agent_title(agent)
         if not is_test_agent(title, agent.prompt or ""):
             continue
@@ -115,7 +123,7 @@ def list_test_candidates() -> list[dict]:
 
 def _artefacts(agent_id: str) -> list[Path]:
     """Les fichiers/dossiers d'un agent web (id.json, .session.json, .out.log, .ipc/)."""
-    base = runner.AGENTS_DIR
+    base = agent_fiche.AGENTS_DIR
     out: list[Path] = []
     for name in (f"{agent_id}.json", f"{agent_id}.session.json",
                  f"{agent_id}.pending.json", f"{agent_id}.deferred.json",
@@ -138,7 +146,7 @@ def purge_agents(agent_ids: list[str]) -> dict:
     purged: list[str] = []
     skipped: list[dict] = []
     for agent_id in agent_ids:
-        agent = runner.load_agent(agent_id)
+        agent = agent_fiche.load_agent(agent_id)
         if agent is None:
             skipped.append({"agent_id": agent_id, "reason": "agent inconnu"})
             continue
@@ -149,7 +157,7 @@ def purge_agents(agent_ids: list[str]) -> dict:
         if est_vivant(agent):
             skipped.append({"agent_id": agent_id, "reason": "agent vivant"})
             continue
-        if not runner.destruction_permitted():
+        if not agent_arret.destruction_permitted():
             skipped.append({"agent_id": agent_id, "reason": "destruction interdite hors exploitation"})
             continue
         dest = TRASH_DIR / agent_id
@@ -159,7 +167,7 @@ def purge_agents(agent_ids: list[str]) -> dict:
         purged.append(agent_id)
 
     # Invalider le cache list_agents (TTL 3s) sinon la sidebar ré-affiche les purgés.
-    runner._list_agents_cache.clear()
+    agent_fiche._list_agents_cache.clear()
     return {"purged": purged, "skipped": skipped}
 
 
@@ -178,7 +186,7 @@ def auto_purge_test_agents() -> dict:
 # 2. Sessions — soft-delete réversible via registre externe (sans muter les JSON)
 # --------------------------------------------------------------------------
 
-DELETED_PATH = Path.home() / ".bouzecode" / "web_v2" / "deleted_sessions.json"
+DELETED_PATH = bouzecode_data_dir() / "web_v2" / "deleted_sessions.json"
 
 # Heuristique CONSERVATRICE : titre commençant par le mot "test" (word-boundary,
 # insensible à la casse) ET peu de tours (session éphémère). Les DEUX requis.
@@ -215,14 +223,14 @@ def is_deleted(key: str) -> bool:
 
 
 # États qui prouvent qu'un agent n'a PAS fini : il travaille, il démarre, ou il attend
-# une réponse humaine. Mêmes états que `workflow._ACTIVE` / `isolation._ACTIVE_STATES`.
+# une réponse humaine. Mêmes états que `isolation._ACTIVE_STATES`.
 _ALIVE_STATES = ("running", "starting", "awaiting_input", "awaiting_plan_validation")
 
 
 def mark_deleted(key: str, reason: str = "test session purge") -> None:
     data = load_deleted()
     data[key] = {
-        "deleted_at": datetime.now(timezone.utc).isoformat(),
+        "deleted_at": maintenant_iso("auto"),
         "reason": reason,
     }
     save_deleted(data)
@@ -244,14 +252,14 @@ def restore(key: str) -> bool:
     agent_id = key.split("/", 1)[1] if key.startswith("agent/") else key
     src = TRASH_DIR / agent_id
     if src.is_dir():
-        runner.AGENTS_DIR.mkdir(parents=True, exist_ok=True)
+        agent_fiche.AGENTS_DIR.mkdir(parents=True, exist_ok=True)
         for artefact in list(src.iterdir()):
-            dest = runner.AGENTS_DIR / artefact.name
+            dest = agent_fiche.AGENTS_DIR / artefact.name
             if not dest.exists():
                 shutil.move(str(artefact), str(dest))
         if not any(src.iterdir()):
             src.rmdir()
-    runner._list_agents_cache.clear()
+    agent_fiche._list_agents_cache.clear()
     return True
 
 
@@ -271,7 +279,7 @@ def archive_agents(keys: list[str]) -> dict:
     for raw in keys:
         key = raw if str(raw).startswith("agent/") else f"agent/{raw}"
         agent_id = key.split("/", 1)[1]
-        agent = runner.load_agent(agent_id)
+        agent = agent_fiche.load_agent(agent_id)
         if agent is None:
             skipped.append({"agent_id": agent_id, "reason": "agent inconnu"})
             continue
@@ -279,7 +287,7 @@ def archive_agents(keys: list[str]) -> dict:
         # promet la docstring ci-dessus. Le « soft-delete PHYSIQUE » ajouté ensuite
         # (déplacer les artefacts vers _trash/{id}/) est ce qui a fait disparaître un
         # manager VIVANT le 2026-07-28 : sortir son .json de AGENTS_DIR fait renvoyer None
-        # à `load_agent`, donc 404 sur POST /api/agents/<id>/continue, donc absence de
+        # à `load_agent`, donc 404 sur POST /api/agents/<id>/messages, donc absence de
         # l'arbre de flotte et messages de l'interface silencieusement perdus — près de
         # quatre heures injoignable alors qu'il tournait.
         # Il n'achetait rien : `list_agent_sessions` filtre déjà sur le registre, et
@@ -287,7 +295,7 @@ def archive_agents(keys: list[str]) -> dict:
         # malgré le drapeau). Le déplacement ne coûtait donc QUE de la joignabilité.
         mark_deleted(key, reason="archived")
         archived.append(agent_id)  # id BRUT (cohérent avec skipped[].agent_id, aussi brut)
-    runner._list_agents_cache.clear()
+    agent_fiche._list_agents_cache.clear()
     return {"archived": archived, "skipped": skipped}
 
 
@@ -304,7 +312,7 @@ def stale_need_input_candidates() -> list[dict]:
 
     candidates: list[dict] = []
     deleted = load_deleted()
-    for agent in runner.list_agents():
+    for agent in agent_registre.list_agents():
         key = f"agent/{agent.agent_id}"
         if key in deleted:
             continue
@@ -325,15 +333,8 @@ def stale_need_input_candidates() -> list[dict]:
 
 def _age_hours(started_at: str | None) -> float:
     """Âge en heures depuis started_at (ISO 8601). +inf si non parsable (donc archivable)."""
-    if not started_at:
-        return float("inf")
-    try:
-        stamp = datetime.fromisoformat(str(started_at).replace("Z", "+00:00"))
-    except ValueError:
-        return float("inf")
-    if stamp.tzinfo is None:
-        stamp = stamp.replace(tzinfo=timezone.utc)
-    return (datetime.now(timezone.utc) - stamp).total_seconds() / 3600.0
+    age = age_s(started_at)
+    return float("inf") if age is None else age / 3600.0
 
 
 def auto_archive_stale_need_input(max_age_hours: float = 12.0) -> dict:

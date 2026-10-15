@@ -63,17 +63,34 @@ def _matches_filters(message: dict, *, role: str | None) -> bool:
 
 def _collect_refs(listing: dict, day: str | None) -> list[dict]:
     """Flatten list_sessions() output into [{key, ...}] applying day pre-filter."""
-    refs: list[dict] = []
-    for agent_ref in listing.get("agents") or []:
-        if day and day not in (agent_ref.get("saved_at") or ""):
-            continue
-        refs.append(agent_ref)
+    refs = [a for a in listing.get("agents") or [] if not day or day in (a.get("saved_at") or "")]
     for day_group in listing.get("days") or []:
-        if day and day_group.get("date") != day:
-            continue
-        for session_ref in day_group.get("sessions") or []:
-            refs.append(session_ref)
+        if not day or day_group.get("date") == day:
+            refs.extend(day_group.get("sessions") or [])
     return refs
+
+
+def _session_messages(key: str, model: str | None) -> Sequence[dict] | None:
+    """Messages d'une session, ou None si introuvable/illisible ou hors filtre `model`."""
+    resolved = store.resolve(key)
+    data = store.load_session_json(resolved.path) if resolved is not None else None
+    if data is None:
+        return None
+    if model:
+        session_model = data.get("model") or data.get("meta", {}).get("model", "")
+        if model.lower() not in session_model.lower():
+            return None
+    return data.get("messages") or []
+
+
+def _grep_messages(key: str, messages: Sequence[dict], pattern, role: str | None):
+    for idx, msg in enumerate(messages):
+        if not _matches_filters(msg, role=role):
+            continue
+        text = _message_text(msg)
+        if pattern.search(text):
+            yield {"key": key, "idx": idx, "role": msg.get("role", ""),
+                   "name": msg.get("name", ""), "excerpt": _excerpt(text, pattern)}
 
 
 def grep_sessions(
@@ -86,48 +103,16 @@ def grep_sessions(
 ) -> dict:
     """Search across all known sessions. Returns {matches, scanned, truncated}."""
     pattern = re.compile(q, re.IGNORECASE)
-
-    listing = store.list_sessions()
-    refs = _collect_refs(listing, day)
-
     matches: list[dict] = []
     scanned = 0
-    truncated = False
-
-    for ref in refs:
+    for ref in _collect_refs(store.list_sessions(), day):
         key = ref.get("key", "")
-        resolved = store.resolve(key)
-        if resolved is None:
+        messages = _session_messages(key, model)
+        if messages is None:
             continue
-        data = store.load_session_json(resolved.path)
-        if data is None:
-            continue
-
-        # Optional model filter: check session-level model
-        if model:
-            session_model = data.get("model") or data.get("meta", {}).get("model", "")
-            if model.lower() not in session_model.lower():
-                continue
-
-        messages: Sequence[dict] = data.get("messages") or []
         scanned += 1
-
-        for idx, msg in enumerate(messages):
-            if not _matches_filters(msg, role=role):
-                continue
-            text = _message_text(msg)
-            if pattern.search(text):
-                matches.append({
-                    "key": key,
-                    "idx": idx,
-                    "role": msg.get("role", ""),
-                    "name": msg.get("name", ""),
-                    "excerpt": _excerpt(text, pattern),
-                })
-                if len(matches) >= limit:
-                    truncated = True
-                    break
-        if truncated:
-            break
-
-    return {"matches": matches, "scanned": scanned, "truncated": truncated}
+        for match in _grep_messages(key, messages, pattern, role):
+            matches.append(match)
+            if len(matches) >= limit:
+                return {"matches": matches, "scanned": scanned, "truncated": True}
+    return {"matches": matches, "scanned": scanned, "truncated": False}

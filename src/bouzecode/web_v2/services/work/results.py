@@ -7,7 +7,7 @@ import re
 import subprocess
 from pathlib import Path
 
-from ...runtime import runner
+from ...runtime.runner import agent_fiche
 from ..sessions import store
 
 _MR_URL_RE = re.compile(
@@ -15,7 +15,7 @@ _MR_URL_RE = re.compile(
 _GIT_TIMEOUT_S = 5
 
 
-def _session_text(agent: runner.Agent) -> str:
+def _session_text(agent: agent_fiche.Agent) -> str:
     data = store.load_session_json(Path(agent.session_path)) or {}
     chunks = []
     for message in data.get("messages", []):
@@ -30,7 +30,7 @@ def _mr_links(ticket: dict) -> list[str]:
     for run in ticket["runs"]:
         if run["kind"] != "work":
             continue
-        agent = runner.load_agent(run["agent_id"])
+        agent = agent_fiche.load_agent(run["agent_id"])
         if agent is None:
             continue
         for url in _MR_URL_RE.findall(_session_text(agent)):
@@ -51,7 +51,7 @@ def _files_summary(ticket: dict) -> dict:
     work_run = next((r for r in ticket["runs"] if r["kind"] == "work"), None)
     if work_run is None:
         return {"count": 0, "session_key": ""}
-    agent = runner.load_agent(work_run["agent_id"])
+    agent = agent_fiche.load_agent(work_run["agent_id"])
     if agent is None:
         return {"count": 0, "session_key": ""}
     data = store.load_session_json(Path(agent.session_path)) or {}
@@ -61,14 +61,40 @@ def _files_summary(ticket: dict) -> dict:
     }
 
 
+class GitTropLent(RuntimeError):
+    """Une commande git a dépassé `_GIT_TIMEOUT_S` : la route répond 504, pas 500."""
+
+
+def _git_borne(project_path: str, *args: str) -> str:
+    try:
+        return _git(project_path, *args)
+    except subprocess.TimeoutExpired as exc:
+        raise GitTropLent(f"git {' '.join(args[:2])} a dépassé {_GIT_TIMEOUT_S} s") from exc
+
+
+def _branche_et_commits(project: dict, ticket: dict) -> tuple[str, str, list[str]]:
+    """(branche, base, commits) du TICKET (constat C13) : sa branche de travail comparée à sa
+    base quand il est isolé ; sinon la branche courante du dépôt depuis la création du ticket."""
+    meta = ticket.get("worktree") if isinstance(ticket.get("worktree"), dict) else {}
+    branch, base = meta.get("branch") or "", meta.get("base") or ""
+    if branch:
+        plage = f"{base}..{branch}" if base else branch
+        brut = _git_borne(project["path"], "log", "--oneline", "-n", "8", plage)
+        return branch, base, brut.splitlines() if brut else []
+    branch = _git_borne(project["path"], "rev-parse", "--abbrev-ref", "HEAD")
+    brut = _git_borne(project["path"], "log", "--oneline", "-n", "8",
+                      f"--since={ticket['created_at']}")
+    return branch, "", brut.splitlines() if brut else []
+
+
 def ticket_results(project: dict, ticket: dict) -> dict:
-    """Tout ce qu'il faut pour relire un ticket : MR, branche, commits depuis création, fichiers."""
-    branch = _git(project["path"], "rev-parse", "--abbrev-ref", "HEAD")
-    commits_raw = _git(
-        project["path"], "log", "--oneline", "-n", "8", f"--since={ticket['created_at']}")
+    """Tout ce qu'il faut pour relire un ticket : MR, branche, commits, fichiers.
+    Lève `GitTropLent` si git ne répond pas à temps."""
+    branch, base, commits = _branche_et_commits(project, ticket)
     return {
         "mr_links": _mr_links(ticket),
         "branch": branch,
-        "commits": commits_raw.splitlines() if commits_raw else [],
+        "base": base,
+        "commits": commits,
         "files": _files_summary(ticket),
     }

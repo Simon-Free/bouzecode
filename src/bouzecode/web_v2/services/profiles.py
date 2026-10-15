@@ -5,6 +5,7 @@ command and the sub-agent spawner both read this dir via profiles.discovery).
 """
 from __future__ import annotations
 
+from bouzecode.paths import project_dir as bouzecode_project_dir
 from pathlib import Path
 
 import yaml
@@ -12,8 +13,12 @@ import yaml
 from bouzecode.backend.profiles import load_profiles_from_dir, load_profile_from_path, user_global_dir
 from .profile_io import (
     HOOKS, HOOK_NAMES, NAME_RE,
-    first_line, serialize, clean_list, clean_plugins, unknown_selections,
+    first_line, serialize, clean_list, clean_plugins, unknown_selections, missing_selections,
 )
+
+
+class ProfileExists(Exception):
+    """Creating a profile under a name already taken by a global profile (409, never overwrite)."""
 
 
 def catalog() -> dict:
@@ -94,12 +99,37 @@ def get_profile(name: str) -> dict | None:
     return None
 
 
+def _kept_selections(name: str, based_on: str) -> dict:
+    """Selections already carried by the profile being edited (`name`) or duplicated
+    (`based_on`) : they may be absent from today's catalog and must survive a save."""
+    keep = {"tools": set(), "skills": set(), "hooks": set()}
+    sources = []
+    current = get_profile(name) if name else None
+    if current:
+        sources.append(current)
+    if based_on and based_on != name:
+        origin = next((a for a in list_agents() if a["name"] == based_on), None)
+        if origin:
+            sources.append(origin)
+    for src in sources:
+        for kind in keep:
+            keep[kind] |= set(src.get(kind) or [])
+    return keep
+
+
 def save_profile(data: dict) -> dict | str:
-    """Write ~/.bouzecode/profiles/<name>.yaml. Returns the saved dict or an error string."""
+    """Write ~/.bouzecode/profiles/<name>.yaml. Returns the saved dict or an error string.
+
+    `create=True` refuses to overwrite an existing global profile (raises ProfileExists).
+    `based_on` names the profile being duplicated : its selections missing from the catalog
+    are preserved like those of the edited profile itself (never dropped in silence).
+    """
     name = (data.get("name") or "").strip()
     if not NAME_RE.match(name):
         return "nom invalide : minuscules, chiffres, - et _ uniquement"
-    problem = unknown_selections(data)
+    if data.get("create") and get_profile(name) is not None:
+        raise ProfileExists(f"un profil « {name} » existe déjà : choisis un autre nom")
+    problem = unknown_selections(data, keep=_kept_selections(name, (data.get("based_on") or "").strip()))
     if problem:
         return problem
 
@@ -119,7 +149,7 @@ def save_profile(data: dict) -> dict | str:
         yaml.safe_dump(profile, allow_unicode=True, sort_keys=False),
         encoding="utf-8",
     )
-    return profile
+    return {**profile, "missing": missing_selections(profile)}
 
 
 def delete_profile(name: str) -> bool:
@@ -156,6 +186,7 @@ def list_agents() -> list[dict]:
         for st in _SYSTEM_TOOLS:  # Methodology/Snippet/FinalAnswer are always available
             if st not in entry["tools"]:
                 entry["tools"].append(st)
+        entry["missing"] = missing_selections(entry)
         out.append(entry)
 
     # System builtins (general-purpose / meta-agent / manager) — viewable, clone to edit.
@@ -163,7 +194,7 @@ def list_agents() -> list[dict]:
         seen.add(name)
         _emit(name, profile, kind="système", source="built-in", editable=False)
 
-    sources = [("global", user_global_dir()), ("projet", Path.cwd() / ".bouzecode" / "profiles")]
+    sources = [("global", user_global_dir()), ("projet", bouzecode_project_dir(Path.cwd()) / "profiles")]
     sources += [("extra", d / "profiles") for d in get_extra_dirs()]
     for label, directory in sources:
         for name, profile in load_profiles_from_dir(directory).items():

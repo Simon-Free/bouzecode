@@ -35,24 +35,53 @@ _memo: dict[str, tuple[float, dict]] = {}
 _memo_lock = threading.Lock()
 
 
-def memoized_meta(path: Path, disk_index: dict, build) -> dict:
-    """Méta de `path` : memo process, puis `disk_index`, et seulement en dernier `build()`.
+#  Fichiers d'index déjà versés dans le memo par CE process (cf. `amorcer`).
+_amorces: set[str] = set()
 
-    `build` (injecté) est le décodage coûteux du JSON de session. Il n'est appelé que si les
-    DEUX étages manquent pour le mtime courant. `disk_index` est enrichi sur place : c'est
-    l'appelant qui le sauve, une seule fois pour tout son listing."""
+
+def clear_memo() -> None:
+    """Vide le memo PROCESS (les étages index disque et build restent intacts).
+
+    Public parce qu'un test doit pouvoir rejouer un listing « comme dans un process neuf »
+    pour prouver qu'aucun session.json n'est redécodé quand l'index disque est à jour."""
+    with _memo_lock:
+        _memo.clear()
+        _amorces.clear()
+
+
+def amorcer(index_path: Path) -> None:
+    """Verse l'index disque dans le memo, UNE fois par process (et par fichier).
+
+    Le memo est ensuite l'autorité : le fichier (5,9 Mo) était relu et décodé à CHAQUE listing,
+    soit à chaque recalcul de l'arbre des agents (0,1 s toutes les 10 s), alors qu'il ne peut
+    rien apprendre au process qui l'a lui-même rempli."""
+    cle = str(index_path)
+    with _memo_lock:
+        if cle in _amorces:
+            return
+    entrees = read_file(index_path)
+    with _memo_lock:
+        for chemin, entree in entrees.items():
+            if isinstance(entree, dict) and "mtime" in entree and isinstance(entree.get("meta"), dict):
+                _memo.setdefault(chemin, (entree["mtime"], entree["meta"]))
+        _amorces.add(cle)
+
+
+def memoized_meta(path: Path, fresh_index: dict, build) -> dict:
+    """Méta de `path` : memo process (amorcé depuis l'index disque, cf. `amorcer`), et
+    seulement en dernier `build()`.
+
+    `build` (injecté) est le décodage coûteux du JSON de session. Il n'est appelé que si le
+    memo n'a rien pour le mtime courant. Une méta bâtie est ajoutée à `fresh_index` : c'est
+    l'appelant qui le fusionne dans le fichier, une seule fois pour tout son listing."""
     key = str(path)
     mtime = path.stat().st_mtime
     with _memo_lock:
         memoized = _memo.get(key)
     if memoized is not None and memoized[0] == mtime:
         return memoized[1]
-    entry = disk_index.get(key)
-    if isinstance(entry, dict) and entry.get("mtime") == mtime:
-        meta = entry["meta"]
-    else:
-        meta = build()
-        disk_index[key] = {"mtime": mtime, "meta": meta}
+    meta = build()
+    fresh_index[key] = {"mtime": mtime, "meta": meta}
     with _memo_lock:
         _memo[key] = (mtime, meta)
     return meta
@@ -60,8 +89,7 @@ def memoized_meta(path: Path, disk_index: dict, build) -> dict:
 
 def reset_memo() -> None:
     """Vide le memo. Réservé à l'isolation des tests (le process serveur ne l'appelle pas)."""
-    with _memo_lock:
-        _memo.clear()
+    clear_memo()
 
 
 def read_file(path: Path) -> dict:
@@ -93,6 +121,46 @@ def merge_into_file(path: Path, fresh: dict) -> None:
         tmp_path.replace(path)
     except OSError:
         tmp_path.unlink(missing_ok=True)
+
+
+class DirtyTrackingIndex(dict):
+    """Index de méta qui SAIT s'il a été modifié. Sous-classe de `dict` : le contrat
+    `cache: dict` des appelants (fleet, list_agent_sessions) est inchangé.
+
+    Un listing de sessions déjà indexées ne change AUCUNE entrée, et pourtant on
+    réécrivait tout le fichier (5,9 Mo mesurés) à chaque requête : 0,31 s de fusion +
+    0,13 s d'encodage JSON pour rien."""
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.dirty = False
+
+    def __setitem__(self, key, value):
+        if super().get(key) != value:
+            self.dirty = True
+        super().__setitem__(key, value)
+
+    def __delitem__(self, key):
+        self.dirty = True
+        super().__delitem__(key)
+
+
+def load_index(path: Path) -> DirtyTrackingIndex:
+    """Index disque, en version « je sais si j'ai changé » (cf. `save_index`)."""
+    return DirtyTrackingIndex(read_file(path))
+
+
+def save_index(path: Path, index: dict) -> None:
+    """Sauve l'index — mais seulement s'il a RÉELLEMENT changé.
+
+    Un index inchangé (cas ordinaire : toutes les sessions listées sont déjà indexées)
+    n'est ni fusionné, ni encodé, ni remplacé. Un `dict` ordinaire, lui, est toujours
+    écrit : le comportement d'avant reste disponible pour un appelant qui l'attend."""
+    if isinstance(index, DirtyTrackingIndex) and not index.dirty:
+        return
+    merge_into_file(path, index)
+    if isinstance(index, DirtyTrackingIndex):
+        index.dirty = False
 
 
 def sweep_orphan_tmp(path: Path, older_than_seconds: float = 3600.0) -> list[str]:

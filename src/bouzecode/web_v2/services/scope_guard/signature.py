@@ -2,7 +2,7 @@
 """Réduire un prompt de ticket à CE QU'IL DÉSIGNE, pour comparer deux périmètres.
 
 Deux rédactions différentes du même livrable partagent les mêmes ANCRES — la table
-`docs.article_views`, la route `/api/file`, le module `src/apps/wiki/`. C'est le signal
+`docs.rmpedia_views`, la route `/api/file`, le module `src/apps/wiki/`. C'est le signal
 fort : un nom de table ne se retrouve pas par hasard dans deux tickets. Les mots ordinaires
 ne servent que d'appoint, et le texte de service (« règles projet », « verdict », « uv
 run ») est retiré : il est IDENTIQUE dans tous les prompts du dépôt et noierait le signal.
@@ -12,11 +12,16 @@ from __future__ import annotations
 import re
 import unicodedata
 
-# `docs.article_views`, `chat.conversations` — un schéma/table ou un module pointé.
+# `docs.rmpedia_views`, `focus.conversations` — un schéma/table ou un module pointé.
 _ANCRE_POINTEE = re.compile(r"\b[a-z][a-z0-9_]*(?:\.[a-z][a-z0-9_]{2,})+\b")
 # `/api/file`, `src/apps/wiki/` — une route ou un chemin de module.
 _ANCRE_CHEMIN = re.compile(r"\b[a-z0-9_.-]*(?:/[a-z0-9_.-]+)+/?")
 _MOT = re.compile(r"[a-z][a-z0-9_]*")
+# Paragraphe AJOUTÉ par l'outil Agent au brief du parent (backend/multi_agent/travail_non_commite.py,
+# `_avertir_travail_non_commite`) : identique d'un enfant à l'autre, chemin du worktree du
+# parent compris. Il ne décrit pas le périmètre ; le garder rendait « écrire enfant_a.md » et
+# « écrire enfant_b.md » doublons à 93 % dès que le parent avait un fichier non commité.
+_NOTE_DE_L_OUTIL = re.compile(r"\[Note de l'outil\].*?(?:\r?\n[ \t]*\r?\n|\Z)", re.S)
 
 # Texte de SERVICE : présent dans quasi tous les prompts du dépôt (bloc « règles projet »,
 # protocole de verdict, vocabulaire de mission). Il ne dit rien du périmètre.
@@ -29,7 +34,7 @@ ligne dossier dossiers readme deploie deploiement azure install pip logger excep
 exemple explicitement clairement notamment ensuite avant apres pendant chaque toute toutes
 tous cette celui ceux leur leurs elle elles dans avec sans pour donc mais aussi comme
 quand alors etre sont doit dois faut peux plus moins meme autre autres deja encore
-users home repos workspace application
+users pycharmprojects demo demo_application application
 """.split())
 
 _MIN_LONGUEUR_MOT = 5
@@ -50,7 +55,7 @@ def anchors(text: str) -> set[str]:
     trouves = set(_ANCRE_POINTEE.findall(plie))
     for chemin in _ANCRE_CHEMIN.findall(plie):
         normalise = chemin.strip("/")
-        # Un chemin absolu de dépôt (/home/dev/demo_app) est commun à tous les
+        # Un chemin absolu de dépôt (c:/users/.../demo_application) est commun à tous les
         # tickets du projet : seuls ses derniers segments distinguent un périmètre.
         segments = [s for s in normalise.split("/") if s and s not in _SERVICE]
         if segments:
@@ -67,8 +72,9 @@ def keywords(text: str) -> set[str]:
 
 def scope_signature(text: str) -> set[str]:
     """Le périmètre d'un prompt : ses ancres (préfixées, pour ne jamais collisionner avec
-    un mot) et ses mots distinctifs."""
-    return {f"@{a}" for a in anchors(text)} | keywords(text)
+    un mot) et ses mots distinctifs. Les notes ajoutées par l'outil n'en font pas partie."""
+    brief = _NOTE_DE_L_OUTIL.sub("\n", text)
+    return {f"@{a}" for a in anchors(brief)} | keywords(brief)
 
 
 def similarity(gauche: set[str], droite: set[str]) -> float:

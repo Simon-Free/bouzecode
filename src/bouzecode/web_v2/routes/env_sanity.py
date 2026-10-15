@@ -8,6 +8,9 @@ env_sanity_bp = Blueprint("env_sanity", __name__)
 
 @env_sanity_bp.get("/api/env-sanity")
 def api_env_sanity():
+    """verdict du sanity-check de l'env API fait au boot → {ok, detail, base_url_present,
+    key_present} (ANTHROPIC_BASE_URL/clé présentes et base_url joignable) — alimente le bandeau
+    rouge et les gardes 503 des endpoints de spawn"""
     return jsonify(_api_sanity.api_sanity_state())
 
 

@@ -1,5 +1,5 @@
 # [desc] Package entry point: public API for the per-LLM-call context viewer (HTML page + inline session-page stats). [/desc]
-"""Public API for the BouzéqUI context viewer."""
+"""Public API for the bouzeui context viewer."""
 import html
 import json
 

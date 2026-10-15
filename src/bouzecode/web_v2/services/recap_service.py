@@ -96,37 +96,40 @@ def _rank_of(path: str, order: dict[str, int]) -> int | None:
     return order.get(base)
 
 
+def _par_nom(entries) -> list[dict]:
+    return sorted(entries, key=lambda e: e["file"].lower())
+
+
+def _code_ordonne(code: list[dict], changes: list) -> tuple[list[dict], list[dict]]:
+    """(code cité dans `changes`, dans leur ordre ; autre code, alpha)."""
+    order = _change_order_key(changes)
+    rangs = {e["file"]: _rank_of(e["file"], order) for e in code}
+    cites = sorted((e for e in code if rangs[e["file"]] is not None), key=lambda e: rangs[e["file"]])
+    autres = _par_nom(e for e in code if rangs[e["file"]] is None)
+    return cites, autres
+
+
+def _sections(entries: list[dict], changes: list) -> list[dict]:
+    """Code cité dans `changes`, autre code, puis tests (nouveaux d'abord)."""
+    cites, autres = _code_ordonne([e for e in entries if not e["is_test"]], changes)
+    tests = [e for e in entries if e["is_test"]]
+    tests = _par_nom(e for e in tests if e["is_new"]) + _par_nom(e for e in tests if not e["is_new"])
+    return (
+        [{**e, "section": "changes"} for e in cites]
+        + [{**e, "section": "other"} for e in autres]
+        + [{**e, "section": "tests"} for e in tests]
+    )
+
+
 def assemble_recap_diffs(recap: dict | None, snapshots: dict) -> list[dict]:
-    """Assemble et trie les diffs par fichier selon les règles ci-dessus.
+    """Assemble et trie les diffs par fichier selon les règles du module.
 
     recap None/vide → tri purement alphabétique (fallback sessions historiques)."""
     entries = [_entry(path, snap or {}) for path, snap in (snapshots or {}).items()]
-
     changes = recap.get("changes") if isinstance(recap, dict) else None
     if not changes:
-        ordered = sorted(entries, key=lambda e: e["file"].lower())
-        return [{**e, "section": "all"} for e in ordered]
-
-    order = _change_order_key(changes)
-
-    tests = [e for e in entries if e["is_test"]]
-    code = [e for e in entries if not e["is_test"]]
-
-    in_changes = [e for e in code if _rank_of(e["file"], order) is not None]
-    in_changes.sort(key=lambda e: _rank_of(e["file"], order))
-    others = sorted(
-        (e for e in code if _rank_of(e["file"], order) is None),
-        key=lambda e: e["file"].lower(),
-    )
-
-    new_tests = sorted((e for e in tests if e["is_new"]), key=lambda e: e["file"].lower())
-    fixed_tests = sorted((e for e in tests if not e["is_new"]), key=lambda e: e["file"].lower())
-
-    return (
-        [{**e, "section": "changes"} for e in in_changes]
-        + [{**e, "section": "other"} for e in others]
-        + [{**e, "section": "tests"} for e in (*new_tests, *fixed_tests)]
-    )
+        return [{**e, "section": "all"} for e in _par_nom(entries)]
+    return _sections(entries, changes)
 
 
 def session_recap_diffs(recap: dict | None, data: dict) -> list[dict]:
@@ -151,47 +154,50 @@ def session_recap_diffs(recap: dict | None, data: dict) -> list[dict]:
     return assemble_recap_diffs(recap, {})
 
 
-def aggregate_children_recaps(agent_id: str, agents, load_json, find_verdict=None) -> list[dict]:
-    """Concatène (SANS LLM) le travail des sous-agents d'un manager pour présenter tout
-    un lot d'un seul coup. `agents` = itérable d'objets Agent (attributs
-    agent_id/parent/session_path/prompt/started_at) ; `load_json(path)->dict|None` ;
-    `find_verdict(agent)->"OK"|"KO"|None` (optionnel, injecté → testable).
+def _partie_session(session_path: str, load_json) -> dict:
+    data = load_json(session_path) if session_path else None
+    recap = data.get("recap") if data else None
+    has_recap = isinstance(recap, dict) and bool(recap)
+    return {
+        "recap": recap if has_recap else None,
+        "diffs": session_recap_diffs(recap, data) if has_recap else [],
+        "has_recap": has_recap,
+    }
 
-    Retourne, dans l'ordre de dispatch (started_at), UNE entrée par enfant du manager
-    (parent match), MÊME sans récap structuré — afin que le lien vers la conversation de
-    l'enfant reste toujours présent (minimum demandé). Chaque entrée :
-    {agent_id, title, recap(dict|None), diffs(list), has_recap(bool), verdict(str|None),
-    started_at}. Un enfant AVEC récap porte recap+diffs (session_recap_diffs : file_snapshots
-    OU git diff text, mêmes tri/sections que la vue codeur) et has_recap=True ; un enfant
-    SANS récap → recap=None, diffs=[], has_recap=False (le front n'affiche alors qu'un
-    lien vers sa conversation). Deps injectées → testable sans runner/store.
 
-    POLITIQUE MULTI-RÉCAPS (déterministe) : un même step relancé (rework KO→OK) produit
-    deux sessions de MÊME TITRE (1re ligne du prompt). On DÉDUPLIQUE par titre →
-    l'entrée la plus RÉCENTE gagne (started_at max écrase l'ancien même titre). Les titres
-    distincts restent une entrée chacun. L'ordre final est l'ordre de dispatch (started_at
-    asc) des entrées retenues → narration du lot cohérente."""
-    kids = []
-    for a in agents:
-        parent = getattr(a, "parent", "") or ""
-        if parent not in (agent_id, f"agent/{agent_id}"):
-            continue
-        session_path = getattr(a, "session_path", "") or ""
-        data = load_json(session_path) if session_path else None
-        recap = data.get("recap") if data else None
-        has_recap = isinstance(recap, dict) and bool(recap)
-        kids.append({
-            "agent_id": a.agent_id,
-            "title": (getattr(a, "prompt", "") or "").strip().split("\n")[0][:90] or a.agent_id,
-            "recap": recap if has_recap else None,
-            "diffs": session_recap_diffs(recap, data) if has_recap else [],
-            "has_recap": has_recap,
-            "verdict": (find_verdict(a) if find_verdict else None),
-            "started_at": getattr(a, "started_at", "") or "",
-        })
-    kids.sort(key=lambda k: k["started_at"])   # ordre de dispatch = narration du lot
-    # Dédup par titre : le plus récent (dernier dans l'ordre started_at asc) gagne.
+def _entree_enfant(agent, load_json) -> dict:
+    """Une entrée de `aggregate_children_recaps` : récap + diffs si l'enfant en a un.
+
+    Ce qui vient de la session de l'enfant (récap, diffs) est mémorisé par version de son
+    fichier (`builder.memoriser`) : un manager de 100 sous-agents relisait sinon chacune de
+    leurs sessions à chaque ouverture de son récap."""
+    from ..runtime.context_viewer.builder import memoriser
+    session_path = getattr(agent, "session_path", "") or ""
+    partie = memoriser("recap_enfant", session_path,
+                       lambda: _partie_session(session_path, load_json)) \
+        if session_path else _partie_session(session_path, load_json)
+    return {
+        "agent_id": agent.agent_id,
+        "title": (getattr(agent, "prompt", "") or "").strip().split("\n")[0][:90] or agent.agent_id,
+        "recap": partie["recap"],
+        "diffs": partie["diffs"],
+        "has_recap": partie["has_recap"],
+        "started_at": getattr(agent, "started_at", "") or "",
+    }
+
+
+def aggregate_children_recaps(agent_id: str, agents, load_json) -> list[dict]:
+    """Le travail des sous-agents d'un manager, concaténé sans LLM, pour lire un lot d'un coup.
+
+    Une entrée par enfant (`parent` = le manager), même sans récap, pour que le lien vers sa
+    conversation reste présent : {agent_id, title, recap|None, diffs, has_recap,
+    started_at}. Ordre de dispatch (started_at). Un step relancé produit deux sessions de
+    même titre : on garde la plus récente. Dépendance injectée (`load_json`)
+    pour tester sans runner ni store."""
+    kids = [_entree_enfant(a, load_json) for a in agents
+            if (getattr(a, "parent", "") or "") in (agent_id, f"agent/{agent_id}")]
+    kids.sort(key=lambda k: k["started_at"])
     by_title: dict[str, dict] = {}
     for k in kids:
-        by_title[k["title"]] = k   # écrasement → dernier started_at conservé
+        by_title[k["title"]] = k  # le dernier (plus récent) écrase
     return list(by_title.values())

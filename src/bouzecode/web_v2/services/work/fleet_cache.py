@@ -35,6 +35,9 @@ _registry_lock = threading.Lock()
 _compute_locks: dict[Any, threading.Lock] = {}
 _refreshing: set = set()
 
+# Mémoires DÉRIVÉES des pages servies (`fleet_vue`) : vidées avec le cache (isolation des tests).
+_au_vidage: list[Callable[[], None]] = []
+
 
 def cached(cache_key, compute: Callable[[], Any]):
     """Valeur de `cache_key` : servie de suite si elle existe, recalculée en fond si périmée.
@@ -112,9 +115,25 @@ def expire_all() -> None:
             entry["expires"] = 0.0
 
 
+def au_vidage(fonction: Callable[[], None]) -> None:
+    """Inscrit une mémoire dérivée des pages d'arbre, à vider avec elles (`clear`)."""
+    _au_vidage.append(fonction)
+
+
+def attendre_puis_vider(delai: float = 5.0) -> None:
+    """Attend la fin des recalculs de fond en vol, puis vide tout. Réservé à l'isolation des
+    tests : un recalcul lancé par un test (daemon) survivait au test et appelait `list_agents`
+    pendant le suivant, faussant ses comptes (vu sur `test_overview_perf`)."""
+    for fil in [t for t in threading.enumerate() if t.name.startswith("cache-refresh")]:
+        fil.join(timeout=delai)
+    clear()
+
+
 def clear() -> None:
     """Vide tout. Réservé à l'isolation des tests (le process serveur ne l'appelle pas)."""
     with _registry_lock:
         _entries.clear()
         _compute_locks.clear()
         _refreshing.clear()
+    for vider in _au_vidage:
+        vider()

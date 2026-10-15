@@ -8,13 +8,15 @@ diverger sur « qui est visible ».
 """
 from __future__ import annotations
 
-from datetime import datetime, timezone
 from pathlib import Path
 
-from ...runtime import pending, runner
+from bouzecode.web_v2.services.horodatage import en_iso
+
+from ...runtime import pending
+from ...runtime.runner import agent_etat, agent_fiche
 
 # États qui prouvent qu'un agent n'a PAS fini : il travaille, il démarre, il attend une
-# réponse humaine, ou il est CHAUD ET OISIF. Mêmes états que `workflow._ACTIVE` /
+# réponse humaine, ou il est CHAUD ET OISIF. Mêmes états que
 # `isolation._ACTIVE_STATES`.
 # `idle` = warm pool : le process est RÉSIDENT (il tient encore son worktree et reprend
 # au premier message poussé). Il est distingué de `running` pour que la garde
@@ -29,12 +31,12 @@ ALIVE_STATES = ("running", "starting", "awaiting_input", "awaiting_plan_validati
 # = « l'archivage explicite refuse de le ranger », et ne couvre QUE les états où l'agent
 # TRAVAILLE ou ATTEND une réponse humaine. Un warm-oisif (`idle`) ou un démarrage
 # (`starting`) NE travaille pas : l'utilisateur qui l'archive délibérément doit pouvoir le
-# ranger (cas 0123456789ab / 63343a4b4a4a). Il reste restaurable via `restore(key)`, donc
+# ranger (cas 9d0789f2fdca / 63343a4b4a4a). Il reste restaurable via `restore(key)`, donc
 # aucune régression de joignabilité comme en 2026-07-28 (qui visait un agent EN COURS).
 ARCHIVE_PROTECTED_STATES = ("running", "awaiting_input", "awaiting_plan_validation")
 
 
-def hidden_by_archive(agent: runner.Agent, deleted: dict) -> bool:
+def hidden_by_archive(agent: agent_fiche.Agent, deleted: dict) -> bool:
     """Cet agent archivé doit-il être CACHÉ des listes ? Non s'il travaille encore.
 
     Le travail en cours PRIME sur le drapeau d'archivage : un agent qui tourne, ou qui
@@ -48,15 +50,31 @@ def hidden_by_archive(agent: runner.Agent, deleted: dict) -> bool:
     (`starting`) ne travaille pas : l'archivage explicite le range bien (il reste restaurable
     via `restore`). C'est la demande utilisateur — auparavant un warm-oisif archivé restait
     éternellement visible. Un agent terminé, lui aussi, reste caché : l'archivage garde tout
-    son sens."""
+    son sens.
+
+    NUANCE ORPHELIN : un état `awaiting_*` n'est protégé QUE si le process est VIVANT
+    (`returncode is None`). Après un restart serveur, un agent dont le process est MORT mais
+    qui avait persisté une question `AskUserQuestion` sur disque est reclassé `awaiting_input`
+    par `agent_status` (branche process mort) : il NE travaille plus, personne ne le relancera
+    tel quel, et l'utilisateur doit pouvoir le ranger (cas signalé 9d0789f2fdca / 63343a4b4a4a
+    et le ticket « Suite du ticket 3… », tous awaiting ORPHELINS). L'incident 2026-07-28 visait
+    au contraire un agent EN COURS (process vivant) : distinguer sur `returncode` corrige l'un
+    sans rouvrir l'autre."""
     from . import store
 
     if f"agent/{agent.agent_id}" not in deleted:
         return False
-    return store.agent_status(agent).get("state") not in ARCHIVE_PROTECTED_STATES
+    status = store.agent_status(agent)
+    state = status.get("state")
+    if state not in ARCHIVE_PROTECTED_STATES:
+        return True
+    # Awaiting ORPHELIN (process mort) : plus de travail en cours → archivable.
+    if state in ("awaiting_input", "awaiting_plan_validation"):
+        return status.get("returncode") is not None
+    return False
 
 
-def answer_no_longer_expected(agent: runner.Agent, paused: dict) -> str:
+def answer_no_longer_expected(agent: agent_fiche.Agent, paused: dict) -> str:
     """Motif prouvant qu'une question pendante n'attend PLUS personne ; "" si elle attend.
 
     `<session>.pending.json` n'est supprimé que lorsque l'agent REÇOIT sa réponse. Un agent
@@ -82,28 +100,30 @@ def answer_no_longer_expected(agent: runner.Agent, paused: dict) -> str:
     que `63cd2c4183e8`, pourtant tué, porte exactement cette signature (il était mort de son
     TTL AVANT qu'on le tue). La manière de mourir ne dit rien ; seule une réponse déjà reçue
     ou un arrêt demandé prouvent que plus personne n'est attendu."""
-    from . import store
-
     if agent.ipc_dir and (Path(agent.ipc_dir) / "cancel.flag").is_file():
         return "cancelled"
+    return "answered" if paused.get("ask_tc_id") in _resolved_after_pause(agent) else ""
+
+
+def _resolved_after_pause(agent: agent_fiche.Agent) -> set:
+    """tool_call_id résolus dans la session, seulement si elle a été retouchée APRÈS la mise
+    en pause (sinon elle ne peut pas porter la réponse — et on évite de re-décoder des Mo de
+    JSON à chaque construction de l'arbre)."""
+    from . import store
+
     if not agent.session_path:
-        return ""
+        return set()
     session_path = Path(agent.session_path)
     marker = pending.pending_path(agent.session_path)
-    # Session pas retouchée depuis la mise en pause : elle ne peut pas porter la réponse.
-    # Garde de COÛT autant que de sens — sans elle, chaque construction de l'arbre
-    # re-décoderait le JSON (des Mo) de tout agent porteur d'un marqueur.
     if not (session_path.is_file() and marker.is_file()):
-        return ""
+        return set()
     if session_path.stat().st_mtime <= marker.stat().st_mtime:
-        return ""
+        return set()
     data = store.load_session_json(session_path) or {}
-    resolved = {message.get("tool_call_id") for message in data.get("messages") or []
-                if message.get("role") == "tool"}
-    return "answered" if paused.get("ask_tc_id") in resolved else ""
+    return {m.get("tool_call_id") for m in data.get("messages") or [] if m.get("role") == "tool"}
 
 
-def asked_at(agent: runner.Agent) -> str:
+def asked_at(agent: agent_fiche.Agent) -> str:
     """Quand la question en attente a été POSÉE (ISO 8601), ou "" si on ne sait pas.
 
     Deux traces, par ordre d'autorité :
@@ -118,8 +138,8 @@ def asked_at(agent: runner.Agent) -> str:
     if agent.session_path:
         path = pending.pending_path(agent.session_path)
         if path.is_file():
-            return datetime.fromtimestamp(path.stat().st_mtime, timezone.utc).isoformat()
-    updated_at = runner.get_ipc_state(agent).get("updated_at")
+            return en_iso(path.stat().st_mtime, "auto")
+    updated_at = agent_etat.get_ipc_state(agent).get("updated_at")
     if isinstance(updated_at, (int, float)):
-        return datetime.fromtimestamp(updated_at, timezone.utc).isoformat()
+        return en_iso(updated_at, "auto")
     return ""

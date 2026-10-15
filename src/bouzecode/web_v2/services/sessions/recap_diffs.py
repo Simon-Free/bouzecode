@@ -66,43 +66,35 @@ def _recap_change_files(recap: dict | None) -> list[str]:
     return files
 
 
+def _alpha(blocks) -> list[dict]:
+    return sorted(blocks, key=lambda b: b["file"].lower())
+
+
+def _blocs_cites(non_tests: list[dict], recap: dict) -> list[dict]:
+    """Section "changes" : ordre de recap.changes, dédupliqué, fichiers présents dans le diff."""
+    by_file = {b["file"]: b for b in non_tests}
+    cites = [by_file[f] for f in dict.fromkeys(_recap_change_files(recap)) if f in by_file]
+    return [_with_section(b, "changes") for b in cites]
+
+
+def _sections(blocks: list[dict], recap: dict) -> list[dict]:
+    """changes (ordre du recap), puis other (alpha), puis tests (nouveaux d'abord, alpha)."""
+    non_tests = [b for b in blocks if not b["is_test"]]
+    tests = [b for b in blocks if b["is_test"]]
+    changes = _blocs_cites(non_tests, recap)
+    cites = {b["file"] for b in changes}
+    others = [_with_section(b, "other") for b in _alpha(non_tests) if b["file"] not in cites]
+    tests = _alpha(b for b in tests if b["is_new"]) + _alpha(b for b in tests if not b["is_new"])
+    return [*changes, *others, *(_with_section(b, "tests") for b in tests)]
+
+
 def build_recap_payload(recap: dict | None, diff_text: str) -> dict:
     """Assemble le payload de l'endpoint recap. Fonction PURE (testable seule)."""
     blocks = split_unified_diff(diff_text)
-    recap_present = isinstance(recap, dict) and bool(recap)
-
-    if not recap_present:
-        ordered = sorted(blocks, key=lambda b: b["file"].lower())
-        diffs = [_with_section(b, "all") for b in ordered]
-        return {"recap": recap if isinstance(recap, dict) else None,
-                "recap_missing": True, "diffs": diffs}
-
-    tests = [b for b in blocks if b["is_test"]]
-    non_tests = [b for b in blocks if not b["is_test"]]
-    by_file = {b["file"]: b for b in non_tests}
-
-    # section "changes" : ordre de recap.changes, dédupliqué, uniquement fichiers présents dans le diff.
-    changes_order = _recap_change_files(recap)
-    seen: set[str] = set()
-    change_blocks: list[dict] = []
-    for file_path in changes_order:
-        block = by_file.get(file_path)
-        if block is not None and file_path not in seen:
-            change_blocks.append(_with_section(block, "changes"))
-            seen.add(file_path)
-
-    # section "other" : non-test hors changes, ordre alpha stable.
-    other_blocks = [_with_section(b, "other")
-                    for b in sorted(non_tests, key=lambda b: b["file"].lower())
-                    if b["file"] not in seen]
-
-    # section "tests" : nouveaux d'abord (is_new), puis corrigés ; alpha dans chaque groupe.
-    new_tests = sorted((b for b in tests if b["is_new"]), key=lambda b: b["file"].lower())
-    fixed_tests = sorted((b for b in tests if not b["is_new"]), key=lambda b: b["file"].lower())
-    test_blocks = [_with_section(b, "tests") for b in (*new_tests, *fixed_tests)]
-
-    return {"recap": recap, "recap_missing": False,
-            "diffs": [*change_blocks, *other_blocks, *test_blocks]}
+    if not (isinstance(recap, dict) and recap):
+        return {"recap": recap if isinstance(recap, dict) else None, "recap_missing": True,
+                "diffs": [_with_section(b, "all") for b in _alpha(blocks)]}
+    return {"recap": recap, "recap_missing": False, "diffs": _sections(blocks, recap)}
 
 
 def _with_section(block: dict, section: str) -> dict:

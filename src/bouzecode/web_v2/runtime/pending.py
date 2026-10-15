@@ -47,6 +47,26 @@ def exists(session_path: str | Path) -> bool:
     return pending_path(session_path).exists()
 
 
+def _unresolved(data: dict, already_resolved: set) -> list[dict]:
+    """Appels d'outils en pause encore sans résultat, la question (ask_tc_id) en tête."""
+    unresolved = [tc for tc in data.get("pending_tcs", []) if tc["id"] not in already_resolved]
+    ask_id = data.get("ask_tc_id")
+    if ask_id and ask_id not in already_resolved and not any(tc["id"] == ask_id for tc in unresolved):
+        unresolved.insert(0, {"id": ask_id, "name": "AskUserQuestion"})
+    return unresolved
+
+
+def _inject_cancelled(session_file: Path, data: dict) -> None:
+    session = json.loads(session_file.read_text(encoding="utf-8"))
+    messages = session.get("messages", [])
+    resolved = {m.get("tool_call_id") for m in messages if m.get("role") == "tool"}
+    for tc in _unresolved(data, resolved):
+        messages.append({"role": "tool", "tool_call_id": tc["id"],
+                         "name": tc.get("name", "Unknown"), "content": "(cancelled by user)"})
+    session["messages"] = messages
+    session_file.write_text(json.dumps(session, indent=2, ensure_ascii=False), encoding="utf-8")
+
+
 def cancel(session_path: str | Path) -> bool:
     """Inject synthetic `(cancelled by user)` tool_results for unresolved pending tcs
     into the session so the conversation stays API-valid, then delete pending.json.
@@ -54,32 +74,7 @@ def cancel(session_path: str | Path) -> bool:
     data = load(session_path)
     if data is None:
         return False
-    sp = Path(session_path)
-    if not sp.exists():
-        delete(session_path)
-        return True
-
-    session = json.loads(sp.read_text(encoding="utf-8"))
-    messages = session.get("messages", [])
-    already_resolved = {
-        m.get("tool_call_id") for m in messages if m.get("role") == "tool"
-    }
-
-    unresolved_tcs = [
-        tc for tc in data.get("pending_tcs", [])
-        if tc["id"] not in already_resolved
-    ]
-    if data.get("ask_tc_id") and data["ask_tc_id"] not in already_resolved:
-        if not any(tc["id"] == data["ask_tc_id"] for tc in unresolved_tcs):
-            unresolved_tcs.insert(0, {"id": data["ask_tc_id"], "name": "AskUserQuestion"})
-
-    for tc in unresolved_tcs:
-        messages.append({
-            "role": "tool", "tool_call_id": tc["id"],
-            "name": tc.get("name", "Unknown"), "content": "(cancelled by user)",
-        })
-
-    session["messages"] = messages
-    sp.write_text(json.dumps(session, indent=2, ensure_ascii=False), encoding="utf-8")
+    if Path(session_path).exists():
+        _inject_cancelled(Path(session_path), data)
     delete(session_path)
     return True

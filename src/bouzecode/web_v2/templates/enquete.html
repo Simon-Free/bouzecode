@@ -1,0 +1,50 @@
+{% extends "base.html" %}
+{# Vue d'enquête (SPEC.md §5.5) : comprendre pourquoi un agent déraille ou ce qui sature son
+   contexte. Tout le comportement vit dans static/js/enquete/. #}
+{% block title %}Enquête · {{ agent_id[:8] }}{% endblock %}
+{% block head %}
+<link rel="stylesheet" href="{{ url_for('static', filename='css/enquete.css') }}">
+{% endblock %}
+{% block content %}
+<div class="eq" data-agent="{{ agent_id }}">
+  <header class="eq-head">
+    <div class="eq-head__titre">
+      <h1>Enquête <span class="eq-head__id">#{{ agent_id[:8] }}</span></h1>
+      <p id="eq-resume" class="eq-head__resume">Chargement…</p>
+    </div>
+    <div class="eq-head__actions">
+      <a class="btn btn--ghost btn--sm" href="/conversations?agent={{ agent_id }}">Ouvrir la conversation</a>
+      <form id="eq-recherche" class="eq-recherche" role="search" autocomplete="off">
+        <label class="sr-only" for="eq-q">Rechercher dans toute la session</label>
+        <input id="eq-q" class="input" type="search" placeholder="Rechercher dans la session… ( / )">
+      </form>
+    </div>
+  </header>
+  <nav class="tabs eq-onglets" role="tablist" aria-label="Vues de l'enquête">
+    <button type="button" class="tab" role="tab" data-vue="tours" aria-selected="true">Tours</button>
+    <button type="button" class="tab" role="tab" data-vue="note" aria-selected="false">Note de travail</button>
+    <button type="button" class="tab" role="tab" data-vue="saturation" aria-selected="false">Saturation</button>
+    <button type="button" class="tab" role="tab" data-vue="recherche" aria-selected="false" hidden>Recherche</button>
+  </nav>
+  <section id="vue-tours" class="eq-vue eq-tours" data-vue="tours">
+    <aside class="eq-frise" aria-label="Frise des tours">
+      <div class="eq-frise__barre">
+        <label class="eq-bascule"><input type="checkbox" id="eq-anormaux"> Seulement les tours anormaux</label>
+        <span class="eq-frise__aide" title="Naviguer entre les tours">j / k</span>
+      </div>
+      <div class="eq-legende" aria-hidden="true">
+        <span class="eq-l eq-l--lu">cache lu</span><span class="eq-l eq-l--ecrit">écrit au cache</span><span class="eq-l eq-l--plein">plein tarif</span><span class="eq-l eq-l--sortie">sortie</span>
+      </div>
+      <ol id="eq-liste" class="eq-liste" aria-busy="true"></ol>
+    </aside>
+    <div id="eq-tour" class="eq-tour" aria-live="polite"></div>
+  </section>
+  <section id="vue-note" class="eq-vue" data-vue="note" hidden></section>
+  <section id="vue-saturation" class="eq-vue" data-vue="saturation" hidden></section>
+  <section id="vue-recherche" class="eq-vue" data-vue="recherche" hidden></section>
+</div>
+{% endblock %}
+{% block footer %}{% endblock %}
+{% block scripts %}
+<script type="module" src="{{ url_for('static', filename='js/enquete/main.js') }}"></script>
+{% endblock %}

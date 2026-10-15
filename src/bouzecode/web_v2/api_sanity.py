@@ -1,4 +1,4 @@
-# [desc] Verdict env API ANTHROPIC (retries au boot + re-sonde à chaud) qui garde les spawns d'agents et alimente le bandeau UI. [/desc]
+# [desc] Verdict env API du fournisseur du modèle configuré (retries au boot + re-sonde à chaud) qui garde les spawns et alimente le bandeau UI. [/desc]
 """Verdict « les agents peuvent-ils parler au provider ? ».
 
 Le verdict n'est plus figé à vie : un faux négatif transitoire au boot (hoquet DNS/proxy
@@ -25,10 +25,11 @@ BOOT_API_OK: bool | None = None
 BOOT_API_DETAIL: str = ""
 BOOT_BASE_URL_PRESENT: bool = False
 BOOT_KEY_PRESENT: bool = False
+BOOT_PROVIDER: str = "anthropic"
 LAST_CHECK_AT: float = 0.0
 
 # Boot : plusieurs tentatives, timeout large. Une sonde unique à 3 s suffisait à geler
-# un KO mensonger pour toute la vie du process alors que la passerelle répond en 0,4 s.
+# un KO mensonger pour toute la vie du process alors que le gateway répond en 0,4 s.
 BOOT_ATTEMPTS = 3
 BOOT_TIMEOUT_S = api_probe.DEFAULT_TIMEOUT_S
 # Re-sonde : UNE tentative courte, pour ne jamais faire traîner un GET ou un spawn.
@@ -48,19 +49,43 @@ SPAWN_REFUSED_UNREACHABLE = (
 _ENV_SOURCE: dict | None = None
 _PING = None
 _SLEEP = None
+_MODEL: str | None = None
 _LOCK = threading.Lock()
+
+
+def _modele() -> str:
+    """Le modèle par défaut des agents : injecté (tests), sinon ~/.bouzecode/config.json.
+    Sous injection d'env sans modèle, le défaut du code : le test ne dépend pas du poste."""
+    from ..backend.core import config as core_config
+    if _MODEL:
+        return _MODEL
+    defaut = str(core_config.DEFAULTS.get("model") or "")
+    if _ENV_SOURCE is not None or not core_config.CONFIG_FILE.exists():
+        return defaut
+    try:
+        import json
+        return str(json.loads(core_config.CONFIG_FILE.read_text(encoding="utf-8")).get("model")
+                   or defaut)
+    except (OSError, ValueError):
+        return defaut
+
+
+def _fournisseur() -> str:
+    from ..backend.agent.providers.registry import resolve_provider
+    return resolve_provider(_modele())[0]
 
 
 def _evaluate(*, attempts: int, timeout: float, label: str) -> None:
     """Recalcule le verdict et le stocke. Fail-safe : ne lève jamais."""
     global BOOT_API_OK, BOOT_API_DETAIL, BOOT_BASE_URL_PRESENT, BOOT_KEY_PRESENT
-    global LAST_CHECK_AT
+    global LAST_CHECK_AT, BOOT_PROVIDER
     try:
         env_source = _ENV_SOURCE if _ENV_SOURCE is not None else os.environ
         probe = _PING or functools.partial(api_probe.default_ping, timeout=timeout)
         sleep = _SLEEP or time.sleep
+        BOOT_PROVIDER = _fournisseur()
         ok, detail, base_present, key_present = api_probe.verdict(
-            env_source, probe, attempts, sleep
+            env_source, probe, attempts, sleep, provider=BOOT_PROVIDER
         )
     except Exception:  # noqa: BLE001 — le sanity-check ne doit jamais casser le boot
         logger.exception("[api-sanity] évaluation en échec — verdict prudent KO")
@@ -73,17 +98,18 @@ def _evaluate(*, attempts: int, timeout: float, label: str) -> None:
     (logger.info if ok else logger.error)("[api-sanity] %s: %s", label, detail)
 
 
-def capture_api_sanity(*, env: dict | None = None, ping=None, sleep=None) -> None:
+def capture_api_sanity(*, env: dict | None = None, ping=None, sleep=None,
+                       model: str | None = None) -> None:
     """Capture le verdict au boot. Idempotent par défaut (ne re-sonde pas si déjà
     capturé) pour qu'un double create_app en test ne touche pas le réseau.
     Passer `env`/`ping` FORCE une re-capture (injection de dépendance, PAS du mock) :
     les tests pilotent l'env et la joignabilité exactes, et `sleep` neutralise le
     backoff. Ces injections sont mémorisées et rejouées par la re-sonde."""
-    global _ENV_SOURCE, _PING, _SLEEP
-    forced = env is not None or ping is not None
+    global _ENV_SOURCE, _PING, _SLEEP, _MODEL
+    forced = env is not None or ping is not None or model is not None
     if BOOT_API_OK is not None and not forced:
         return
-    _ENV_SOURCE, _PING, _SLEEP = env, ping, sleep
+    _ENV_SOURCE, _PING, _SLEEP, _MODEL = env, ping, sleep, model
     _evaluate(attempts=BOOT_ATTEMPTS, timeout=BOOT_TIMEOUT_S, label="boot")
 
 
@@ -120,6 +146,8 @@ def _state() -> dict:
         "key_present": BOOT_KEY_PRESENT,
         # env_missing distingue « mauvais lancement » (redémarrer) de « réseau » (revérifier).
         "env_missing": not (BOOT_BASE_URL_PRESENT and BOOT_KEY_PRESENT),
+        "provider": BOOT_PROVIDER,
+        "provider_label": api_probe.exigence(BOOT_PROVIDER)["nom"],
     }
 
 
@@ -133,26 +161,27 @@ def api_sanity_state() -> dict:
 def reset_api_sanity() -> None:
     """Remet le module à « jamais capturé » (utilisé par les tests entre scénarios)."""
     global BOOT_API_OK, BOOT_API_DETAIL, BOOT_BASE_URL_PRESENT, BOOT_KEY_PRESENT
-    global LAST_CHECK_AT, _ENV_SOURCE, _PING, _SLEEP
+    global LAST_CHECK_AT, _ENV_SOURCE, _PING, _SLEEP, _MODEL, BOOT_PROVIDER
     BOOT_API_OK, BOOT_API_DETAIL = None, ""
+    BOOT_PROVIDER, _MODEL = "anthropic", None
     BOOT_BASE_URL_PRESENT = BOOT_KEY_PRESENT = False
     LAST_CHECK_AT = 0.0
     _ENV_SOURCE = _PING = _SLEEP = None
 
 
 def require_api_sanity():
-    """Garde des endpoints de spawn : tuple (response, 503) quand l'env API est KO,
-    None quand le spawn est autorisé. Re-sonde d'abord si le KO est vieux — un réseau
-    revenu débloque les spawns SANS redémarrage. Import flask local pour que ce module
-    reste importable hors contexte de requête."""
+    """Garde des spawns : le refus 503 `env_indisponible` (`services.erreurs.Refus`) quand l'env
+    API est KO, None quand le spawn est autorisé. Re-sonde d'abord si le KO est vieux — un réseau
+    revenu débloque les spawns SANS redémarrage. Rien de Flask : la route sérialise."""
     _maybe_recheck()
     if BOOT_API_OK:
         return None
-    from flask import jsonify
+    from .services.erreurs import Refus
 
     env_missing = not (BOOT_BASE_URL_PRESENT and BOOT_KEY_PRESENT)
     message = SPAWN_REFUSED_MESSAGE if env_missing else SPAWN_REFUSED_UNREACHABLE
-    return (
-        jsonify({"error": message, "detail": BOOT_API_DETAIL, "env_missing": env_missing}),
-        503,
-    )
+    if env_missing and BOOT_PROVIDER != "anthropic":
+        nom = api_probe.exigence(BOOT_PROVIDER)["nom"]
+        message = f"configuration {nom} incomplète — complète l'environnement puis redémarre"
+    return Refus("env_indisponible", message, 503, detail=BOOT_API_DETAIL,
+                 env_missing=env_missing)

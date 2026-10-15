@@ -1,17 +1,15 @@
-# [desc] Factory Flask web_v2: pages serveur (conversations/session/agent-builder) + /api/schema dérivé de url_map. Port 5056. [/desc]
-"""BouzéqUI v2 — `python -m bouzecode.web_v2` ou entry point `bouzequi2`. Voir SPEC.md."""
+# [desc] Factory Flask web_v2 : pages serveur (bureau, conversations, agent-builder), enregistrement des routes (dont /api/schema, dérivé de url_map), boot. Port 5056. [/desc]
+"""bouzeui v2 — `python -m bouzecode.web_v2` ou entry point `bouzeui2`. Voir SPEC.md."""
 from __future__ import annotations
 
 import argparse
-import inspect
+import json
 import os
-import re
 from pathlib import Path
 
 from flask import Flask, redirect, render_template
 
 from . import startup
-from .api_descriptions import ENDPOINT_DESCRIPTIONS
 from .routes import register_routes
 
 _BASE = Path(__file__).parent
@@ -46,48 +44,6 @@ class VendorCachingFlask(Flask):
         return None  # no-cache → revalidation conditionnelle (304), pas de re-download
 
 
-# --------------------------------------------------------------------------------
-# Schéma d'API (contrat P7 : « un LLM consomme le serveur »)
-# --------------------------------------------------------------------------------
-SCHEMA_DESCRIPTION = (
-    "BouzéqUI v2 — API JSON consommable par un LLM. Lecture: GET; actions: POST. "
-    "Schéma DÉRIVÉ de app.url_map : il liste exactement les routes /api/ enregistrées."
-)
-
-_CONVERTER_PREFIX = re.compile(r"<[^:>]+:([^>]+)>")
-_NON_API_METHODS = frozenset({"HEAD", "OPTIONS"})
-
-
-def schema_key(rule: str, method: str) -> str:
-    """Clé canonique d'un endpoint : « POST /api/tickets/<slug>/<ticket_id>/done »."""
-    canonical_rule = _CONVERTER_PREFIX.sub(r"<\1>", rule)
-    return f"{method} {canonical_rule}"
-
-
-def docstring_summary(view) -> str:
-    """Premier paragraphe du docstring d'une vue, replié sur une ligne ('' si absent)."""
-    doc = inspect.getdoc(view) or ""
-    return " ".join(doc.split("\n\n", 1)[0].split())
-
-
-def build_api_schema(app: Flask) -> dict:
-    """Schéma des routes `/api/` DÉRIVÉ de `app.url_map` — jamais saisi à la main.
-
-    Une entrée par couple (méthode, règle) réellement enregistré. La description vient
-    de `ENDPOINT_DESCRIPTIONS` si elle y figure, sinon du docstring de la vue, sinon elle
-    est vide : une description vide vaut mieux qu'une description fausse.
-    """
-    endpoints = {}
-    for rule in app.url_map.iter_rules():
-        if not rule.rule.startswith("/api/"):
-            continue
-        view = app.view_functions[rule.endpoint]
-        for method in sorted(rule.methods - _NON_API_METHODS):
-            key = schema_key(rule.rule, method)
-            endpoints[key] = ENDPOINT_DESCRIPTIONS.get(key) or docstring_summary(view)
-    return {"description": SCHEMA_DESCRIPTION, "endpoints": dict(sorted(endpoints.items()))}
-
-
 def create_app() -> Flask:
     app = VendorCachingFlask(
         "bouzecode_web_v2",
@@ -110,29 +66,18 @@ def create_app() -> Flask:
     from . import api_sanity as _api_sanity
     _api_sanity.capture_api_sanity()
     register_routes(app)
+    # Jeton local exigé sur toute mutation /api/ + corps JSON obligatoire (spec ticketing B8).
+    from . import securite
+    securite.installer(app)
+    from . import compression
+    compression.installer(app)
 
-    # Migration one-shot au boot : rattache les sous-agents hérités (validateur /
-    # résolveur de merge) créés AVANT le fix 4c8c410 — parent littéral
-    # "dispatcher:validate"/"dispatcher:auto-merge" — à l'id réel de leur codeur (run
-    # 'work' du même ticket). Idempotente, loggée, non destructive ; un échec ne doit
-    # jamais empêcher le serveur de démarrer.
-    try:
-        from .services.work import migrations
-        migrations.migrate_orphan_validators()
-    except Exception:  # noqa: BLE001 — migration best-effort, ne bloque pas le boot
-        import logging
-        logging.getLogger(__name__).exception("migrate_orphan_validators a échoué au boot")
 
-    # Migration one-shot au boot : les tickets laissés en vol par la chaîne automatique
-    # (retirée, cf. docs/design_p10_orchestration.md) n'ont plus aucune transition qui
-    # matche et resteraient « en cours » à vie. Ils repassent « à relire », avec un
-    # commentaire d'explication. Idempotente, loggée, non destructive.
-    try:
-        from .services.work import migrations
-        migrations.migrate_inflight_tickets()
-    except Exception:  # noqa: BLE001 — migration best-effort, ne bloque pas le boot
-        import logging
-        logging.getLogger(__name__).exception("migrate_inflight_tickets a échoué au boot")
+    # Migrations de boot des stores (tickets L2, runs validate hérités, tâches du Bureau). Un
+    # store du VRAI HOME n'est migré que par le serveur de référence (`main`) : un `create_app()`
+    # lancé par un script d'agent l'a migré le 2026-10-06 avec le code d'un worktree.
+    from . import migrations_au_boot
+    migrations_au_boot.jouer()
 
     # Plus aucune chaîne automatique : le hook on_completion ne fait que clore le run.
     # `start_poller` arme le WATCHDOG (reconciler crash-aware), ACTIF PAR DÉFAUT : c'est
@@ -141,41 +86,76 @@ def create_app() -> Flask:
     from .services.work import wake
     wake.start_poller()
 
+    # Teams est en LECTURE SEULE : seul l'outil `Teams` de l'agent le sollicite, à la
+    # demande. L'ancien pont vers le chat (sonnette, sondage, abonnement Graph) a été
+    # retiré : l'écriture dans Teams est obsolète.
+
+    @app.context_processor
+    def lexique_des_pages():
+        """Le lexique UNIQUE (services/work/lexique.py), injecté dans chaque page (`base.html`)."""
+        from .services.work import lexique
+        return {"lexique_json": json.dumps(lexique.table(), ensure_ascii=False).replace("</", "<\\/")}
+
     @app.get("/")
     def home_page():
-        return redirect("/conversations")
+        """Le Bureau est la page d'accueil (SPEC §0) : ce qui m'attend, puis mon travail."""
+        return redirect("/bureau")
 
     @app.get("/sessions")
     def sessions_redirect():
-        return redirect("/")
+        return redirect("/conversations")
 
     @app.get("/sessions/<path:key>")
     def session_page(key: str):
-        return render_template("session.html", page="home", session_key=key)
+        """Ancienne vue détaillée d'une session : ses onglets (Fichiers, Coûts & tours) vivent
+        désormais dans le panneau d'un agent de /conversations."""
+        from urllib.parse import quote
+
+        agent = key[len("agent/"):] if key.startswith("agent/") else key
+        return redirect(f"/conversations?agent={quote(agent, safe='')}")
 
     @app.get("/conversations")
     def conversations_page():
         return render_template("conversations.html", page="conversations")
 
+    @app.get("/bureau")
+    def bureau_page():
+        return render_template("bureau.html", page="bureau")
+
     @app.get("/agent-builder")
     def agent_builder_page():
         return render_template("agent_builder.html", page="agents")
 
-    @app.get("/api/schema")
-    def api_schema():
-        """ce schéma : toutes les routes /api/ du serveur, dérivées de app.url_map"""
-        return build_api_schema(app)
+    @app.get("/todo")
+    def todo_page():
+        """l'ancienne page TO-DO : l'URL reste valide mais le Bureau la porte
+
+        Un seul onglet pour un seul geste : la TO-DO est devenue une SECTION du
+        Bureau. On garde l'URL (liens, favoris, schéma d'API) en l'emmenant là où
+        la matière vit maintenant, au lieu de servir un second onglet concurrent."""
+        from flask import redirect
+
+        return redirect("/bureau", code=302)
+
+    @app.get("/_ds")
+    def design_system_page():
+        """Démo du design system (hors navigation) : tous les composants de ds.css / lib/ui.js."""
+        return render_template("_ds.html", page="ds")
 
     return app
 
 
 def main() -> None:
-    parser = argparse.ArgumentParser(description="BouzéqUI v2 — UI web bouzecode")
+    parser = argparse.ArgumentParser(description="bouzeui v2 — UI web bouzecode")
     parser.add_argument("--port", type=int, default=5056)
     parser.add_argument("--host", default="127.0.0.1")
     parser.add_argument("--debug", action="store_true")
     args = parser.parse_args()
     startup.fail_if_port_taken(args.host, args.port)
+    from . import securite
+    avertissement = securite.avertir_si_hote_expose(args.host)
+    if avertissement:
+        print(avertissement, flush=True)
     # Un serveur hérité en mode debug peut exporter ces vars ; laissées en place,
     # werkzeug croit être un enfant reloader et se dédouble. On les purge pour
     # garantir UN seul process, sans rechargement dynamique (cf. TODO #4).
@@ -185,9 +165,20 @@ def main() -> None:
     # hook is 127.0.0.1:5056; set it here so a non-default port still resolves.
     host = "127.0.0.1" if args.host in ("0.0.0.0", "") else args.host
     os.environ.setdefault("BOUZECODE_WEB_BASE_URL", f"http://{host}:{args.port}")
-    startup.reconcile_boot_state()
-    create_app().run(host=args.host, port=args.port, debug=args.debug,
-                     use_reloader=False, threaded=True)
+    # Seul le serveur de RÉFÉRENCE du parc (verrou OS exclusif, cf. `reference`) agit seul sur
+    # la flotte : watchdog, ménage du pool chaud, réconciliation et reprise au boot. Un second
+    # serveur (smoke d'un agent sur un autre port) sert l'interface mais reste PASSIF.
+    from . import reference
+    from .services.work import warm_pool
+    if reference.acquerir(args.port):
+        warm_pool.SERVEUR_PRINCIPAL = True
+        startup.reconcile_boot_state()
+    else:
+        print(startup.message_instance_passive(reference.detenteur()), flush=True)
+    app = create_app()
+    from . import prechauffage
+    prechauffage.lancer()
+    app.run(host=args.host, port=args.port, debug=args.debug, use_reloader=False, threaded=True)
 
 
 if __name__ == "__main__":

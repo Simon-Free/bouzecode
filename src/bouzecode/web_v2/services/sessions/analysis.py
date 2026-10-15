@@ -10,7 +10,7 @@ from datetime import datetime
 from pathlib import Path
 
 from ....backend.agent.providers.registry import calc_cost
-from ...runtime.context_viewer.builder import extract_per_call_data
+from ...runtime.context_viewer.builder import extract_per_call_data, memoriser
 from .. import message_view
 from . import store
 
@@ -24,12 +24,27 @@ def _hhmmss(timestamp: float | None) -> str:
 
 
 def _cache_hit_pct(call: dict) -> int:
-    denominator = call["api_input_tokens"]
+    """Part du prompt servie par le cache, en %. TOUJOURS entre 0 et 100.
+
+    `api_input_tokens` est le prompt NON lu en cache (frais + écriture de cache) : il
+    n'inclut PAS `api_cache_read`. Le prompt total est donc la somme des deux — diviser
+    par le seul `api_input_tokens` rendait des taux impossibles (322 %, 698 %, 1599 %
+    observés en production) et faisait mentir toutes les vues qui l'affichent.
+    """
+    denominator = call["api_input_tokens"] + call["api_cache_read"]
     return round(100 * call["api_cache_read"] / denominator) if denominator else 0
 
 
 def turn_table(session_path: str) -> dict | None:
-    """Tableau des appels LLM. Δ = temps depuis l'appel précédent (LLM + outils)."""
+    """Tableau des appels LLM. Δ = temps depuis l'appel précédent (LLM + outils).
+
+    Mémorisé par version de la session et du journal (`builder.memoriser`) : ne pas modifier
+    le résultat."""
+    return memoriser("turn_table", session_path, lambda: _turn_table(session_path),
+                     depuis_extrait=True)
+
+
+def _turn_table(session_path: str) -> dict | None:
     data = extract_per_call_data(session_path)
     if data is None:
         return None
@@ -52,17 +67,28 @@ def turn_table(session_path: str) -> dict | None:
             "cache_read": call["api_cache_read"],
             "cache_create": call["api_cache_create"],
             "cache_hit_pct": _cache_hit_pct(call),
+            "output_estimated": bool(call.get("api_output_estimated")),
+            "input_estimated": bool(call.get("api_input_estimated")),
             "tools": tools,
             "cost": round(calc_cost(
                 data["model"], call["api_input_tokens"], call["api_output_tokens"],
                 call["api_cache_read"], call["api_cache_create"]), 4),
         })
+    # Les appels annexes (résumé de réflexion, classifieur, rattrapage, compaction) ne sont
+    # pas des tours : ils n'ont pas de ligne, mais leur coût entre dans le total pour que
+    # /turns et /costs annoncent LE MÊME coût de session.
+    from .costs import _side_calls
+    side = _side_calls(session_path)
+    side_cost = sum(calc_cost(e.get("model") or data["model"], e["api_input_tokens"],
+                              e["api_output_tokens"], e["api_cache_read"],
+                              e["api_cache_create"]) for e in side)
     return {
         "model": data["model"],
         "system_prompt_tokens": data["system_prompt_tokens"],
         "missing_dumps": bool(data.get("missing_dumps")),
         "calls": rows,
-        "total_cost": round(sum(row["cost"] for row in rows), 3),
+        "side_calls": {"count": len(side), "cost": round(side_cost, 4)},
+        "total_cost": round(sum(row["cost"] for row in rows) + side_cost, 3),
     }
 
 
@@ -79,7 +105,13 @@ def _readable_item(item: dict) -> dict:
 
 
 def _response_html(session_path: str, turn_index: int) -> str:
-    """La réponse du n-ième appel LLM = le n-ième message assistant de la session."""
+    """La réponse du n-ième appel LLM = le n-ième message assistant de la session (rendu
+    mémorisé par version de la session : relire 100 Mo pour un message coûtait 0,5 s)."""
+    return memoriser(f"reponse_html:{turn_index}", session_path,
+                     lambda: _response_html_lu(session_path, turn_index))
+
+
+def _response_html_lu(session_path: str, turn_index: int) -> str:
     data = store.load_session_json(Path(session_path)) or {}
     assistant_messages = [m for m in data.get("messages", []) if m.get("role") == "assistant"]
     if 0 <= turn_index < len(assistant_messages):

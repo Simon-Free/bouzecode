@@ -19,6 +19,11 @@ Les pages web projets (`/projects`, `/p/<slug>`) et l'explorateur de fichiers (`
 ont été retirés — voir SPEC.md (P1, P6). Les API `/api/projects*` et `/api/tickets*`
 restent servies : `/conversations` et les agents les consomment.
 
+Sécurité (`securite.py`) : toute mutation `/api/` (POST/PUT/PATCH/DELETE) exige l'en-tête
+`X-Bouzecode-Token` = contenu de `~/.bouzecode/web_v2/token` (créé au 1er démarrage, réutilisé
+ensuite ; rotation = supprimer le fichier puis redémarrer), sinon 401 ; un corps non vide doit
+être `application/json`, sinon 415. Clients Python : `backend.core.local_http` joint le jeton.
+
 API LLM-friendly : `GET /api/schema` — **dérivé de `app.url_map`**, jamais saisi à la main,
 donc toujours d'accord avec les routes réellement enregistrées.
 

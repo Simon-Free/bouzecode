@@ -18,8 +18,8 @@ Aucune troisième règle : quand les deux se taisent, on dit « appel au modèle
 tourne — c'est la seule autre chose qu'un agent en cours puisse être en train de faire.
 
 Deux fonctions, deux natures : `describe` est PURE (elle traduit des preuves déjà lues, `now`
-injectable), `report` RECENSE (elle lit le store). Elles vivent ensemble parce qu'elles
-répondent à la même question, et que la seconde n'est que la première appliquée au parc.
+injectable), `report` RECENSE (elle lit le store) ; le recensement vit dans `activity_parc`,
+`report` reste ici comme point d'entrée : la seconde n'est que la première appliquée au parc.
 """
 from __future__ import annotations
 
@@ -56,6 +56,11 @@ def human_age(seconds: float) -> str:
     return f"{int(seconds // 3600)} h {int((seconds % 3600) // 60):02d}"
 
 
+# Outils dont l'appel INTERROMPT le tour en attendant l'utilisateur : jamais un repli
+# d'activité valable (cf. `current_tools`).
+_OUTILS_SUSPENSIFS = {"AskUserQuestion"}
+
+
 def current_tools(status: dict, meta: dict) -> tuple[list[str], bool]:
     """(outils, en_direct). `en_direct` distingue « le process dit qu'il exécute ceci
     MAINTENANT » de « voici le dernier outil qu'on a vu passer », deux affirmations de
@@ -64,122 +69,91 @@ def current_tools(status: dict, meta: dict) -> tuple[list[str], bool]:
     if live:
         return live, True
     recorded = meta.get("last_tool") or ""
+    # Un outil qui SUSPEND le tour ne peut pas être le dernier outil « vu » d'un agent
+    # qu'on regarde tourner : s'il tourne, c'est que la question a été répondue et que la
+    # suite du lot s'exécute. Le resservir figeait l'activité sur « AskUserQuestion » tour
+    # après tour (2026-09-29) et faisait croire l'agent en boucle sur sa question.
+    if recorded in _OUTILS_SUSPENSIFS:
+        return [], False
     return ([recorded], False) if recorded else ([], False)
 
 
-def describe(status: dict, meta: dict, now: float | None = None) -> dict:
+def children_index(pairs) -> dict[str, list[str]]:
+    """parent -> identifiants de ses enfants VIVANTS, depuis des couples (parent, enfant).
+
+    Pur et donc testable sans runner ni store : c'est la SEULE information qui permette de
+    dire d'un parent silencieux qu'il attend légitimement. Elle n'existe que du côté des
+    enfants (`agent.parent`), jamais du côté du parent bloqué dans `_wait_for_child`.
+    """
+    index: dict[str, list[str]] = {}
+    for parent, child in pairs:
+        if not parent or not child:
+            continue
+        index.setdefault(parent, []).append(child)
+    return index
+
+
+def _suffixe(age: str, gabarit: str) -> str:
+    return gabarit.format(age=age) if age else ""
+
+
+def _activite(state: str, tools: list[str], live: bool, attend_enfant: bool,
+              waiting_for: list[str] | None, age: str) -> tuple[str, str]:
+    """(activité, phrase). Une attente ou un démarrage se DÉCRIT par son état, pas par un
+    outil : nommer le dernier outil d'un agent qui attend une réponse ferait croire qu'il
+    travaille. « En cours » (le process le dit) et « dernier vu » ne se disent pas du même ton."""
+    if attend_enfant:
+        return ("waiting_for_child",
+                f"attend son enfant ({', '.join(waiting_for)})" + _suffixe(age, " depuis {age}"))
+    if state in _LABELS_BY_STATE:
+        return state, _LABELS_BY_STATE[state]
+    if tools:
+        activite = "+".join(tools)
+        if live:
+            return activite, f"{activite} en cours" + _suffixe(age, " depuis {age}")
+        return activite, f"dernier outil vu : {activite}" + _suffixe(age, ", il y a {age}")
+    return "llm", "appel au modèle" + _suffixe(age, " depuis {age}")
+
+
+def describe(status: dict, meta: dict, now: float | None = None,
+             waiting_for: list[str] | None = None) -> dict:
     """Activité d'un agent : {} s'il n'est pas vivant, sinon
     {activity, activity_label, last_event_at, idle_seconds, stale, turn}.
 
     `activity_label` est la PHRASE unique que rendent l'interface et l'API : deux surfaces ne
-    peuvent plus décrire la même seconde avec deux vocabulaires (c'est déjà arrivé, cf.
-    `liveness.classify_ticket`). Pur : `now` injectable, aucune I/O — les preuves sont lues en
-    amont par `store.agent_status` et l'index de sessions."""
+    peuvent plus décrire la même seconde avec deux vocabulaires. Pur : `now` injectable,
+    aucune I/O — les preuves sont lues en amont par `store.agent_status` et l'index de sessions."""
     state = status.get("state") or ""
     if state not in _LIVE_STATES:
         return {}
     now = time.time() if now is None else now
     last_event_at = float(status.get("last_event_at") or 0.0)
     idle_seconds = int(now - last_event_at) if last_event_at else -1
-    age = human_age(idle_seconds)
-
     tools, live = current_tools(status, meta)
-    if state in _LABELS_BY_STATE:
-        # Une attente ou un démarrage se DÉCRIT par son état, pas par un outil : nommer le
-        # dernier outil d'un agent qui attend une réponse ferait croire qu'il travaille.
-        activity, label = state, _LABELS_BY_STATE[state]
-    elif tools and live:
-        activity = "+".join(tools)
-        label = f"{activity} en cours" + (f" depuis {age}" if age else "")
-    elif tools:
-        activity = "+".join(tools)
-        label = f"dernier outil vu : {activity}" + (f", il y a {age}" if age else "")
-    else:
-        activity = "llm"
-        label = "appel au modèle" + (f" depuis {age}" if age else "")
-
+    # ATTENTE SYNCHRONE ET NORMALE d'un parent : `Agent` tenu EN DIRECT alors qu'un enfant
+    # vivant le déclare comme parent (`multi_agent.attente_web._wait_for_child`). Sans battement,
+    # elle ressemblait à un agent planté. Un `Agent` seulement ENREGISTRÉ ne prouve rien.
+    attend_enfant = bool(waiting_for) and live and "Agent" in tools
+    activity, label = _activite(state, tools, live, attend_enfant, waiting_for,
+                                human_age(idle_seconds))
     view = {
         "activity": activity,
-        # `activity_label` est la phrase FRANÇAISE, servie telle quelle aux agents de
-        # monitoring et à l'API : le serveur ne négocie pas de langue. L'interface, elle,
-        # est bilingue et recompose la phrase à partir des trois champs STRUCTURÉS qui
-        # l'entourent (`activity`, `activity_live`, `idle_seconds`) — le serveur donne les
-        # faits, le client choisit les mots. `activity_live` était la seule pièce manquante :
-        # sans elle, « Bash en cours » et « dernier outil vu : Bash » — deux affirmations de
-        # fiabilité très différentes — étaient indiscernables une fois la phrase défaite.
-        "activity_live": bool(live),
         "activity_label": label,
         "last_event_at": last_event_at,
         "idle_seconds": idle_seconds,
-        # Aucun battement depuis trop longtemps : à REGARDER, jamais un verdict de mort.
-        # L'agent peut très bien tenir un outil légitimement long — c'est le silence qu'on
-        # signale, pas l'agent.
-        "stale": bool(state == "running" and idle_seconds >= STALE_AFTER_SECONDS),
+        # Aucun battement depuis trop longtemps : à REGARDER, jamais un verdict de mort — sauf
+        # pendant une attente d'enfant, où le silence est attendu.
+        "stale": bool(state == "running" and idle_seconds >= STALE_AFTER_SECONDS
+                      and not attend_enfant),
     }
-    turn = int(status.get("ipc_turn") or 0)
-    if turn:
-        view["turn"] = turn
+    if attend_enfant:
+        view["waiting_for"] = list(waiting_for)  # les tickets attendus, vérifiables
+    if int(status.get("ipc_turn") or 0):
+        view["turn"] = int(status["ipc_turn"])
     return view
 
 
 def report() -> dict:
-    """Recensement des agents VIVANTS et des tickets en cours de lancement, avec ce qu'ils font.
-
-    Réponse à un besoin qui n'était servi par AUCUN endpoint : savoir ce que fait la flotte.
-    Les agents de monitoring appelaient donc `/api/agents/tree`, dont la variante complète
-    coûte 9,45 s (929 Ko) parce qu'elle paie les infos git de ~250 nodes, les prompts entiers
-    et les agents terminés — pour n'en lire qu'une poignée de champs. Ici : aucun subprocess
-    git, aucun prompt, aucun agent terminé.
-
-    Trié : les agents qui attendent une réponse d'abord (c'est là qu'il faut agir), puis les
-    silencieux anormaux, puis les autres."""
-    from ..sessions import store
-    from ...runtime import runner
-    from . import launch_phase, projects, tickets
-
-    rows = []
-    meta_cache: dict = {}
-    for agent in runner.list_agents():
-        # ORDRE VOULU : le statut d'abord (IPC + pid, quelques octets), et la méta de session
-        # SEULEMENT pour les agents qui se révèlent vivants. Passer par le listing du parc
-        # (`list_agent_sessions`) coûtait le décodage de toutes les sessions dont le mtime avait
-        # bougé — 13,7 s mesurées à froid — pour n'utiliser au bout du compte que le dernier
-        # outil de trois agents.
-        status = store.agent_status(agent)
-        if describe(status, {}) == {}:
-            continue  # agent terminé : rien à dire, et c'est le gros du parc
-        view = describe(status, store.agent_meta(agent, meta_cache))
-        rows.append({
-            "agent_id": agent.agent_id,
-            "key": f"agent/{agent.agent_id}",
-            "state": status.get("state", ""),
-            # Phase de DÉMARRAGE (cf. store.demarrage_phase). Elle était calculée ici à chaque
-            # passage puis jetée, alors que c'est la seule chose à dire d'un agent pendant les
-            # secondes où « en cours » est vrai mais muet. Servie ici, elle donne à ce
-            # recensement — le seul assez bon marché pour être appelé souvent — de quoi
-            # rafraîchir la sidebar sans recalculer l'arbre (cf. `fleet_live`).
-            "phase": status.get("phase", ""),
-            "ticket_id": getattr(agent, "ticket_id", "") or "",
-            "parent": agent.parent or "",
-            "title": (agent.prompt or "").strip().split("\n")[0][:80],
-            "question": status.get("question", ""),
-            **view,
-        })
-    project_names = {p["slug"]: p["name"] for p in projects.list_projects()}
-    for slug, ticket in tickets.launching_tickets():
-        rows.append({
-            "agent_id": "", "key": f"launching/{ticket['id']}",
-            "state": "provisioning", "ticket_id": ticket["id"],
-            "parent": ticket.get("parent") or "",
-            "title": ticket.get("title") or "Nouvelle conversation",
-            "project_name": project_names.get(slug, ""),
-            # Un lancement n'a pas d'activité d'agent : sa phase EST son activité.
-            "activity_label": launch_phase.phase_view(ticket).get(
-                "phase_label", "préparation en cours"),
-            **launch_phase.phase_view(ticket),
-        })
-    rows.sort(key=lambda r: (0 if r["state"].startswith("awaiting") else
-                             1 if r.get("stale") else 2, r["title"]))
-    return {"agents": rows, "count": len(rows),
-            "awaiting": sum(1 for r in rows if r["state"].startswith("awaiting")),
-            "stale": sum(1 for r in rows if r.get("stale"))}
+    """Recensement des agents VIVANTS et des tickets en lancement (`activity_parc.report`)."""
+    from .activity_parc import report as recenser
+    return recenser()

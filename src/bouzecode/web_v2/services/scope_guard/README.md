@@ -22,8 +22,8 @@ from bouzecode.web_v2.services import scope_guard
 
 warnings = scope_guard.review_dispatch(slug, ticket_id, prompt, typology, parent)
 ```
-Branché sur `POST /api/dispatch` (`routes/work/fleet.py`), qui recopie `warnings` dans
-`result["scope_warnings"]`. L'outil `Agent` (`backend/multi_agent/tools.py`) les ajoute au
+Branché sur `POST /api/projects/<slug>/tickets` (`services/work/api_tickets/creation.py`), qui recopie `warnings` dans
+`result["scope_warnings"]`. L'outil `Agent` (`backend/multi_agent/lancement_web.py`) les ajoute au
 compte rendu du manager.
 
 Drapeaux posés sur le ticket : `scope_overlap` (liste d'ids frères) et

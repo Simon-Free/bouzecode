@@ -1,40 +1,28 @@
-# [desc] Récolte du travail d'un agent qui a LIVRÉ : commit sur sa branche, ou signalement du péril. [/desc]
-"""Le chaînon manquant entre « l'agent a fini » et « son travail existe quelque part ».
+# [desc] Livraison d'un agent : constat en fin de run (sans commit), récolte seulement sur geste explicite, arbre jamais détruit sale ; ce qui reste en péril devient la raison de l'état. [/desc]
+"""Le chaînon entre « l'agent a fini » et « son travail existe quelque part ».
 
-`worktrees.harvest` est le SEUL geste qui commite le travail non commité d'un agent
-sur sa branche `agent/<ticket>`. Il n'était appelé que depuis trois endroits, tous
-CONDITIONNELS : la transition CRASH (`workflow._act_report_crash`), le merge demandé
-à la main (`integration.integrate_ticket`) et le spawn manuel d'un validateur. Le
-chemin NOMINAL — l'agent a fini proprement, son run est `completed` — n'en avait
-aucun.
+`worktrees.harvest` est le SEUL geste qui commite le travail non commité d'un agent sur sa
+branche `agent/<ticket>`. Il n'est jamais joué d'office (principe B4) : seulement juste avant
+un geste DEMANDÉ, aucun run vivant — intégration, nettoyage, relance re-isolée.
 
-Ce n'est pas un oubli d'origine : le correctif aca2f03c en avait posé un sur le
-chemin de succès de l'époque, le TEST-GATE. Le retrait de la chaîne automatique
-travail→validation→merge a supprimé le test-gate, et ce harvest avec lui ; seul
-celui du crash a survécu. D'où le cas vécu du 28/07 : deux codeurs `finished`, rc=0,
-`close_reason=final_answer`, run `completed` — et deux branches VIDES, tout leur
-travail encore non commité dans le worktree, à un `POST /archive` de la destruction
-(`reaper.reap_archived` → `git worktree remove --force`).
+En fin de run livré, on CONSTATE seulement (`record_delivery`, appelé par `constats` quand le
+ticket passe `delivered`) : tête de la branche et fichiers laissés non commités
+(`worktree.non_commites`, information pour qui juge la livraison).
 
-Deux garanties, dans cet ordre :
-  1. RÉCOLTER  — une livraison commite le travail sur la branche de l'agent ;
-  2. SIGNALER  — si la récolte n'aboutit pas (index git verrouillé, dépôt en vrac),
-     le ticket porte `uncommitted` = les fichiers en péril, `derive_status` renvoie
-     « livraison non commitée » et `liveness.classify_ticket` renvoie `stalled`. Un
-     agent livré dont le worktree est sale n'est JAMAIS affiché comme réussi.
-
-Câblé comme une TRANSITION déclarative de `workflow` (state `work_done`, garde
-`delivery_unharvested`), donc rejoué par tous les chemins qui rejouent la chaîne :
-hook `/completed`, watchdog, route liste. Aucune nouvelle boucle."""
+L'ANOMALIE, c'est une récolte demandée qui échoue (index verrouillé, merge inachevé) : les
+fichiers en péril restent dans `worktree.non_commites` et, sur un ticket livré, la raison de
+l'état devient `livraison_non_commitee` (« Bloqué » à l'écran)."""
 from __future__ import annotations
 
-from . import tickets as tickets_svc, worktrees
+from . import etat_ticket, ticket_fsm, worktrees
+from . import tickets as tickets_svc
+from .fsm import etats
 
-# États de worktree où une récolte a encore un sens : le bac à sable existe et n'a pas
-# déjà été mergé/nettoyé/parké. `conflict` est exclu — un résolveur y travaille.
-HARVESTABLE_STATES = frozenset({"provisioned", "committed"})
+_MAX_FLAGGED_FILES = 20  # le constat nomme les fichiers en péril, il n'archive pas un diff
+NON_COMMITEE = "livraison_non_commitee"
 
-_MAX_FLAGGED_FILES = 20  # le drapeau nomme les fichiers en péril, il n'archive pas un diff
+#  Posé sur le run quand sa livraison a été constatée ; un nouveau run repart sans.
+CONSTATEE = "delivery_checked"
 
 
 def work_run(ticket: dict) -> dict | None:
@@ -43,82 +31,85 @@ def work_run(ticket: dict) -> dict | None:
                  if isinstance(r, dict) and r.get("kind") == "work"), None)
 
 
-def needs_delivery_harvest(ticket: dict) -> bool:
-    """GARDE PURE : ce ticket a-t-il une livraison à récolter ? (aucune I/O)
-
-    Vrai quand un run de travail a fini PROPREMENT (`completed`, donc ni crash ni
-    abandon), que son bac à sable existe encore, et qu'on ne l'a pas déjà récolté.
-    `harvested` est posé par `harvest_delivery` et persisté sur le run : un nouveau
-    run (`add_run`) repart sans le drapeau, donc un agent relancé est re-récolté."""
+def bac_a_sable(ticket: dict) -> dict | None:
+    """Le worktree du ticket s'il existe encore (ni ticket `shared`, ni worktree retiré)."""
     meta = ticket.get("worktree")
     if not (isinstance(meta, dict) and meta.get("worktree") and meta.get("branch")):
-        return False  # ticket `shared` (travaille dans le dépôt principal) : rien à récolter
-    if meta.get("state") not in HARVESTABLE_STATES:
-        return False
-    run = work_run(ticket)
-    return bool(run and run.get("completed") and not run.get("harvested"))
+        return None
+    return None if meta.get("retire_at") else meta
 
 
 def delivery_at_risk(ticket: dict) -> bool:
-    """PUR : le travail livré de ce ticket peut-il encore être perdu en silence ?
-
-    Deux cas : la récolte n'a pas encore eu lieu, ou elle a eu lieu et a laissé le
-    worktree sale. C'est ce prédicat qui interdit à `liveness.classify_ticket` de
-    présenter une telle livraison comme une attente de décision ordinaire."""
-    return bool(ticket.get("uncommitted")) or needs_delivery_harvest(ticket)
+    """PUR : une récolte DEMANDÉE a-t-elle laissé du travail non commité ?"""
+    return etat_ticket.code_raison(ticket) == NON_COMMITEE
 
 
-def harvest_delivery(slug: str, ticket: dict, done_agent: str = "") -> None:
-    """ACTION : commite le travail livré sur la branche de l'agent, puis dit la vérité.
-
-    Le drapeau `uncommitted` est posé quand il reste du non-commité APRÈS la récolte,
-    et RETIRÉ dès qu'une récolte réussit — il ne colle donc pas à un ticket réparé.
-    Idempotent via `run['harvested']` : rejouer la chaîne ne recommite rien.
-
-    `done_agent` fait partie du contrat des actions de `workflow.ACTIONS` ; il n'est
-    pas utilisé ici (la récolte porte sur le worktree, pas sur un agent en particulier)."""
-    meta = ticket.get("worktree")
-    run = work_run(ticket)
-    if not (isinstance(meta, dict) and run):
+def record_delivery(slug: str, ticket: dict) -> None:
+    """CONSTAT (aucun commit) de ce que l'agent laisse dans son worktree. Idempotent."""
+    meta, run = bac_a_sable(ticket), work_run(ticket)
+    if meta is None or run is None or run.get(CONSTATEE):
         return
-    harvested = worktrees.harvest(meta, ticket.get("title", ""))
-    run["harvested"] = True
-    meta["delivered_head"] = harvested.get("head", "")
-    remaining = harvested.get("dirty") or []
-    if remaining:
-        ticket["uncommitted"] = remaining[:_MAX_FLAGGED_FILES]
+    constat: dict = {}
+    if worktrees.dir_exists(meta):
+        constat = {"delivered_head": worktrees.head_of(meta),
+                   "non_commites": worktrees.dirty_files(meta)[:_MAX_FLAGGED_FILES]}
+
+    def _apply(frais: dict) -> None:
+        if isinstance(frais.get("worktree"), dict):
+            frais["worktree"].update(constat)
+        for candidat in frais.get("runs") or []:
+            if candidat.get("agent_id") == run["agent_id"]:
+                candidat[CONSTATEE] = True
+    frais = tickets_svc._mutate(slug, ticket["id"], _apply)
+    if frais is not None:
+        ticket.clear()
+        ticket.update(frais)
+
+
+def noter_recolte(slug: str, ticket: dict, recolte: dict) -> None:
+    """Persiste ce qu'une récolte DEMANDÉE a laissé : tête livrée, fichiers en péril, et — sur
+    un ticket livré — la raison `livraison_non_commitee` (posée ou levée)."""
+    restes = list(recolte.get("dirty") or [])[:_MAX_FLAGGED_FILES]
+    meta = dict(ticket.get("worktree") or {}, delivered_head=recolte.get("head", ""),
+                non_commites=restes)
+    tickets_svc.poser(slug, ticket, worktree=meta)
+    bloque = (recolte.get("bloque") or {}).get("message") or ""
+    if ticket.get("state") != etats.DELIVERED:
+        return
+    if restes or bloque:
+        frais = ticket_fsm.motiver(slug, ticket["id"], NON_COMMITEE, bloque, files=restes)
+    elif delivery_at_risk(ticket):
+        frais = ticket_fsm.motiver(slug, ticket["id"], None)
     else:
-        ticket.pop("uncommitted", None)
-    tickets_svc.update_ticket(slug, ticket)
+        return
+    if frais is not None:
+        ticket.update(state_reason=frais.get("state_reason"), version=frais["version"])
 
 
 def reopen_for_new_work(slug: str, ticket_id: str) -> None:
-    """Un agent RELANCÉ sur le même run (follow-up : `continue_agent` / réponse à une
-    question) va produire du travail NEUF. Sa livraison précédente ne doit plus valoir
-    quitus de récolte, sinon ce travail neuf ne serait jamais commité — le trou d'origine,
-    rouvert un tour plus tard. Une vraie relance (`tickets.add_run`) repart d'un run neuf,
-    donc sans drapeau : il n'y a que le follow-up à rouvrir explicitement. No-op sinon."""
+    """Un agent RELANCÉ sur le même run (message, réponse) va produire du travail NEUF : sa
+    livraison sera constatée à nouveau. Une vraie relance repart d'un run neuf. No-op sinon."""
     if not (slug and ticket_id):
         return
     ticket = tickets_svc.get_ticket(slug, ticket_id)
     run = work_run(ticket) if ticket else None
-    if not (run and run.get("harvested")):
+    if not (run and run.get(CONSTATEE)):
         return
-    run.pop("harvested", None)
-    tickets_svc.update_ticket(slug, ticket)
+
+    def _rouvrir(frais: dict) -> None:
+        for candidat in frais.get("runs") or []:
+            if candidat.get("agent_id") == run["agent_id"]:
+                candidat.pop(CONSTATEE, None)
+    tickets_svc._mutate(slug, ticket_id, _rouvrir)
 
 
-def harvest_before_reclaiming(ticket: dict) -> None:
-    """Filet de dernier recours, appelé JUSTE AVANT de détruire un worktree (archivage,
-    suppression de projet). `reap_archived` fait `git worktree remove --force` : sans
-    cette récolte, archiver un ticket effaçait pour de bon le travail non commité d'un
-    agent — précisément le geste qu'on demande à l'utilisateur pour ranger son board.
-
-    Ne persiste RIEN (l'appelant écrit le ticket juste après) et ne juge rien : un
-    worktree déjà propre rend `harvest` no-op (`status --porcelain` vide)."""
-    meta = ticket.get("worktree")
-    if not (isinstance(meta, dict) and meta.get("worktree") and meta.get("branch")):
-        return
-    if meta.get("state") in ("integrated", "cleaned"):
-        return  # déjà mergé puis nettoyé : plus rien à sauver
-    worktrees.harvest(meta, ticket.get("title", ""))
+def harvest_before_reclaiming(slug: str, ticket: dict) -> bool:
+    """Récolte JUSTE AVANT de retirer un worktree, sur un geste demandé (nettoyage, relance
+    re-isolée) : True seulement si plus rien n'est en péril. False — et l'appelant ne détruit
+    RIEN — quand la récolte est suspendue (merge inachevé) ou laisse l'arbre SALE (C15)."""
+    meta = bac_a_sable(ticket)
+    if meta is None or etat_ticket.integre(ticket) or not worktrees.dir_exists(meta):
+        return True  # déjà mergé, ou plus d'arbre : plus rien à sauver ici
+    recolte = worktrees.harvest(meta, ticket.get("title", ""))
+    noter_recolte(slug, ticket, recolte)
+    return not recolte.get("bloque") and not recolte.get("dirty")

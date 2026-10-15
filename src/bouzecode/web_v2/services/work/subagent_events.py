@@ -1,10 +1,11 @@
 """Construit les pseudo-messages `subagent_event` intercalés dans le fil d'une
 conversation codeur, pour tracer inline le lancement / la complétion des sous-agents
-(validate, merge). Émis côté backend (synthèse à la lecture dans /blocks) → correct
-après reload ET sur sessions historiques (backfill). Aucune écriture dans la session."""
+(validate, merge). Plus aucun de ces runs n'est créé (validateur retiré du backend, plus de
+résolveur de conflit lancé d'office) : seul l'HISTORIQUE des anciens tickets en porte, et il
+reste lisible. Émis côté backend (synthèse à la lecture dans /blocks). Aucune écriture."""
 from __future__ import annotations
 
-from datetime import datetime
+from bouzecode.web_v2.services.horodatage import cle_chrono, lire_instant
 
 from bouzecode.web_v2.services.work import tickets
 
@@ -19,15 +20,6 @@ _GROUP_WINDOW_SECONDS = 90
 
 def _role(kind: str) -> str:
     return _ROLE_BY_KIND.get(kind, kind.capitalize() if kind else "Agent")
-
-
-def _parse(started_at: str) -> datetime | None:
-    if not started_at:
-        return None
-    try:
-        return datetime.fromisoformat(started_at.rstrip("Z"))
-    except ValueError:
-        return None
 
 
 def _label(kind: str) -> str:
@@ -45,7 +37,7 @@ def _child_runs(ticket: dict) -> list[dict]:
         r for r in runs
         if r.get("kind") in _CHILD_KINDS and r.get("agent_id") not in work_ids
     ]
-    children.sort(key=lambda r: r.get("started_at") or "")
+    children.sort(key=lambda r: cle_chrono(r.get("started_at")))
     return children
 
 
@@ -54,8 +46,8 @@ def _group(children: list[dict]) -> list[list[dict]]:
     groups: list[list[dict]] = []
     for run in children:
         if groups:
-            prev = _parse(groups[-1][-1].get("started_at") or "")
-            cur = _parse(run.get("started_at") or "")
+            prev = lire_instant(groups[-1][-1].get("started_at"))
+            cur = lire_instant(run.get("started_at"))
             if prev is not None and cur is not None and abs((cur - prev).total_seconds()) < _GROUP_WINDOW_SECONDS:
                 groups[-1].append(run)
                 continue
@@ -74,49 +66,41 @@ def _agent_view(run: dict) -> dict:
         "label": _label(kind),
         "started_at": started,  # ISO UTC brut — le front formate l'heure (local)
         "open_key": f"agent/{agent_id}",
-        "verdict": run.get("verdict") or "",
         "completed": bool(run.get("completed")),
     }
+
+
+def _ticket_du_codeur(agent) -> dict | None:
+    """Le ticket dont `agent` est le CODEUR (run 'work'). Le validateur/merge partagent le
+    même ticket : sans cette garde, leur propre conversation afficherait « Validateur lancé »
+    (l'illusion que le validateur lance un validateur)."""
+    slug = getattr(agent, "ticket_slug", "") or ""
+    ticket_id = getattr(agent, "ticket_id", "") or ""
+    ticket = tickets.get_ticket(slug, ticket_id) if slug and ticket_id else None
+    if not ticket:
+        return None
+    work_ids = {r.get("agent_id") for r in ticket.get("runs") or []
+                if isinstance(r, dict) and r.get("kind") == "work"}
+    return ticket if getattr(agent, "agent_id", "") in work_ids else None
+
+
+def _evenements_du_groupe(group: list[dict]) -> list[dict]:
+    agents = [_agent_view(r) for r in group]
+    events = [{"role": "subagent_event", "subtype": "launch", "count": len(agents),
+               "agents": agents}]
+    events += [{"role": "subagent_event", "subtype": "done", "count": 1, "agents": [a]}
+               for a in agents if a["completed"]]
+    return events
 
 
 def build_events(agent) -> list[dict]:
     """Retourne les pseudo-messages subagent_event pour la conversation du codeur `agent`.
     Chaque groupe de lancement → un message `launch` ; chaque sous-agent terminé
-    (completed OU verdict) → un message `done`. Liste vide si pas de ticket/sous-agent."""
-    slug = getattr(agent, "ticket_slug", "") or ""
-    ticket_id = getattr(agent, "ticket_id", "") or ""
-    if not slug or not ticket_id:
+    (completed) → un message `done`. Liste vide si pas de ticket/sous-agent."""
+    ticket = _ticket_du_codeur(agent)
+    if ticket is None:
         return []
-    ticket = tickets.get_ticket(slug, ticket_id)
-    if not ticket:
-        return []
-    # Les events launch/done ne s'affichent QUE dans la conversation du CODEUR (run 'work').
-    # Le validateur/merge PARTAGENT le même ticket que le codeur : sans ce garde, ouvrir la
-    # conv d'un sous-agent (validate/merge) rejouerait _child_runs sur le même ticket et
-    # afficherait "Validateur lancé / terminé" DANS sa propre conversation — l'illusion
-    # "le validateur lance un validateur". On identifie le codeur par agent_id ∈ work_ids.
-    runs = [r for r in ticket.get("runs") or [] if isinstance(r, dict)]
-    work_ids = {r.get("agent_id") for r in runs if r.get("kind") == "work"}
-    if getattr(agent, "agent_id", "") not in work_ids:
-        return []
-    children = _child_runs(ticket)
-    if not children:
-        return []
-    events: list[dict] = []
-    for group in _group(children):
-        agents = [_agent_view(r) for r in group]
-        events.append({
-            "role": "subagent_event",
-            "subtype": "launch",
-            "count": len(agents),
-            "agents": agents,
-        })
-        done = [a for a in agents if a["completed"] or a["verdict"]]
-        for a in done:
-            events.append({
-                "role": "subagent_event",
-                "subtype": "done",
-                "count": 1,
-                "agents": [a],
-            })
-    return events
+    return [event for group in _group(_child_runs(ticket))
+            for event in _evenements_du_groupe(group)]
+
+

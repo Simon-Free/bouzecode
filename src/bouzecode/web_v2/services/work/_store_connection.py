@@ -27,6 +27,8 @@ import sqlite3
 import threading
 from pathlib import Path
 
+from ....backend.core.garde_vrai_home import refuser_le_vrai_home
+
 _local = threading.local()
 
 SCHEMA = (
@@ -34,7 +36,8 @@ SCHEMA = (
     "  seq  INTEGER PRIMARY KEY AUTOINCREMENT,"  # ordre de création (récent = plus grand)
     "  slug TEXT NOT NULL,"
     "  id   TEXT NOT NULL,"
-    "  data TEXT NOT NULL,"                       # le ticket complet en JSON
+    "  data TEXT NOT NULL,"                       # le ticket en JSON (sans ses runs)
+    "  version INTEGER NOT NULL DEFAULT 0,"        # verrou optimiste (spec §9)
     "  UNIQUE(slug, id))"
 )
 
@@ -56,14 +59,37 @@ def connection(db_path: Path) -> sqlite3.Connection:
             return cached
         cached.close()  # la base a changé (isolation des tests) : celle-ci ne vaut plus rien
         _local.connection = None
+    refuser_le_vrai_home(db_path)  # tickets, signalements : jamais le vrai store sous pytest
     db_path.parent.mkdir(parents=True, exist_ok=True)
+    with _verrou_d_ouverture(db_path):
+        conn = _ouvrir(db_path)
+    _local.connection, _local.db_path = conn, str(db_path)
+    return conn
+
+
+_verrous_d_ouverture: dict[str, threading.Lock] = {}
+_verrous_guard = threading.Lock()
+
+
+def _verrou_d_ouverture(db_path: Path) -> threading.Lock:
+    """Un verrou par base pour les ouvertures de CE process. Passer une base NEUVE en WAL exige
+    un verrou exclusif, et SQLite répond alors « database is locked » SANS attendre le
+    `busy_timeout` si un autre thread tient la base au même instant (il la crée, ou la passe
+    lui aussi en WAL). Constaté : `projects.overview` ouvre la base depuis trois threads à la
+    fois, et 44 essais sur 200 échouaient avec quatre threads sur une base neuve."""
+    with _verrous_guard:
+        return _verrous_d_ouverture.setdefault(str(db_path), threading.Lock())
+
+
+def _ouvrir(db_path: Path) -> sqlite3.Connection:
     conn = sqlite3.connect(db_path, timeout=5.0)
     conn.execute("PRAGMA journal_mode=WAL")
     conn.execute("PRAGMA busy_timeout=5000")
     conn.execute("PRAGMA synchronous=NORMAL")
     conn.execute(SCHEMA)
+    from .fsm import stockage  # runs, ticket_events, colonne version d'une base ancienne
+    stockage.assurer_le_schema(conn)
     conn.commit()
-    _local.connection, _local.db_path = conn, str(db_path)
     return conn
 
 

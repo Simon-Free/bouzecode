@@ -1,12 +1,12 @@
 # [desc] Le vrai poste disque : les `.venv` des bacs à sable. Inventaire, et récupération de ce qui se refait par `uv sync`. [/desc]
 r"""Ce que pèsent les worktrees d'agents, et comment en récupérer l'espace SANS RIEN PERDRE.
 
-MESURÉ SUR UN POSTE RÉEL. `~/.bouzecode` pesait 104 Go. Sa répartition :
+MESURÉ SUR LE POSTE. `~/.bouzecode` pèse 104 Go. Sa répartition :
     worktrees/    91 253 Mo   ← dont 82 830 Mo de `.venv`
     sessions/      7 650 Mo
     web_agents/    1 835 Mo
 Soit 166 bacs à sable, et ~1 Go de dépendances installées dans chacun (un `uv sync
---all-extras` d'une application Python de taille moyenne). Aucun n'est partagé avec un autre.
+--all-extras` de demo_application). Aucun n'est partagé avec un autre.
 
 POURQUOI VISER LES `.venv` ET RIEN D'AUTRE. Un venv est un ARTEFACT REPRODUCTIBLE : `uv sync`
 le refait à l'identique depuis `uv.lock`. Le supprimer ne détruit aucun travail — c'est le seul
@@ -27,12 +27,12 @@ PAS que des bacs à sable : `worktree_sources.link_editable_sources` y crée des
 les vrais dépôts, pour que les dépendances editables (`../bouzecode`) se résolvent depuis un
 worktree isolé. Elles ressemblent en tout point à un dossier :
 
-    ~/.bouzecode/worktrees/demo_app/bouzecode  ->  C:\…\dev\demo_monorepo\bouzecode
+    ~/.bouzecode/worktrees/demo_application/bouzecode  ->  C:\…\PycharmProjects\demo\bouzecode
 
 La première version de ce module les a prises pour des bacs à sable — leur nom n'étant pas un
 id de ticket, elles ont été classées `inconnu`, donc récupérables — et `shutil.rmtree` a suivi
 le lien : le `.venv` du VRAI dépôt bouzecode a été effacé (celui qui lance le serveur et les
-tests), et celui du monorepo voisin avec. D'où la règle 0, appliquée AVANT toute autre : sur
+tests), et celui de demo_monorepo avec. D'où la règle 0, appliquée AVANT toute autre : sur
 un chemin qui traverse un lien, on ne supprime rien, jamais. `os.walk` et `rglob` ne
 protègent de rien ici — c'est `is_symlink()` / l'attribut de point d'analyse qui le dit, et il
 faut l'interroger sur CHAQUE segment, pas seulement sur le `.venv` final.
@@ -44,9 +44,10 @@ import shutil
 import stat
 from pathlib import Path
 
-from ...runtime import runner
+from ...runtime.runner import agent_arret, agent_registre
 from ..sessions import store
-from . import projects, reaper, tickets, worktrees
+from . import projects, tickets, worktrees
+from .fsm import etats
 
 # Vivacités qui prouvent qu'un agent se sert de son bac à sable EN CE MOMENT.
 _ETATS_VIVANTS = ("running", "starting", "awaiting_input", "awaiting_plan_validation", "idle")
@@ -56,7 +57,7 @@ def is_link(path: Path) -> bool:
     """`path` est-il un LIEN (symlink POSIX ou JONCTION Windows) ?
 
     Les deux, obligatoirement : sous Windows, `os.path.islink` répond FAUX sur une jonction —
-    c'est exactement ce qui a laissé passer `worktrees/demo_app/bouzecode` pour un
+    c'est exactement ce qui a laissé passer `worktrees/demo_application/bouzecode` pour un
     dossier ordinaire.
 
     La jonction est détectée par l'ATTRIBUT de point d'analyse, et non par
@@ -110,9 +111,13 @@ def _tickets_by_id() -> dict[str, dict]:
 def _live_ticket_ids() -> set[str]:
     return {
         getattr(agent, "ticket_id", "") or ""
-        for agent in runner.list_agents()
+        for agent in agent_registre.list_agents()
         if store.agent_status(agent).get("state") in _ETATS_VIVANTS
     }
+
+
+#  Plus aucun run ne reprendra dans ce bac à sable sans un geste : arrêté, clos, abandonné.
+_ETATS_TERMINAUX = (etats.STOPPED, etats.CLOSED, etats.ABANDONED)
 
 
 def classify(ticket_id: str, index: dict[str, dict], live: set[str]) -> str:
@@ -126,7 +131,7 @@ def classify(ticket_id: str, index: dict[str, dict], live: set[str]) -> str:
     ticket = index.get(ticket_id)
     if ticket is None:
         return "inconnu"
-    if reaper.terminal_outcome(ticket) or ticket.get("done") or ticket.get("archived"):
+    if ticket.get("state") in _ETATS_TERMINAUX or ticket.get("archived"):
         return "terminal"
     return "ouvert"
 
@@ -197,7 +202,7 @@ def reclaim_venvs(confirm: bool = False) -> dict:
                 "detail": [{"ticket_id": r["ticket_id"], "repo": r["repo"],
                             "classe": r["classe"], "bytes": r["bytes"]}
                            for r in etat["recuperable"]]}
-    if not runner.destruction_permitted():
+    if not agent_arret.destruction_permitted():
         return {"simulation": False, "supprimes": [],
                 "refuse": "destruction interdite hors exploitation"}
     index, live = _tickets_by_id(), _live_ticket_ids()

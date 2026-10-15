@@ -5,13 +5,15 @@ from __future__ import annotations
 
 import re
 
-# Hooks bouzecode actually wires (see SubAgentManager._HOOK_FLAGS).
+# Hooks bouzecode actually wires (see SubAgentManager._HOOK_FLAGS). `default` is the value
+# the loop applies when the profile says nothing (config.get(flag, True) in the engine) :
+# the builder SHOWS it, so « défaut » is never a mystery.
 HOOKS = [
-    {"name": "test_enforcement",
+    {"name": "test_enforcement", "label": "Tests obligatoires", "default": True,
      "description": "Exige l'appel de RunPythonTest (TDD) avant de pouvoir clôturer."},
-    {"name": "enforcement",
+    {"name": "enforcement", "label": "Méthodologie obligatoire", "default": True,
      "description": "Exige Methodology/Snippet à chaque tour."},
-    {"name": "loop_detection",
+    {"name": "loop_detection", "label": "Anti-boucle", "default": True,
      "description": "Détecte et coupe les boucles d'appels d'outils répétés."},
 ]
 HOOK_NAMES = {h["name"] for h in HOOKS}
@@ -22,11 +24,16 @@ NAME_RE = re.compile(r"^[a-z0-9][a-z0-9_-]*$")
 SYSTEM_TOOLS = {"Methodology", "Snippet", "FinalAnswer"}
 
 
-def unknown_selections(data: dict) -> str:
+def unknown_selections(data: dict, keep: dict | None = None) -> str:
     """Why this profile could not run as declared, or "" when every selection exists.
 
     A profile naming a tool, skill or hook that does not exist would be saved with
     that selection silently dropped — the agent then runs without what it was given.
+
+    `keep` = {"tools": set, "skills": set, "hooks": set} of selections ALREADY carried by
+    the profile being edited (or duplicated) : a plugin removed since keeps its tools
+    « introuvable » but PRESERVED — refusing them would force the user to drop them, which
+    is exactly the silent loss this guard exists to prevent.
     """
     import bouzecode.backend.tools.registration  # noqa: F401  (side effect: registers builtins)
     from bouzecode.backend.core.tool_registry import get_all_tools
@@ -37,15 +44,35 @@ def unknown_selections(data: dict) -> str:
         "skill": ({skill.name for skill in load_skills()}, data.get("skills")),
         "hook": (HOOK_NAMES, data.get("hooks")),
     }
+    kept = keep or {}
+    kept_by_label = {"outil": kept.get("tools") or set(), "skill": kept.get("skills") or set(),
+                     "hook": kept.get("hooks") or set()}
     problems: list[str] = []
     for label, (available, requested) in catalog.items():
         if not isinstance(requested, list):
             continue
         for item in requested:
             entry = str(item).strip()
-            if entry and entry.removeprefix("no-") not in available:
-                problems.append(f"{label} inconnu : {entry}")
+            if not entry or entry.removeprefix("no-") in available:
+                continue
+            if entry in kept_by_label[label]:
+                continue
+            problems.append(f"{label} inconnu : {entry}")
     return " ; ".join(problems)
+
+
+def missing_selections(data: dict) -> dict:
+    """The selections of `data` absent from the current catalog, per kind — shown « introuvable »."""
+    import bouzecode.backend.tools.registration  # noqa: F401
+    from bouzecode.backend.core.tool_registry import get_all_tools
+    from bouzecode.backend.tools.skill.loader import load_skills
+
+    tools = {tool.name for tool in get_all_tools()} | SYSTEM_TOOLS
+    skills = {skill.name for skill in load_skills()}
+    return {
+        "tools": [t for t in clean_list(data.get("tools")) if t not in tools],
+        "skills": [s for s in clean_list(data.get("skills")) if s not in skills],
+    }
 
 
 def first_line(text: str) -> str:

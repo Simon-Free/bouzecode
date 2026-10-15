@@ -3,8 +3,8 @@
 
 Export → the profile's YAML text (with requires_plugins).
 Import → write it into ~/.bouzecode/profiles and install any declared plugins
-(user scope, from the private package index) so the agent works for the recipient —
-provided they can reach that index.
+(user scope, from Artifactory) so the agent works for the recipient — provided
+they can reach Artifactory.
 """
 from __future__ import annotations
 

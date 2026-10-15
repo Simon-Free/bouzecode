@@ -6,6 +6,7 @@ Clés de session :
   - ``daily/<YYYY-MM-DD>/<session_x.json>``   → session CLI (~/.bouzecode/sessions/daily/)
 """
 from __future__ import annotations
+from bouzecode.paths import data_dir as bouzecode_data_dir
 
 import json
 import re
@@ -14,11 +15,14 @@ import time
 from dataclasses import dataclass
 from pathlib import Path
 
-from ...runtime import pending, runner
+from bouzecode.web_v2.services.horodatage import cle_chrono
+
+from ...runtime import pending
+from ...runtime.runner import agent_chaud, agent_etat, agent_fiche, agent_registre, agent_vivacite
 from . import meta_index, visibility
 
-DAILY_DIR = Path.home() / ".bouzecode" / "sessions" / "daily"
-CACHE_PATH = Path.home() / ".bouzecode" / "web_v2" / "index_cache.json"
+DAILY_DIR = bouzecode_data_dir() / "sessions" / "daily"
+CACHE_PATH = bouzecode_data_dir() / "web_v2" / "index_cache.json"
 _KEY_AGENT = re.compile(r"^agent/([0-9a-f]{6,32})$")
 _KEY_DAILY = re.compile(r"^daily/(\d{4}-\d{2}-\d{2})/([A-Za-z0-9_.-]+\.json)$")
 MAX_DAYS_LISTED = 10
@@ -63,14 +67,14 @@ class SessionRef:
     key: str
     kind: str  # "agent" | "daily"
     path: Path
-    agent: runner.Agent | None = None
+    agent: agent_fiche.Agent | None = None
 
 
 def resolve(key: str) -> SessionRef | None:
     """Résout une clé en chemin validé (aucun chemin arbitraire accepté)."""
     agent_match = _KEY_AGENT.match(key)
     if agent_match:
-        agent = runner.load_agent(agent_match.group(1))
+        agent = agent_fiche.load_agent(agent_match.group(1))
         if agent is None:
             return None
         return SessionRef(key=key, kind="agent", path=Path(agent.session_path), agent=agent)
@@ -93,7 +97,7 @@ def load_session_json(path: Path) -> dict | None:
     return None
 
 
-def _unanswered_question(agent: runner.Agent) -> dict | None:
+def _unanswered_question(agent: agent_fiche.Agent) -> dict | None:
     """La question posée à l'utilisateur et JAMAIS répondue, lue sur DISQUE.
 
     `<session>.pending.json` (runtime/pending.py) est écrit quand AskUserQuestion met le
@@ -104,7 +108,7 @@ def _unanswered_question(agent: runner.Agent) -> dict | None:
     C'est la seule trace DURABLE : l'état IPC `awaiting_input`, lui, est écrasé par un
     `finished` nu au bout des 900 s d'attente de `repl._resume_paused_warm`. Passé ce
     quart d'heure, un agent bloqué sur une question devenait indistinguable d'un agent
-    terminé — question et options perdues (cas vécu : manager 0123456789ab, question de
+    terminé — question et options perdues (cas vécu : manager 9d0789f2fdca, question de
     12:27:32, IPC écrasé à 12:42:32, invisible ensuite)."""
     if not agent.session_path or not pending.exists(agent.session_path):
         return None
@@ -116,7 +120,7 @@ def _unanswered_question(agent: runner.Agent) -> dict | None:
     return None if visibility.answer_no_longer_expected(agent, paused) else paused
 
 
-def demarrage_phase(agent: runner.Agent, state: str, ipc_state: dict) -> str:
+def demarrage_phase(agent: agent_fiche.Agent, state: str, ipc_state: dict) -> str:
     """Où en est un agent pendant les ~10 s où l'écran ne montrait RIEN.
 
     Mesuré le 2026-07-30 sur un dispatch réel : 0,5 s pour enregistrer la demande, ~3,9 s
@@ -139,10 +143,28 @@ def demarrage_phase(agent: runner.Agent, state: str, ipc_state: dict) -> str:
     if session is None or not session.is_file():
         # Le process se lance : interpréteur, harnais, lecture du dépôt.
         return "demarrage"
-    if _sortie_partielle_vide(session) and not ipc_state.get("tool"):
-        # La requête est partie, rien n'est encore revenu du modèle.
+    if (_sortie_partielle_vide(session) and not _outil_en_cours(ipc_state)
+            and _rien_produit_depuis_le_dernier_message_utilisateur(session)):
+        # La requête est partie, rien n'est encore revenu du modèle POUR CE MESSAGE. Entre deux
+        # tours d'un même message (outils exécutés, modèle relancé), l'agent TRAVAILLE : la
+        # phase restait collée sur « le modèle lit ta demande » pendant une relance entière.
         return "attente_modele"
     return ""
+
+
+def _outil_en_cours(ipc_state: dict) -> bool:
+    """L'agent écrit `tools` (liste) dans son état IPC pendant l'exécution des outils."""
+    return bool(ipc_state.get("tool") or ipc_state.get("tools"))
+
+
+def _rien_produit_depuis_le_dernier_message_utilisateur(session: Path) -> bool:
+    """Le dernier message persisté est celui de l'utilisateur (le checkpoint est écrit dès
+    son ajout) : aucune réponse, aucun outil depuis. Illisible → on ne l'affirme pas."""
+    try:
+        messages = json.loads(session.read_text(encoding="utf-8")).get("messages") or []
+    except (OSError, ValueError, AttributeError):
+        return False
+    return bool(messages) and isinstance(messages[-1], dict) and messages[-1].get("role") == "user"
 
 
 def _sortie_partielle_vide(session: Path) -> bool:
@@ -159,94 +181,117 @@ def _sortie_partielle_vide(session: Path) -> bool:
     return not (donnees.get("text") or donnees.get("thinking") or donnees.get("content"))
 
 
-def agent_status(agent: runner.Agent) -> dict:
+def _etat_process_vivant(agent: agent_fiche.Agent) -> str:
+    """État d'un agent dont le process existe.
+
+    Chaud mais oisif (`idle`) n'est pas « en cours » : un agent du warm pool qui a fini son
+    tour garde un process vivant, mais doit rester joignable par `/continue` (qui refuse un
+    agent `running`). L'IPC `idle` est une affirmation du process lui-même, donc testée
+    avant l'inférence « session pas encore écrite » → `starting`."""
+    if agent_chaud.is_warm(agent):
+        return "idle"
+    session_path = agent.session_path or ""
+    if session_path and not Path(session_path).is_file():
+        return "starting"
+    return "running"
+
+
+def _etat_et_question(agent: agent_fiche.Agent, ipc_state: dict) -> tuple[str, dict | None]:
+    """(état, question pendante sur disque) — l'IPC, puis le process, puis le disque.
+
+    Process mort : la question persistée par AskUserQuestion fait foi. Elle est lue APRÈS
+    `is_running` pour ne pas annoncer « en attente » pendant qu'une reprise tourne déjà."""
+    ipc_status = ipc_state.get("status")
+    if ipc_status in _NEED_INPUT_STATES:
+        return ipc_status, None
+    if agent_vivacite.is_running(agent):
+        return _etat_process_vivant(agent), None
+    session_ecrite = bool(agent.session_path and Path(agent.session_path).is_file())
+    if agent.returncode is None and not session_ecrite:
+        # Jamais démarré (subprocess pas encore lancé) : surtout pas « finished ».
+        return "starting", None
+    paused = _unanswered_question(agent)
+    return ("awaiting_input" if paused is not None else "finished"), paused
+
+
+def _question_affichee(ipc_state: dict, paused: dict, state: str = "") -> dict:
+    """Question, options et saisie libre : l'IPC vivant d'abord, la question persistée sinon.
+
+    Une question ne s'affiche QUE sous un état qui l'attend : une fois la réponse livrée,
+    l'agent repart en `running` et la question résiduelle (state.json plus ancien, pending
+    non encore supprimé) doit disparaître, sinon l'interface réclame un geste humain déjà
+    fait (2026-09-29)."""
+    if state and state not in _NEED_INPUT_STATES:
+        return {"question": "", "options": [], "allow_freetext": True}
+    return {
+        "question": ipc_state.get("question") or paused.get("question", ""),
+        "options": ipc_state.get("options") or paused.get("options") or [],
+        "allow_freetext": ipc_state.get("allow_freetext", paused.get("allow_freetext", True)),
+    }
+
+
+def _fin_connue(agent) -> str:
+    """Horodatage de fin porté par la fiche, "" s'il n'y en a pas.
+
+    Tolère un agent qui n'est pas un `runner.Agent` complet : plusieurs appelants (et les
+    tests de recovery/status) passent un objet minimal sans `finished_at`. Lu à l'identique
+    à l'écriture et à la relecture du statut prouvé, donc la comparaison reste juste."""
+    return str(getattr(agent, "finished_at", "") or "")
+
+
+def agent_status(agent: agent_fiche.Agent) -> dict:
     """Statut consolidé process + IPC + question pendante sur disque. L'agent peut être
     mort ET en attente de réponse (AskUserQuestion persiste l'état puis quitte le process)."""
+    from . import status_cache
+
     cached = _status_cache.get(agent.agent_id)
-    if cached is not None:
+    if cached is None and agent.returncode is not None:
+        # Process neuf : le statut terminal a peut-être déjà été prouvé lors d'un listing
+        # précédent. L'accepter ici évite de relire fiche + état IPC de ~480 agents finis.
+        # Retenu aussitôt dans la mémoire du process, comme un statut calculé : sinon CHAQUE
+        # appel suivant rouvrait la même preuve (3 680 appels pour un premier /api/inbox).
+        cached = status_cache.statut_prouve(agent.agent_id, _fin_connue(agent))
+        if cached is not None:
+            with _status_cache_lock:
+                _status_cache[agent.agent_id] = cached
+    if cached is not None and not agent_vivacite.is_running(agent):
         return dict(cached)
-    agent = runner.refresh_agent_status(agent)
-    ipc_state = runner.get_ipc_state(agent)
-    paused = None
-    if ipc_state.get("status") == "awaiting_input":
-        state = "awaiting_input"
-    elif ipc_state.get("status") == "awaiting_plan_validation":
-        state = "awaiting_plan_validation"
-    elif runner.is_running(agent):
-        # CHAUD MAIS OISIF ≠ EN TRAIN DE TRAVAILLER. Un agent qui a fini son tour reste
-        # résident dans le warm pool (ipc.run_agent_event_loop écrit STATUS_IDLE puis
-        # sonde followup.txt). Son process EXISTE, donc `is_running` est vrai — mais il
-        # ne joue AUCUN tour. Confondre les deux le rendait totalement INJOIGNABLE : la
-        # garde anti-double-tour de `/api/agents/<id>/continue` (et de
-        # `messaging.send_to_ticket_agent`) refuse en 409 sur `state == "running"`, donc
-        # plus personne — ni l'utilisateur, ni un autre agent — ne pouvait lui parler,
-        # pendant que l'UI l'annonçait « en cours » (cas vécu : manager 0123456789ab,
-        # IPC `idle` depuis 18:07:43, 20 min de 409, débloqué seulement en TUANT le
-        # process). L'information existait déjà dans l'IPC et se perdait ICI, faute
-        # d'une branche pour la lire.
-        #
-        # On la relit par `runner.is_warm` — MÊME prédicat (pid vivant + IPC `idle`) que
-        # celui dont `continue_agent` se sert déjà pour choisir la reprise chaude, et
-        # frère de `_is_warm_awaiting` : aucune 2e règle de vivacité n'est ouverte ici.
-        # Il est testé AVANT "starting" parce que l'IPC `idle` est une affirmation
-        # POSITIVE du process lui-même (« j'ai fini un tour, j'attends »), là où
-        # « fichier session absent » n'est qu'une inférence.
-        session_path = agent.session_path or ""
-        if runner.is_warm(agent):
-            state = "idle"
-        elif session_path and not Path(session_path).is_file():
-            state = "starting"
-        else:
-            state = "running"
-    elif agent.returncode is None and not (agent.session_path and Path(agent.session_path).is_file()):
-        # NI vivant, NI returncode, NI session écrite : le process n'a JAMAIS démarré
-        # (worktree provisionné, subprocess pas encore lancé). Le confondre avec "finished"
-        # ouvre la FENÊTRE DE START qui déclenche un validateur prématuré sur worktree vide
-        # (→ no_diff verrouillé). On le classe "starting" : le run reste ACTIF pour le workflow
-        # (_ACTIVE) → derive_state=busy → aucun spawn_validator tant que la vie n'est pas confirmée.
-        state = "starting"
-    else:
-        # Process mort : la question pendante sur disque fait foi. Testée APRÈS
-        # `is_running` pour ne pas annoncer « en attente » pendant la fenêtre où un
-        # `--resume-pending` tourne déjà mais n'a pas encore effacé le fichier.
-        paused = _unanswered_question(agent)
-        state = "awaiting_input" if paused is not None else "finished"
+    #  Un « finished » mémorisé ne survit pas à un process VIVANT : un agent chaud relancé
+    #  (/continue, « même agent »), ou dont le pid de fiche vient d'être rattrapé sur le vrai
+    #  process, travaillait sous l'étiquette « terminé » tant que personne n'invalidait le cache.
+    if cached is not None:
+        invalidate_status(agent.agent_id)
+    agent = agent_etat.refresh_agent_status(agent)
+    ipc_state = agent_etat.get_ipc_state(agent)
+    state, paused = _etat_et_question(agent, ipc_state)
     result = {
         "state": state,
         "phase": demarrage_phase(agent, state, ipc_state),
-        "question": ipc_state.get("question") or (paused or {}).get("question", ""),
-        "options": ipc_state.get("options") or (paused or {}).get("options") or [],
-        "allow_freetext": ipc_state.get(
-            "allow_freetext", (paused or {}).get("allow_freetext", True)),
+        **_question_affichee(ipc_state, paused or {}, state),
         "returncode": agent.returncode,
-        # BATTEMENT DE CŒUR. `ipc.write_state` horodate CHAQUE changement d'état du process
-        # (`updated_at`, epoch), et `runner.get_ipc_state` le rendait déjà — c'est ICI qu'il
-        # se perdait, jeté au moment de recomposer le statut. Sans lui, « en cours » depuis
-        # 3 s et « en cours » depuis 11 min sont le MÊME mot : c'est exactement ce qui rendait
-        # indistinguables un agent qui travaille et un agent bloqué (cas eac1f0bef295, 11 min
-        # d'écart entre le dernier battement et la lecture, avec `state: "running"` inchangé).
-        # 0.0 quand l'IPC n'a jamais écrit (agent trop jeune, ou pas d'IPC du tout).
+        # Battement de cœur (epoch du dernier changement d'état IPC) : distingue un agent
+        # qui travaille d'un agent bloqué. 0.0 si l'IPC n'a jamais écrit.
         "last_event_at": float(ipc_state.get("updated_at") or 0.0),
-        # Tour EN COURS selon le process lui-même, pas selon l'index de sessions (qui ne bouge
-        # qu'à la sauvegarde). Les deux divergeaient de plusieurs tours sur un agent actif.
+        # Tour en cours selon le process (l'index de sessions ne bouge qu'à la sauvegarde).
         "ipc_turn": int(ipc_state.get("turn") or 0),
-        # Outils du lot en cours d'exécution, publiés par `dag._announce_activity`. Vide sur
-        # un agent lancé par une version antérieure du harnais : l'appelant retombe alors sur
-        # le dernier outil ENREGISTRÉ dans la session (cf. `services/work/activity.py`).
+        # Outils du lot en cours ; vide sur un harnais ancien (repli : services/work/activity.py).
         "tools": [str(t) for t in (ipc_state.get("tools") or [])],
     }
     if state == "finished":
         with _status_cache_lock:
             _status_cache[agent.agent_id] = result
+        status_cache.memoriser(agent.agent_id, _fin_connue(agent), result)
     return result
 
 
-def _load_cache() -> dict:
-    return meta_index.read_file(CACHE_PATH)
-
-
 def _save_cache(cache: dict) -> None:
-    meta_index.merge_into_file(CACHE_PATH, cache)
+    meta_index.save_index(CACHE_PATH, cache)
+
+
+def _metas_fraiches() -> meta_index.DirtyTrackingIndex:
+    """Les méta BÂTIES pendant un listing (le reste vient du memo, amorcé depuis le fichier une
+    fois par process) : c'est tout ce que `_save_cache` a à fusionner dans le fichier."""
+    return meta_index.DirtyTrackingIndex()
 
 
 def _last_tool_called(data: dict) -> str:
@@ -286,95 +331,90 @@ def _build_meta(path: Path) -> dict:
 
 
 def _session_meta(path: Path, cache: dict) -> dict:
-    """Méta d'une session, mémorisée par mtime dans le memo du process PUIS dans `cache`.
+    """Méta d'une session, mémorisée par mtime dans le memo du process (amorcé une fois depuis
+    `index_cache.json`) ; une méta bâtie est ajoutée à `cache`, que l'appelant sauve.
 
     Voir `meta_index` : le memo est ce qui empêche une entrée d'index perdue (écriture
     concurrente) de faire re-décoder des centaines de Mo à chaque requête suivante."""
     if not path.is_file():
         return {"first_message": "(pas encore de session)", "model": "", "turn_count": 0, "saved_at": ""}
+    meta_index.amorcer(CACHE_PATH)
     return meta_index.memoized_meta(path, cache, lambda: _build_meta(path))
 
 
-def agent_meta(agent: runner.Agent, cache: dict | None = None) -> dict:
+def agent_meta(agent: agent_fiche.Agent, cache: dict | None = None) -> dict:
     """Méta d'UN SEUL agent (mémorisée par mtime), sans parcourir le parc.
 
     `list_agent_sessions` est le chemin des LISTINGS : elle bâtit la méta de tous les agents, ce
     qui coûte le décodage complet de chaque session dont le mtime a bougé — 13,7 s mesurées à
     froid sur le parc réel. Un appelant qui n'a besoin de la méta que de quelques agents vivants
     passe par ici : il paie ces agents-là, pas les 250 autres."""
-    return _session_meta(Path(agent.session_path), cache if cache is not None else _load_cache())
+    return _session_meta(Path(agent.session_path), cache if cache is not None else {})
 
 
 _NEED_INPUT_STATES = {"awaiting_input", "awaiting_plan_validation"}
 
 
+def _ligne_conversation(agent: agent_fiche.Agent, meta: dict, archived: bool, cat: str) -> dict:
+    """Une conversation telle que la sert le listing (cf. `list_agent_sessions`)."""
+    status = agent_status(agent)
+    return {
+        "key": f"agent/{agent.agent_id}",
+        "title": (agent.prompt or "").strip().split("\n")[0][:90] or agent.agent_id,
+        "model": agent.model or meta["model"],
+        "cwd": agent.cwd or "",
+        "started_at": agent.started_at,
+        "saved_at": meta["saved_at"],
+        "turn_count": meta["turn_count"],
+        "status": status,
+        # Archivé MAIS gardé parce que vivant : le front l'étiquette « archivé ».
+        "archived": archived,
+        "close_reason": meta.get("close_reason", ""),
+        "has_recap": meta.get("has_recap", False),
+        "profile": agent.profile or "",
+        "typology": agent.profile or "",
+        "category": cat,
+        "need_input": status.get("state") in _NEED_INPUT_STATES,
+        # Le ticket porté par l'agent : l'historique de l'assistant du Bureau reprend une
+        # conversation par lui (`POST /api/projects/<slug>/tickets/<id>/messages`).
+        "ticket_id": getattr(agent, "ticket_id", "") or "",
+        "ticket_slug": getattr(agent, "ticket_slug", "") or "",
+    }
+
+
 def list_agent_sessions(include_tests: bool = False, cache: dict | None = None) -> list[dict]:
-    """SEULEMENT les agents web (statut live). Léger : ne parcourt PAS les sessions
-    daily (glob JSON coûteux, inutile pour l'onglet Conversations qui n'affiche que
-    les agents). Utilisé par fleet.agent_tree.
+    """Les conversations des agents web, statut live compris (utilisé par fleet.agent_tree).
 
-    Chaque conversation porte :
-      - ``category`` ∈ {"user","meta","subagent","test"} (nature, cf. category.py).
-      - ``need_input`` bool : l'agent attend une réponse utilisateur (awaiting_input
-        ou awaiting_plan_validation).
+    Chaque conversation porte ``category`` ∈ {"user","meta","subagent","test"} et
+    ``need_input``. Tri : en attente de réponse d'abord, puis récence (saved_at||started_at).
+    Les sessions archivées et finies sont exclues (un archivé vivant reste visible,
+    cf. sessions/visibility.py) ; les conversations de test aussi, sauf ``include_tests``.
 
-    Tri : conversations en attente d'input EN TÊTE, puis récence (saved_at||started_at).
-
-    Filtre les sessions purgées/archivées (purge.load_deleted). Exclut par défaut les
-    conversations de test (``include_tests=False``) → l'utilisateur n'a plus à les
-    nettoyer manuellement.
-
-    ``cache`` : index de méta déjà chargé par l'appelant (cf. list_sessions). Fourni,
-    il est enrichi sur place et NI relu NI sauvegardé ici — c'est l'appelant qui le
-    sauve une seule fois. Absent, la fonction gère elle-même son chargement et sa
-    sauvegarde (les appelants existants n'ont rien à changer)."""
-    from . import category, purge
+    ``cache`` : méta fraîches de l'appelant, enrichies sur place et NON sauvegardées ici
+    (l'appelant les sauve une fois). Absent, la fonction tient les siennes et les sauve."""
+    from . import category, purge, status_cache
 
     owns_cache = cache is None
     if cache is None:
-        cache = _load_cache()
+        cache = _metas_fraiches()
     deleted = purge.load_deleted()
     agents = []
-    for agent in runner.list_agents():
-        agent_key = f"agent/{agent.agent_id}"
-        # Archivé ET fini → caché. Archivé mais VIVANT (il tourne ou il attend une
-        # réponse) → gardé : la vivacité prime (cf. sessions/visibility.py).
+    for agent in agent_registre.list_agents():
         if visibility.hidden_by_archive(agent, deleted):
             continue
         cat = category.classify_agent(agent)
         if cat == category.CATEGORY_TEST and not include_tests:
             continue
         meta = _session_meta(Path(agent.session_path), cache)
-        status = agent_status(agent)
-        agents.append({
-            "key": f"agent/{agent.agent_id}",
-            "title": (agent.prompt or "").strip().split("\n")[0][:90] or agent.agent_id,
-            "model": agent.model or meta["model"],
-            "cwd": agent.cwd or "",
-            "started_at": agent.started_at,
-            "saved_at": meta["saved_at"],
-            "turn_count": meta["turn_count"],
-            "status": status,
-            # Archivé MAIS gardé parce que vivant : le front l'étiquette « archivé »
-            # (gris) au lieu de faire croire qu'il a été rangé pour de bon.
-            "archived": agent_key in deleted,
-            "close_reason": meta.get("close_reason", ""),
-            "has_recap": meta.get("has_recap", False),
-            "profile": agent.profile or "",
-            "typology": agent.profile or "",
-            "category": cat,
-            "need_input": status.get("state") in _NEED_INPUT_STATES,
-        })
-    # need_input d'abord (True > False), puis récence décroissante.
+        agents.append(_ligne_conversation(agent, meta, f"agent/{agent.agent_id}" in deleted, cat))
     agents.sort(
-        key=lambda item: (
-            item.get("need_input", False),
-            item.get("saved_at") or item["started_at"],
-        ),
+        key=lambda item: (item["need_input"], cle_chrono(item.get("saved_at") or item["started_at"])),
         reverse=True,
     )
     if owns_cache:
         _save_cache(cache)
+    # Une seule écriture pour tous les statuts terminaux découverts pendant ce listing.
+    status_cache.flush()
     return agents
 
 
@@ -383,12 +423,13 @@ def list_sessions(include_tests: bool = False) -> dict:
 
     ``include_tests`` propagé à list_agent_sessions (défaut : tests exclus).
 
-    L'index de méta est chargé et sauvegardé UNE SEULE FOIS pour tout l'appel : il est
-    passé à list_agent_sessions, qui l'enrichit sans le relire ni le réécrire (ce chemin
-    est parcouru à chaque poll du front, et le JSON complet fait plusieurs Mo)."""
+    L'index de méta n'est lu qu'une fois par PROCESS (`meta_index.amorcer`) et sauvegardé au
+    plus une fois pour tout l'appel, seulement si une méta a été bâtie : les méta fraîches
+    sont passées à list_agent_sessions, qui les enrichit sans rien réécrire (ce chemin est
+    parcouru à chaque poll du front, et le JSON complet fait plusieurs Mo)."""
     from . import purge
 
-    cache = _load_cache()
+    cache = _metas_fraiches()
     deleted = purge.load_deleted()
     agents = list_agent_sessions(include_tests=include_tests, cache=cache)
 

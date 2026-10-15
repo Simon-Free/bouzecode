@@ -11,7 +11,8 @@ search_bp = Blueprint("search", __name__)
 
 @search_bp.get("/api/search")
 def api_search():
-    """Search agent conversations by keyword.
+    """?q=<mots séparés par des espaces, match ET>&scope=open|all (défaut open) — recherche par
+    mots-clés dans les conversations d'agents → {results:[...]}
 
     Query params: q (space-separated words, AND match), scope (open|all, default open).
     """

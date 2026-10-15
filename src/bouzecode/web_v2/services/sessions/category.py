@@ -13,7 +13,7 @@ elle a un parent).
 """
 from __future__ import annotations
 
-from ...runtime import runner
+from ...runtime.runner import agent_fiche
 from . import purge
 
 CATEGORY_TEST = "test"
@@ -24,7 +24,7 @@ CATEGORY_USER = "user"
 _DISPATCHER_PARENT = "dispatcher:manual"
 
 
-def classify_agent(agent: runner.Agent) -> str:
+def classify_agent(agent: agent_fiche.Agent) -> str:
     """Nature d'une conversation agent web. Voir docstring module pour la priorité."""
     title = (agent.prompt or "").strip().split("\n")[0][:90] or agent.agent_id
     if purge.is_test_agent(title, agent.prompt or ""):

@@ -1,131 +1,61 @@
 {% extends "base.html" %}
+{# Page Agents (SPEC.md §5) : liste des agents à gauche, onglets d'agents à droite, barre de
+   lancement en tête du panneau. Tout le comportement vit dans static/js/conversations/. #}
+{% block head %}
+<link rel="stylesheet" href="{{ url_for('static', filename='css/agents.css') }}">
+<link rel="stylesheet" href="{{ url_for('static', filename='css/thread.css') }}">
+{% endblock %}
 {% block content %}
-<style>
-  main { max-width: none; margin: 0; padding: 0; }
-  /* Barre de prompt "nouvelle conversation" façon Claude/ChatGPT : un champ + une
-     flèche d'envoi, en tête du panneau droit. Envoie sur /api/dispatch. */
-  .conv-new-bar { display: flex; flex-direction: row; align-items: flex-end; gap: 8px;
-    width: 100%; padding: 10px 12px; border-bottom: 1px solid var(--border);
-    background: var(--panel2); }
-
-  .conv-new-input { flex: 1; resize: none; min-height: 24px; max-height: 200px;
-    padding: 9px 12px; border: 1px solid var(--border); border-radius: 20px;
-    background: var(--input-bg); color: var(--text); font: inherit; line-height: 1.4; }
-  .conv-new-input:focus { outline: none; border-color: var(--accent); }
-  .conv-new-send { flex: 0 0 auto; width: 38px; height: 38px; border: none;
-    border-radius: 50%; background: var(--accent); color: var(--on-accent); cursor: pointer;
-    display: flex; align-items: center; justify-content: center; font-size: 16px; }
-  .conv-new-send:disabled { opacity: .5; cursor: default; }
-  .conv-new-send svg { width: 18px; height: 18px; }
-  .conv-new-error { color: var(--red); font-size: 12px; padding: 0 14px; min-height: 0; }
-  .conv-new-error:not(:empty) { padding: 6px 14px; }
-  /* Bannière d'options togglée (type d'agent) sous la barre "nouvelle conversation". */
-  .conv-agent-bar { border-bottom: 1px solid var(--border); background: var(--panel); }
-  .conv-agent-toggle { display: flex; align-items: center; gap: 6px; width: 100%;
-    padding: 7px 14px; border: none; background: none; color: var(--text);
-    font: inherit; font-size: 13px; cursor: pointer; text-align: left; }
-  .conv-agent-toggle:hover { background: var(--bg); }
-  .conv-agent-toggle:focus-visible { outline: 2px solid var(--accent); outline-offset: -2px; }
-  .conv-agent-caret { display: inline-block; transition: transform .15s ease;
-    color: var(--muted, #888); font-size: 10px; }
-  .conv-agent-toggle[aria-expanded="true"] .conv-agent-caret { transform: rotate(90deg); }
-  .conv-agent-toggle-label { color: var(--muted, #888); }
-  .conv-agent-toggle-value { color: var(--text); font-weight: 600; }
-  .conv-agent-panel { display: flex; flex-direction: column; gap: 2px;
-    padding: 4px 8px 10px 8px; }
-  .conv-agent-panel[hidden] { display: none; }
-  .conv-agent-option { display: flex; align-items: flex-start; gap: 8px;
-    padding: 7px 8px; border-radius: 8px; cursor: pointer; }
-  .conv-agent-option:hover { background: var(--bg); }
-  .conv-agent-option input { margin: 2px 0 0 0; flex: 0 0 auto; accent-color: var(--accent); }
-  .conv-agent-option-text { display: flex; flex-direction: column; gap: 1px; min-width: 0; }
-  .conv-agent-option-name { font-size: 13px; color: var(--text); font-weight: 500; }
-  .conv-agent-option-desc { font-size: 11px; color: var(--muted, #888);
-    overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-  /* Formulaire « ouvrir un projet », sous la liste des projets. Aucune couleur en dur :
-     tout passe par les tokens du thème (cf. conversations.nohex.test.js). */
-  .conv-projects-admin { padding: 2px 8px 10px 8px; font-size: 12px; }
-  .conv-projects-admin-row { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; }
-  .conv-projects-admin-label { color: var(--muted); }
-  .conv-projects-admin-input { padding: 4px 8px; border: 1px solid var(--border);
-    border-radius: 6px; background: var(--panel); color: var(--text); font: inherit;
-    font-size: 12px; }
-  .conv-projects-admin-input:focus { outline: none; border-color: var(--accent); }
-  .conv-projects-admin-btn { padding: 4px 10px; border: 1px solid var(--border);
-    border-radius: 6px; background: var(--panel2); color: var(--text); font: inherit;
-    font-size: 12px; cursor: pointer; }
-  .conv-projects-admin-btn:hover { border-color: var(--border-bright); }
-  .conv-projects-admin-error { color: var(--red); min-height: 14px; }
-  /* La barre de lancement (composer + type d'agent + projet) reste TOUJOURS
-     ouverte, même quand des onglets de conversation sont ouverts : on doit
-     pouvoir lancer un nouvel agent à tout moment (choix typologie + projet). */
-</style>
-<div class="conv-layout">
-  <aside class="conv-sidebar">
-    <h2 data-i18n="conv.sidebar_title">Conversations</h2>
-    <div id="conv-list" class="conv-list">
-      <p class="muted" data-i18n="conv.loading">Loading…</p>
+<div class="ag-layout">
+  <aside class="conv-sidebar ag-side" aria-label="Liste des agents">
+    <div class="ag-side__head">
+      <h1 class="ag-side__title">Agents</h1>
+      <div class="ag-search" role="search">
+        <label class="sr-only" for="ag-filter">Filtrer ou rechercher dans les agents</label>
+        <input id="ag-filter" class="input ag-search__input" type="search" autocomplete="off"
+               placeholder="Filtrer les agents… ( / )" title="Filtre instantané ; Entrée cherche aussi dans le contenu des conversations">
+        <button type="button" id="ag-filter-clear" class="btn btn--ghost btn--sm btn--icon" aria-label="Effacer la recherche" hidden>×</button>
+      </div>
+      <div id="ag-search-results" class="ag-search-results" hidden></div>
+    </div>
+    <div id="conv-list" class="ag-list" aria-busy="true">
+      <div class="skeleton" aria-hidden="true"><div class="skeleton__line"></div><div class="skeleton__line"></div><div class="skeleton__line"></div><div class="skeleton__line"></div></div>
+      <span class="sr-only" role="status">Chargement des agents…</span>
     </div>
   </aside>
-  <section class="conv-main">
-    <form id="conv-new-bar" class="conv-new-bar pui-promptbox">
-      <textarea id="conv-new-input" name="conv-new-input" class="conv-new-input pui-promptbox__textarea" rows="1"
-        data-i18n-placeholder="conv.new_placeholder"
-        placeholder="New conversation — describe what needs doing (Enter to send)…"></textarea>
-      <button id="conv-new-send" class="conv-new-send pui-promptbox__iconbtn" type="submit"
-        data-i18n-title="conv.send" data-i18n-aria-label="conv.send" title="Send" aria-label="Send">
-        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4"
-          stroke-linecap="round" stroke-linejoin="round"><path d="M12 19V5M5 12l7-7 7 7"/></svg>
-      </button>
-    </form>
-    <details class="conv-options">
-      <summary class="conv-options-summary">
-        <span class="conv-options-caret" aria-hidden="true">▸</span>
-        <span class="conv-options-label" data-i18n="conv.options">Options</span>
-      </summary>
-      <div class="conv-agent-bar">
-      <button id="conv-agent-toggle" class="conv-agent-toggle" type="button"
-        aria-expanded="false" aria-controls="conv-agent-panel">
-        <span class="conv-agent-caret" aria-hidden="true">▸</span>
-        <span class="conv-agent-toggle-label" data-i18n="conv.agent_type">Agent type:</span>
-        <span id="conv-agent-value" class="conv-agent-toggle-value">…</span>
-      </button>
-      <div id="conv-agent-panel" class="conv-agent-panel" role="radiogroup"
-        data-i18n-aria-label="conv.agent_type_group" aria-label="Agent type" hidden></div>
-      <button id="conv-project-toggle" class="conv-agent-toggle" type="button"
-        aria-expanded="false" aria-controls="conv-project-panel">
-        <span class="conv-agent-caret" aria-hidden="true">▸</span>
-        <span class="conv-agent-toggle-label" data-i18n="conv.project">Project:</span>
-        {#- Pas de `data-i18n` sur les trois valeurs choisies (agent / projet / environnement) :
-            elles portent une DONNÉE que le JavaScript écrit (le nom du projet, la typologie
-            retenue). Une clé ici les ferait réécrire par `applyDom` au changement de langue,
-            effaçant le choix de l'utilisateur. Le composer les redessine lui-même. -#}
-        <span id="conv-project-value" class="conv-agent-toggle-value">pick one</span>
-      </button>
-      <div id="conv-project-panel" class="conv-agent-panel" role="radiogroup"
-        data-i18n-aria-label="conv.project_group" aria-label="Project" hidden></div>
-      <div id="conv-project-suggestions" class="conv-project-suggestions" hidden></div>
-      {#- Ouvrir un projet sans passer par un agent : sans cette ligne, un serveur neuf n'a
-          aucun projet et la page est un cul-de-sac. Peuplée par composer/project.js. -#}
-      <div id="conv-projects-admin" class="conv-projects-admin"></div>
-      <button id="conv-isolation-toggle" class="conv-agent-toggle" type="button"
-        aria-expanded="false" aria-controls="conv-isolation-panel">
-        <span class="conv-agent-caret" aria-hidden="true">▸</span>
-        <span class="conv-agent-toggle-label" data-i18n="conv.environment">Environment:</span>
-        <span id="conv-isolation-value" class="conv-agent-toggle-value">shared</span>
-      </button>
-      <div id="conv-isolation-panel" class="conv-agent-panel" role="radiogroup"
-        data-i18n-aria-label="conv.environment_group" aria-label="Environment" hidden></div>
+  <section class="conv-main ag-main">
+    <form id="conv-new-bar" class="ag-launch" autocomplete="off" novalidate>
+      <div class="ag-launch__row">
+        <label class="sr-only" for="conv-new-input">Nouvelle conversation</label>
+        <textarea id="conv-new-input" name="conv-new-input" class="textarea ag-launch__input" rows="1"
+          placeholder="Que doit faire le nouvel agent ?" title="Entrée pour lancer, Maj+Entrée pour une nouvelle ligne"></textarea>
+        <button id="conv-new-send" class="btn btn--primary" type="submit">Lancer</button>
       </div>
-    </details>
-    <div id="conv-new-error" class="conv-new-error"></div>
-    <div id="conv-tabs" class="conv-tabs"></div>
-    <div id="conv-panels" class="conv-panels">
-      <p class="muted conv-empty" data-i18n="conv.empty">Pick a conversation on the left, or start a new one above.</p>
+      <div class="ag-launch__chips" aria-label="Paramètres du lancement">
+        <span class="ag-launch__lbl">dans</span>
+        <button type="button" id="ag-chip-repo" class="chip" data-tone="warn"><span>choisir un dépôt</span> ▾</button>
+        <button type="button" id="ag-repo-add" class="chip" title="Ajouter un dépôt" aria-label="Ajouter un dépôt">+ dépôt</button>
+        <span class="ag-launch__lbl">profil</span>
+        <button type="button" id="ag-chip-profile" class="chip"><span>default</span> ▾</button>
+        <span class="ag-launch__lbl">environnement</span>
+        <button type="button" id="ag-chip-env" class="chip"><span>Dépôt principal</span> ▾</button>
+      </div>
+      <div id="conv-new-error" class="field__error ag-launch__error" role="alert"></div>
+    </form>
+    <div id="conv-tabs" class="ag-tabs" role="tablist" aria-label="Agents ouverts"></div>
+    <div id="conv-panels" class="ag-panels">
+      <div class="conv-empty ag-empty">
+        <div class="empty">
+          <div class="empty__title">Aucun agent ouvert</div>
+          <div class="empty__text">Choisis un agent dans la liste à gauche, ou lance une nouvelle conversation ci-dessus.</div>
+        </div>
+      </div>
     </div>
   </section>
 </div>
 {% endblock %}
+{# Mise en page pleine hauteur : pas de pied de page (il ferait défiler la page). #}
+{% block footer %}{% endblock %}
 {% block scripts %}
-<script type="module" src="/static/js/conversations.js"></script>
+<script type="module" src="{{ url_for('static', filename='js/conversations.js') }}"></script>
 {% endblock %}

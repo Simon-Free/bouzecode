@@ -7,21 +7,21 @@ relance MANUELLE (on ne relance JAMAIS automatiquement ici — l'utilisateur dé
 Trois familles d'interrompus :
   (a) agents stampés rc=-1 au reconcile de CE boot (pid mort + IPC non-finished) ;
   (b) tickets restés en `launching` (spawn différé) sans run démarré ;
-  (c) runs 'work'/'validate' dont l'agent est mort sans verdict (validate) / clôture
-      propre (work), donc à reprendre.
+  (c) runs 'work' dont l'agent est mort sans clôture propre, donc à reprendre.
 
-Le rapport est persisté avec le timestamp du boot ; il expose un flag `dismissed`
-(persisté) : une fois masqué par l'utilisateur, le bandeau ne réapparaît pas seul.
+Le rapport est persisté avec le timestamp du boot, servi par GET /api/agents?state=interrupted.
 """
 from __future__ import annotations
 
 import json
 import logging
-from datetime import datetime, timezone
 
-from bouzecode.web_v2.runtime import runner
+from bouzecode.web_v2.services.horodatage import maintenant_iso
+
+from bouzecode.web_v2.runtime.runner import agent_fiche
 from bouzecode.web_v2.services.sessions import purge
 from bouzecode.web_v2.services.work import liveness, tickets, wake
+from bouzecode.web_v2.services.work.fsm import etats
 
 logger = logging.getLogger(__name__)
 
@@ -29,16 +29,16 @@ REPORT_PATH = tickets.TICKETS_DIR.parent / "interrupted_boot_report.json"
 
 
 def _now() -> str:
-    return datetime.now(timezone.utc).isoformat()
+    return maintenant_iso("auto")
 
 
 def _empty() -> dict:
-    return {"boot_at": "", "items": [], "dismissed": False}
+    return {"boot_at": "", "items": []}
 
 
 def _agent_item(agent_id: str, reason: str, action: str) -> dict | None:
     """Item enrichi (ticket/slug/kind) à partir d'un agent chargé, ou None si inconnu."""
-    agent = runner.load_agent(agent_id)
+    agent = agent_fiche.load_agent(agent_id)
     if agent is None:
         return None
     return {
@@ -81,13 +81,13 @@ def _scan_one_ticket(slug: str, ticket: dict, by_agent: dict[str, dict], deleted
     # Ticket terminal (done/archived) : aucun run à lister, même si le cas (a)
     # a stampé un de ses agents comme crashé au reconcile de ce boot. On retire
     # explicitement ces agent_id d'un éventuel item (a) erroné.
-    if ticket.get("done") or ticket.get("archived"):
+    if ticket.get("state") in etats.CLOS or ticket.get("archived"):
         for run in runs:
             by_agent.pop(str(run.get("agent_id", "") or ""), None)
         return
     # (b) ticket en cours de lancement, spawn différé jamais abouti (add_run
     # retire `launching` dès qu'un run existe) → rien à continuer, à RELANCER.
-    if ticket.get("launching") and not runs:
+    if ticket.get("state") == etats.PROVISIONING and not runs:
         key = f"launching:{slug}:{ticket.get('id', '')}"
         by_agent.setdefault(key, {
             "agent_id": "",
@@ -98,57 +98,60 @@ def _scan_one_ticket(slug: str, ticket: dict, by_agent: dict[str, dict], deleted
             "action": "launch",
         })
         return
-    # (c) un run work/validate/merge dont l'agent est mort sans clôture utile.
+    # (c) un run work/merge dont l'agent est mort sans clôture utile.
     # Le bandeau ne liste que les MÉTA-AGENTS (relance MANUELLE par l'utilisateur) :
     # runs 'work' dont le ticket n'a PAS de parent manager (parent vide/absent ou
-    # 'dispatcher:*'). Les SOUS-AGENTS (validate, merge, work enfant d'un manager)
-    # sont repris AUTOMATIQUEMENT au boot (auto_resume.resume_subagents) → exclus du
-    # bandeau, SAUF si leur reprise auto a échoué (run['auto_resume_error'] posé).
+    # 'dispatcher:*'). Les SOUS-AGENTS (merge, work enfant d'un manager) sont SIGNALÉS au
+    # boot à leur parent, ou à l'humain par un signalement (interruptions_boot) → hors bandeau.
     parent = str(ticket.get("parent", "") or "")
     for run in runs:
         _scan_run(slug, ticket, run, parent, by_agent, deleted)
 
 
-def _scan_run(slug: str, ticket: dict, run: dict, parent: str,
-              by_agent: dict[str, dict], deleted: dict) -> None:
-    """Sort d'UN run : ajouté au bandeau (méta interrompu, ou reprise auto échouée avec sa
-    raison) ou retiré (agent purgé, sous-agent repris sans erreur, run non crashé)."""
-    kind = str(run.get("kind", ""))
-    agent_id = run.get("agent_id", "")
-    if not agent_id or not (kind == "work" or kind.startswith("validate") or kind == "merge"):
-        return
-    agent = runner.load_agent(agent_id)
-    if agent is None or agent.returncode is None:
-        return  # inconnu ou encore vivant → pas interrompu
-    # Agent archivé/purgé (réversible) : ABSENT de la fleet → jamais listé
-    # comme interrompu (retire aussi un item (a) erroné, comme done/archived).
-    if _is_deleted(str(agent_id), deleted):
-        by_agent.pop(str(agent_id), None)
-        return
-    is_meta = kind == "work" and not wake.is_manager_parent(parent)
-    auto_err = run.get("auto_resume_error")
-    verdict_missing = kind.startswith("validate") and not run.get("verdict")
-    # Classification dérivée de PREUVES (pid mort + close_reason + final_answer
-    # + verdict) : croise plus que le seul returncode==-1, donc capte aussi une
-    # mort au restart stampée autrement / sans clôture (cas 5). Un run 'delivered'
-    # ou 'running' n'est jamais listé comme interrompu.
-    crashed = liveness.classify_agent_run(ticket, run) == "crashed"
+_KINDS_SUIVIS = ("work", "merge")
+
+
+def _run_suivi(kind: str, agent_id: str) -> bool:
+    return bool(agent_id) and kind in _KINDS_SUIVIS
+
+
+def _item_du_bandeau(slug: str, ticket: dict, run: dict, parent: str, agent_id: str,
+                     kind: str) -> dict | None:
+    """L'entrée du bandeau pour ce run, ou None s'il n'a rien à y faire.
+
+    - méta-agent (work d'un parent non manager) planté → bandeau ;
+    - sinon (sous-agent, signalé à part ; run non crashé) → jamais dans le bandeau.
+    La classification croise pid mort + close_reason + final_answer : elle capte
+    aussi une mort au restart stampée autrement."""
     item = {"agent_id": agent_id, "ticket": ticket.get("id", ""), "slug": slug,
             "kind": kind, "action": "continue"}
-    if auto_err:
-        # Sous-agent dont la reprise auto a échoué → bandeau AVEC la raison.
-        by_agent[agent_id] = {**item, "reason": "auto_resume_failed", "error": str(auto_err)}
-    elif is_meta and (crashed or verdict_missing):
-        # Méta-agent interrompu → bandeau (relance manuelle). verdict_missing ne
-        # concerne que 'validate' (jamais méta), donc en pratique crashed ici.
-        by_agent[agent_id] = {**item,
-                              "reason": "no_verdict" if verdict_missing else "crashed"}
-    else:
-        # Sous-agent (validate/merge/work-enfant) repris auto sans erreur, ou non crashé :
-        # jamais dans le bandeau. On retire un éventuel item (a) erroné (le reconcile de ce
-        # boot a pu le stamper crashé sans contexte ticket) — le run rattaché au ticket a
-        # le dernier mot.
+    if kind != "work" or wake.is_manager_parent(parent):
+        return None
+    if liveness.classify_agent_run(ticket, run) == "crashed":
+        return {**item, "reason": "crashed"}
+    return None
+
+
+def _scan_run(slug: str, ticket: dict, run: dict, parent: str,
+              by_agent: dict[str, dict], deleted: dict) -> None:
+    """Sort d'UN run : ajouté au bandeau (méta interrompu) ou retiré (agent purgé, sous-agent,
+    run non crashé). Le run
+    rattaché au ticket a le dernier mot sur un item posé au boot sans contexte."""
+    kind = str(run.get("kind", ""))
+    agent_id = run.get("agent_id", "")
+    if not _run_suivi(kind, agent_id):
+        return
+    agent = agent_fiche.load_agent(agent_id)
+    if agent is None or agent.returncode is None:
+        return  # inconnu ou encore vivant → pas interrompu
+    if _is_deleted(str(agent_id), deleted):
+        by_agent.pop(str(agent_id), None)  # archivé/purgé : absent de la flotte
+        return
+    item = _item_du_bandeau(slug, ticket, run, parent, agent_id, kind)
+    if item is None:
         by_agent.pop(agent_id, None)
+    else:
+        by_agent[agent_id] = item
 
 
 def build_boot_report(crashed_ids: list[str]) -> dict:
@@ -171,14 +174,13 @@ def build_boot_report(crashed_ids: list[str]) -> dict:
 
     # FUSION avec le rapport précédent (cas 4) : deux redémarrages rapprochés ne doivent
     # PAS perdre les items non traités du premier boot. Un item survivant sort SEULEMENT si
-    # son ticket est clos/terminal (done/archived OU classify_ticket == 'delivered'). Les
+    # son ticket est clos/terminal (clos, archivé ou livré : `ticket.state`). Les
     # items fraîchement détectés (by_agent) PRIMENT toujours (raison la plus récente).
     merged = _merge_previous(by_agent, deleted)
 
     report = {
         "boot_at": _now(),
         "items": list(merged.values()),
-        "dismissed": False,
     }
     _write(report)
     return report
@@ -202,9 +204,9 @@ def _ticket_is_resolved(slug: str, ticket_id: str) -> bool:
     ticket = tickets.get_ticket(slug, ticket_id)
     if ticket is None:
         return True  # ticket disparu → considéré résolu
-    if ticket.get("done") or ticket.get("archived"):
+    if ticket.get("state") in etats.CLOS or ticket.get("archived"):
         return True
-    return liveness.classify_ticket(ticket) == "delivered"
+    return ticket.get("state") == etats.DELIVERED
 
 
 def _merge_previous(by_agent: dict[str, dict], deleted: dict) -> dict[str, dict]:
@@ -237,6 +239,37 @@ def _write(report: dict) -> None:
     tmp.replace(REPORT_PATH)
 
 
+def _encore_interrompu(item: dict) -> bool:
+    """Cet item décrit-il ENCORE un travail interrompu, à l'instant où on le lit ?
+
+    Le rapport est figé au boot, à dessein : il dit ce que le dernier arrêt a
+    interrompu. Mais il est LU longtemps après, et le monde a bougé. Le servir tel
+    quel fait annoncer « planté » deux catégories d'agents qui ne le sont pas :
+
+    1. **Les ressuscités.** Un agent listé ici a pu être relancé depuis. Constaté le
+       2026-08-24 : après un redémarrage à 11:15, `4b69bb8ab056` (tour 21) et
+       `40435234c772` (tour 16), tous deux EN COURS, sortaient `crashed`.
+    2. **Ceux qui avaient livré.** `build_boot_report` prend pour argent comptant les
+       `crashed_ids` du reconcile de boot, sans relire la clôture de la session. Or
+       un agent surpris dans sa boucle chaude par l'arrêt du serveur a déjà écrit sa
+       `final_answer`. Même jour : `f52cb5297f4f` (143 tours), `c25290d58b2e` (48) et
+       `d5f9b8eb83c6` (30) portaient tous `close_reason=final_answer` — trois
+       livraisons présentées comme des pannes.
+
+    D'où un seul critère, celui du classifieur partagé : on ne garde que ce qu'il
+    appelle encore `crashed`. `MISSING` sort aussi — un agent dont l'enregistrement a
+    disparu ne peut plus être relancé, l'afficher n'offre aucune action.
+
+    Le snapshot n'est PAS réécrit : il reste la trace de ce que l'arrêt a cassé. Le
+    filtre est à la LECTURE, sur la même source que la flotte et la liste de tickets,
+    pour qu'aucune vue ne contredise les autres."""
+    agent_id = str(item.get("agent_id") or "")
+    if not agent_id:
+        return True
+    run = {"agent_id": agent_id, "kind": item.get("kind") or "work"}
+    return liveness.classify_agent_run({}, run) == "crashed"
+
+
 def read_report() -> dict:
     if not REPORT_PATH.exists():
         return _empty()
@@ -246,11 +279,8 @@ def read_report() -> dict:
         return _empty()
     if not isinstance(data, dict):
         return _empty()
+    items = data.get("items")
+    if isinstance(items, list):
+        data = {**data, "items": [i for i in items
+                                  if isinstance(i, dict) and _encore_interrompu(i)]}
     return data
-
-
-def dismiss() -> None:
-    """Masque le bandeau (persisté) sans effacer le rapport lui-même."""
-    report = read_report()
-    report["dismissed"] = True
-    _write(report)

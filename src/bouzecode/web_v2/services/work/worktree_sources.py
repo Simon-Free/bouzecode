@@ -2,7 +2,7 @@
 # 
 # Recrée les liens répertoire vers les vrais dépôts pour que uv sync résolve les [tool.uv.sources] relatives dans un worktree. [/desc]
 """Un worktree vit sous ~/.bouzecode/worktrees/<repo>/<ticket>/. Les `[tool.uv.sources]`
-à chemin relatif (ex. `../bouzecode`, `../shared/libdb`) y pointent alors vers un
+à chemin relatif (ex. `../bouzecode`, `../demo-group/demodb`) y pointent alors vers un
 sibling INEXISTANT → `uv sync` échoue et le venv n'est jamais provisionné (venv_ok=False).
 On recrée ces siblings comme des liens répertoire vers les VRAIS dépôts (résolus depuis le
 repo d'origine), de façon idempotente, pour que `uv sync` résolve les deps editables

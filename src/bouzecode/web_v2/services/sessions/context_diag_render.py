@@ -8,6 +8,8 @@ from __future__ import annotations
 
 from html import escape
 
+from .context_diag_body import render_body_html
+
 _STATUS_CLASS = {
     "cache read": "st-cached",
     "cache write": "st-write",
@@ -48,6 +50,17 @@ _CSS = """
 .tag-add{background:#1c4d2b;color:#7fe0a0;}
 .tag-upd{background:#1c3a5e;color:#7fbfff;}
 .tag-rem{background:#5e1c1c;color:#ff9f9f;}
+.cd-md{font-size:.82rem;line-height:1.45;}
+.cd-md p{margin:.35rem 0;}
+.cd-md h3,.cd-md h4,.cd-md h5,.cd-md h6{margin:.6rem 0 .25rem;font-size:.86rem;color:#9cdcfe;}
+.cd-md .li{margin:.15rem 0 .15rem .6rem;}
+.cd-md code{background:#2d2d30;padding:.05rem .25rem;border-radius:3px;font-family:ui-monospace,Consolas,monospace;}
+.cd-md pre.code{background:#1b1b1b;border:1px solid #333;border-radius:4px;padding:.4rem .5rem;overflow:auto;}
+.cd-xml{border:1px solid #3a4a5e;border-left:3px solid #7fbfff;border-radius:4px;margin:.4rem 0;background:#1b2430;}
+.cd-xml>summary{cursor:pointer;padding:.25rem .5rem;font-size:.76rem;color:#bcd;list-style:none;}
+.cd-xml>summary::-webkit-details-marker{display:none;}
+.cd-xml-tag{display:inline-block;background:#1c3a5e;color:#7fbfff;border-radius:3px;padding:.02rem .3rem;margin-right:.35rem;font-size:.68rem;letter-spacing:.03em;}
+.cd-xml pre{margin:0;padding:.4rem .55rem;border-top:1px solid #33445a;white-space:pre;overflow:auto;font-family:ui-monospace,Consolas,monospace;font-size:.75rem;color:#d4d4d4;}
 </style>
 """
 
@@ -60,7 +73,7 @@ def _render_item(item: dict) -> str:
     added_txt = f"ajouté au tour {added}" if added is not None else "tour ?"
     label = item.get("label") or _KIND_LABEL.get(kind, kind)
     toks = item.get("est_tokens", 0)
-    body = escape(item.get("text") or item.get("preview") or "")
+    body = render_body_html(item.get("text") or item.get("preview") or "")
     return (
         '<details class="cd-item">'
         "<summary>"
@@ -70,7 +83,7 @@ def _render_item(item: dict) -> str:
         f'<span class="cd-tok">~{toks} tok</span>'
         "</summary>"
         f'<div class="cd-body"><div style="font-size:.78rem;color:#9aa;margin-bottom:.3rem">'
-        f"{escape(label)}</div><pre>{body}</pre></div>"
+        f'{escape(label)}</div><div class="cd-md">{body}</div></div>'
         "</details>"
     )
 

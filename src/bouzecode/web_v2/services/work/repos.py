@@ -84,12 +84,6 @@ def repo_root(path: str) -> str | None:
     return None
 
 
-def parent_hint(key: str) -> str:
-    """Dossier parent du dépôt — désambiguïse deux dépôts de même nom de dossier."""
-    repo_root = key[len("path:"):] if key.startswith("path:") else os.path.dirname(key)
-    return os.path.basename(os.path.dirname(repo_root.rstrip(os.sep))) or "?"
-
-
 def branch_of(path: str) -> str:
     """Branche courante du worktree (caché TTL court). '' si indéterminé."""
     now = time.time()
@@ -101,32 +95,3 @@ def branch_of(path: str) -> str:
     with _lock:
         _remember(_branch_cache, path, (now, branch))
     return branch
-
-
-_COUNTS = ("agents_running", "agents_awaiting", "tickets_to_review",
-           "validations_ko", "tickets_total")
-
-
-def group_overview(rows: list[dict], key_fn=repo_key, name_fn=repo_name) -> list[dict]:
-    """Plie des lignes projet (shape de projects.overview) en projets logiques.
-
-    Pur : key_fn/name_fn injectables pour les tests. Les paths sans dépôt git
-    restent des projets autonomes (groupe d'un seul worktree)."""
-    groups: dict[str, dict] = {}
-    order: list[str] = []
-    for row in rows:
-        key = key_fn(row["path"]) or f"path:{row['path']}"
-        group = groups.get(key)
-        if group is None:
-            group = {
-                "key": key,
-                "name": name_fn(row["path"], None if key.startswith("path:") else key),
-                "worktrees": [],
-                **{c: 0 for c in _COUNTS},
-            }
-            groups[key] = group
-            order.append(key)
-        group["worktrees"].append(row)
-        for c in _COUNTS:
-            group[c] += row.get(c, 0)
-    return [groups[k] for k in order]

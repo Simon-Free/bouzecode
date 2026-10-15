@@ -1,5 +1,5 @@
 # [desc] Diffs HTML des file_snapshots d'une session (onglet « fichiers modifiés »). [/desc]
-"""L'explorateur de fichiers (page /files et routes /api/files/*) a été retiré ; il ne
+"""L'explorateur de fichiers (page de fichiers et ses routes d'API) a été retiré ; il ne
 reste que le rendu des diffs de session, seul consommateur de ce module."""
 from __future__ import annotations
 

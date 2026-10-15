@@ -7,12 +7,14 @@ markers and the GC state at that moment). Joining by turn number with the
 session JSON's ``compaction_log`` adds the API token counts.
 """
 import json
+import threading
 import types
+from collections import OrderedDict
 from pathlib import Path
 
 from .items import (
-    annotate_cache_status, build_items_for_payload, build_tool_call_index,
-    estimate_tokens, message_text,
+    annotate_cache_status, annotate_system_cache_status, build_items_for_payload,
+    build_tool_call_index, estimate_tokens, message_text,
 )
 
 
@@ -47,6 +49,9 @@ def _api_tokens_for(entry: dict | None, dump: dict | None) -> dict[str, int]:
             "api_output_tokens": entry.get("api_output_tokens", 0),
             "api_cache_read": entry.get("api_cache_read", 0),
             "api_cache_create": entry.get("api_cache_create", 0),
+            # Sortie estimée (message_delta jamais reçu) : la vue doit le dire.
+            "api_output_estimated": bool(entry.get("api_output_estimated")),
+            "api_input_estimated": bool(entry.get("api_input_estimated")),
         }
     tc = (dump or {}).get("token_counts") or {}
     return {
@@ -54,6 +59,8 @@ def _api_tokens_for(entry: dict | None, dump: dict | None) -> dict[str, int]:
         "api_output_tokens": tc.get("out_tokens", 0),
         "api_cache_read": tc.get("cache_read_tokens", 0),
         "api_cache_create": tc.get("cache_creation_tokens", 0),
+        "api_output_estimated": False,
+        "api_input_estimated": False,
     }
 
 
@@ -115,7 +122,7 @@ def _resolve_model(session_path: str, data_model: str) -> str:
     return meta.get("model") or data_model
 
 
-def extract_per_call_data(session_path: str) -> dict | None:
+def _lire_session(session_path: str) -> dict | None:
     path = Path(session_path)
     if not path.exists():
         return None
@@ -123,96 +130,222 @@ def extract_per_call_data(session_path: str) -> dict | None:
         data = json.loads(path.read_text(encoding="utf-8"))
     except (json.JSONDecodeError, OSError):
         return None
+    return data if data.get("messages") else None
 
-    raw_messages = data.get("messages", [])
-    log = [e for e in data.get("compaction_log", []) if e.get("event") == "llm_call"]
-    if not raw_messages:
-        return None
 
-    dumps = _load_turn_dumps(data.get("session_id", ""))
-    if not dumps:
-        return {
-            "session_id": data.get("session_id", "?"),
-            "model": _resolve_model(session_path, data.get("model") or "") or "?",
-            "saved_at": data.get("saved_at", "?"),
-            "first_message": data.get("first_message", ""),
-            "system_prompt_tokens": estimate_tokens(data.get("system_prompt", "")),
-            "calls": [],
-            "missing_dumps": True,
-        }
-
-    system_prompt = data.get("system_prompt", "") or ""
-    tc_index = build_tool_call_index(raw_messages)
-
-    log_by_turn = {e.get("turn"): e for e in log}
-    turn_numbers = sorted(set(log_by_turn) | set(dumps), key=lambda t: (t is None, t))
-
-    calls: list[dict] = []
-    prev_payload: list[dict] = []
-    prev_bp = -1
-    for turn in turn_numbers:
-        entry = log_by_turn.get(turn)
-        dump = dumps.get(turn)
-        api = _api_tokens_for(entry, dump)
-        timestamp = entry.get("timestamp") if entry else (dump or {}).get("timestamp")
-        est_message_tokens = entry.get("est_message_tokens", 0) if entry else 0
-        if not dump:
-            calls.append({
-                "turn": turn,
-                "timestamp": timestamp,
-                "user_prompt": "",
-                "api_input_tokens": api["api_input_tokens"],
-                "api_output_tokens": api["api_output_tokens"],
-                "api_cache_read": api["api_cache_read"],
-                "api_cache_create": api["api_cache_create"],
-                "est_message_tokens": est_message_tokens,
-                "wire_message_count": 0,
-                "items": [],
-                "tokens_by_status": {},
-                "count_by_status": {},
-                "breakpoint_payload_idx": -1,
-                "prev_breakpoint_payload_idx": prev_bp,
-                "divergence_payload_idx": -1,
-            })
-            continue
-        payload = dump["messages"]
-        context_state = _context_state_from_dump(dump)
-        cur_bp = _find_breakpoint(payload)
-        divergence = _payload_divergence(prev_payload, payload)
-
-        items = build_items_for_payload(payload, system_prompt, context_state, tc_index,
-                                        system_blocks=dump.get("system_blocks"))
-        annotate_cache_status(items, cur_bp, prev_bp, divergence)
-
-        loop_user = next((m for m in reversed(payload) if m.get("role") == "user"), None)
-        loop_user_text = message_text(loop_user) if loop_user else ""
-        tokens_by_status, count_by_status = _summarize_items(items)
-
-        calls.append({
-            "turn": turn,
-            "timestamp": timestamp,
-            "user_prompt": loop_user_text[:300],
-            "api_input_tokens": api["api_input_tokens"],
-            "api_output_tokens": api["api_output_tokens"],
-            "api_cache_read": api["api_cache_read"],
-            "api_cache_create": api["api_cache_create"],
-            "est_message_tokens": est_message_tokens,
-            "wire_message_count": len(payload),
-            "items": items,
-            "tokens_by_status": tokens_by_status,
-            "count_by_status": count_by_status,
-            "breakpoint_payload_idx": cur_bp,
-            "prev_breakpoint_payload_idx": prev_bp,
-            "divergence_payload_idx": divergence,
-        })
-        prev_payload = payload
-        prev_bp = cur_bp
-
+def _entete(session_path: str, data: dict, calls: list[dict]) -> dict:
     return {
         "session_id": data.get("session_id", "?"),
         "model": _resolve_model(session_path, data.get("model") or "") or "?",
         "saved_at": data.get("saved_at", "?"),
         "first_message": data.get("first_message", ""),
-        "system_prompt_tokens": estimate_tokens(system_prompt),
+        "system_prompt_tokens": estimate_tokens(data.get("system_prompt", "") or ""),
         "calls": calls,
     }
+
+
+_CHAMPS_API = ("api_input_tokens", "api_output_tokens", "api_cache_read", "api_cache_create",
+               "api_output_estimated", "api_input_estimated")
+
+
+def _appel_sans_dump(turn, timestamp, api: dict, est_tokens: int, prev_bp: int) -> dict:
+    return {"turn": turn, "timestamp": timestamp, "user_prompt": "",
+            **{champ: api[champ] for champ in _CHAMPS_API},
+            "est_message_tokens": est_tokens, "wire_message_count": 0, "items": [],
+            "tokens_by_status": {}, "count_by_status": {}, "breakpoint_payload_idx": -1,
+            "prev_breakpoint_payload_idx": prev_bp, "divergence_payload_idx": -1}
+
+
+class _Suivi:
+    """L'état qui passe d'un appel au suivant : payload, blocs système et point de cache."""
+
+    def __init__(self):
+        self.payload: list[dict] = []
+        self.system_blocks: list | None = None
+        self.bp = -1
+
+
+def _appel_avec_dump(turn, timestamp, api: dict, est_tokens: int, dump: dict, contexte: dict,
+                     suivi: _Suivi) -> dict:
+    payload = dump["messages"]
+    cur_bp = _find_breakpoint(payload)
+    divergence = _payload_divergence(suivi.payload, payload)
+    items = build_items_for_payload(payload, contexte["system_prompt"],
+                                    _context_state_from_dump(dump), contexte["tc_index"],
+                                    system_blocks=dump.get("system_blocks"))
+    annotate_cache_status(items, cur_bp, suivi.bp, divergence)
+    annotate_system_cache_status(items, dump.get("system_blocks"), suivi.system_blocks,
+                                 api["api_cache_read"])
+    loop_user = next((m for m in reversed(payload) if m.get("role") == "user"), None)
+    tokens_by_status, count_by_status = _summarize_items(items)
+    appel = {"turn": turn, "timestamp": timestamp,
+             "user_prompt": (message_text(loop_user) if loop_user else "")[:300],
+             **{champ: api[champ] for champ in _CHAMPS_API},
+             "est_message_tokens": est_tokens, "wire_message_count": len(payload),
+             "items": items, "tokens_by_status": tokens_by_status,
+             "count_by_status": count_by_status, "breakpoint_payload_idx": cur_bp,
+             "prev_breakpoint_payload_idx": suivi.bp, "divergence_payload_idx": divergence}
+    suivi.payload, suivi.system_blocks, suivi.bp = payload, dump.get("system_blocks"), cur_bp
+    return appel
+
+
+def _appel(turn, entry: dict | None, dump: dict | None, contexte: dict, suivi: _Suivi) -> dict:
+    api = _api_tokens_for(entry, dump)
+    timestamp = entry.get("timestamp") if entry else (dump or {}).get("timestamp")
+    est_tokens = entry.get("est_message_tokens", 0) if entry else 0
+    if not dump:
+        return _appel_sans_dump(turn, timestamp, api, est_tokens, suivi.bp)
+    return _appel_avec_dump(turn, timestamp, api, est_tokens, dump, contexte, suivi)
+
+
+def _construire(session_path: str, data: dict, dumps: dict) -> dict:
+    if not dumps:
+        return {**_entete(session_path, data, []), "missing_dumps": True}
+    log_by_turn = {e.get("turn"): e for e in data.get("compaction_log", [])
+                   if e.get("event") == "llm_call"}
+    contexte = {"system_prompt": data.get("system_prompt", "") or "",
+                "tc_index": build_tool_call_index(data["messages"])}
+    suivi = _Suivi()
+    calls = [_appel(turn, log_by_turn.get(turn), dumps.get(turn), contexte, suivi)
+             for turn in sorted(set(log_by_turn) | set(dumps), key=lambda t: (t is None, t))]
+    return _entete(session_path, data, calls)
+
+
+# ------------------------------------------------------------------ mémoire par version
+#
+# Construire la vue par appel coûte un décodage complet de la session ET le repli de tout le
+# journal des payloads : 0,2-0,3 s sur le poste d'essai, 1,2-1,5 s pour une session de 78 Mo
+# (taille courante sous Windows) — et `/turns`, `/costs`, `/turns/<n>`, `/turns/<n>/context`,
+# l'enquête la refaisaient chacun, à chaque requête, `/costs?avec_sous_agents=1` une fois par
+# sous-agent. Le résultat est donc mémorisé par VERSION des deux fichiers : signature
+# (mtime ns, taille, inode) de la session et du journal. Une écriture de l'agent change une
+# signature → reconstruction au prochain appel. Les signatures sont prises AVANT la lecture :
+# une écriture concurrente laisse une entrée déjà périmée, jamais une entrée fausse.
+#
+# Le résultat est PARTAGÉ entre appelants : ils ne doivent pas le modifier (copier d'abord).
+
+_MAX_EXTRAITS = 3        # une vue de session de 78 Mo retient ~140 Mo : borne serrée
+_MAX_DERIVES = 2048      # vues dérivées (coûts, tableau des tours…) : quelques Ko chacune
+_verrou = threading.Lock()
+_extraits: "OrderedDict[str, tuple[tuple, dict]]" = OrderedDict()
+_derives: "OrderedDict[tuple, object]" = OrderedDict()
+_ids: dict[str, tuple[tuple, str]] = {}      # chemin → (signature de la session, session_id)
+
+
+def _signature(path: Path | None) -> tuple | None:
+    if path is None:
+        return None
+    try:
+        st = path.stat()
+    except OSError:
+        return None
+    return (st.st_mtime_ns, st.st_size, st.st_ino)
+
+
+def _journal(session_id: str) -> Path | None:
+    if not session_id:
+        return None
+    from bouzecode.backend.core.payload_view import payload_dir
+    return payload_dir(session_id) / "turns.jsonl"
+
+
+def _version(session_path: str) -> tuple | None:
+    """(signature de la session, signature du journal), ou None si la session est absente.
+    Tant que le session_id n'est pas connu pour CETTE signature de session, la partie
+    journal vaut « inconnu » : la version changera une fois l'identifiant appris."""
+    signature = _signature(Path(session_path))
+    if signature is None:
+        return None
+    with _verrou:
+        connu = _ids.get(session_path)
+    if connu is None or connu[0] != signature:
+        return (signature, "?")
+    return (signature, _signature(_journal(connu[1])))
+
+
+def _extraire(session_path: str) -> tuple[dict | None, dict | None, dict, tuple | None]:
+    """Lecture NON mémorisée : (vue par appel, session décodée, dumps, version lue)."""
+    signature = _signature(Path(session_path))
+    data = _lire_session(session_path)
+    if data is None:
+        return None, None, {}, None
+    session_id = data.get("session_id", "")
+    version = (signature, _signature(_journal(session_id)))
+    dumps = _load_turn_dumps(session_id)
+    with _verrou:
+        _ids[session_path] = (signature, session_id)
+    return _construire(session_path, data, dumps), data, dumps, version
+
+
+def _retenir(session_path: str, version: tuple, extrait: dict) -> None:
+    with _verrou:
+        _extraits[session_path] = (version, extrait)
+        _extraits.move_to_end(session_path)
+        while len(_extraits) > _MAX_EXTRAITS:
+            _extraits.popitem(last=False)
+
+
+def extract_per_call_data(session_path: str) -> dict | None:
+    """Vue par appel LLM de la session, mémorisée par version (cf. ci-dessus)."""
+    version = _version(session_path)
+    with _verrou:
+        connu = _extraits.get(session_path)
+        if connu is not None and connu[0] == version:
+            _extraits.move_to_end(session_path)
+            return connu[1]
+    extrait, _data, _dumps, version_lue = _extraire(session_path)
+    if extrait is not None:
+        _retenir(session_path, version_lue, extrait)
+    return extrait
+
+
+def extraire_avec_session(session_path: str) -> tuple[dict | None, dict | None, dict, tuple | None]:
+    """Vue par appel + session décodée + dumps + version lue, en UNE lecture de chaque fichier
+    (l'enquête a besoin des trois). Non mémorisé ici (l'appelant garde le sien, indexé par la
+    version rendue), mais la vue par appel rejoint la mémoire commune."""
+    extrait, data, dumps, version_lue = _extraire(session_path)
+    if extrait is not None:
+        _retenir(session_path, version_lue, extrait)
+    return extrait, data, dumps, version_lue
+
+
+def version_de_session(session_path: str) -> tuple | None:
+    """Version courante (session, journal) SANS lire la session, telle que la rend
+    `extraire_avec_session` une fois le journal identifié ; None si la session est absente."""
+    return _version(session_path)
+
+
+def memoriser(nom: str, session_path: str, calcul, *, depuis_extrait: bool = False):
+    """Valeur dérivée de la session (et de son journal) mémorisée sous (nom, chemin, version).
+
+    La version est relue APRÈS le calcul : si un fichier a bougé pendant, la valeur est
+    rendue sans être gardée. Comme la vue par appel, la valeur est partagée : ne pas la
+    modifier. `depuis_extrait` : le calcul part de `extract_per_call_data` ; si le journal de
+    la session n'est pas encore identifié, la vue par appel est construite d'abord (le calcul
+    la retrouvera en mémoire) pour que la valeur soit gardée dès le premier appel."""
+    version = _version(session_path)
+    if version is None:
+        return calcul()
+    if depuis_extrait and version[1] == "?":
+        extract_per_call_data(session_path)
+        version = _version(session_path)
+    cle = (nom, session_path, version)
+    with _verrou:
+        if cle in _derives:
+            _derives.move_to_end(cle)
+            return _derives[cle]
+    valeur = calcul()
+    if _version(session_path) == version:
+        with _verrou:
+            _derives[cle] = valeur
+            while len(_derives) > _MAX_DERIVES:
+                _derives.popitem(last=False)
+    return valeur
+
+
+def oublier() -> None:
+    """Vide les mémoires (tests)."""
+    with _verrou:
+        _extraits.clear()
+        _derives.clear()
+        _ids.clear()

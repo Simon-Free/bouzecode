@@ -1,0 +1,98 @@
+{% extends "base.html" %}
+{# Bureau — page d'accueil (SPEC.md §4). Le gabarit ne pose que la charpente : tout le
+   contenu est rendu par static/js/bureau/*.js à partir de /api/inbox et /api/lignes. #}
+{% block head %}
+<link rel="stylesheet" href="{{ url_for('static', filename='css/bureau.css') }}">
+<link rel="stylesheet" href="{{ url_for('static', filename='css/thread.css') }}">
+{% endblock %}
+
+{% block banners %}
+<div id="delivery-banner" class="banner banner--warn" role="status" hidden>
+  <span id="delivery-text" class="banner__text"></span>
+  <button type="button" id="delivery-retry-all" class="btn btn--sm">Renvoyer</button>
+</div>
+{% endblock %}
+
+{% block content %}
+<div class="bz-page" id="bureau">
+  <header class="bz-head">
+    <h1 class="bz-title">Bureau</h1>
+    <div class="bz-head__tools">
+      <div class="bz-mode">
+        <span class="bz-mode__label" id="bz-mode-label">Trier par</span>
+        <div id="bz-mode" class="seg" role="group" aria-labelledby="bz-mode-label">
+          <button type="button" class="seg__btn" data-mode="statut" aria-pressed="true">Statut</button>
+          <button type="button" class="seg__btn" data-mode="chantier" aria-pressed="false">Chantier</button>
+        </div>
+      </div>
+      <label class="sr-only" for="bz-search">Rechercher une tâche</label>
+      <input id="bz-search" class="input bz-search" type="search" autocomplete="off"
+             placeholder="Rechercher une tâche…  ( / )">
+    </div>
+  </header>
+
+  <section class="bz-work" aria-label="Mes tâches">
+    <div id="lignes-liste" class="bz-list" aria-live="polite"></div>
+    <form id="chantier-nouveau" class="bz-new-chantier" autocomplete="off" hidden>
+      <label class="sr-only" for="chantier-titre">Nouveau chantier</label>
+      <input id="chantier-titre" class="input" type="text" placeholder="+ Nouveau chantier… (Entrée)">
+      <p class="field__error" id="chantier-erreur" role="alert"></p>
+    </form>
+  </section>
+</div>
+
+<aside id="assistant-drawer" class="drawer bz-drawer" data-open="false" aria-hidden="true"
+       aria-labelledby="assistant-titre" tabindex="-1">
+  <div class="drawer__head">
+    <h2 id="assistant-titre" class="drawer__title">Assistant</h2>
+    <label class="sr-only" for="assistant-historique">Conversation</label>
+    <select id="assistant-historique" class="select bz-assist__hist"></select>
+    <button type="button" id="assistant-nouvelle" class="btn btn--sm" title="Nouvelle conversation">Nouvelle</button>
+    <button type="button" id="assistant-reglages" class="btn btn--ghost btn--sm btn--icon"
+            aria-expanded="false" aria-controls="assistant-contexte-bloc" title="Contexte perso"
+            aria-label="Contexte perso">⚙</button>
+    <button type="button" id="assistant-fermer" class="btn btn--ghost btn--sm btn--icon"
+            aria-label="Fermer l'assistant" title="Fermer (Échap)">×</button>
+  </div>
+  <div id="assistant-contexte-bloc" class="bz-assist__ctx" hidden>
+    <div class="field">
+      <label for="assistant-contexte">Contexte perso</label>
+      <textarea id="assistant-contexte" class="textarea" rows="5"
+                placeholder="Ce que l'assistant ne peut pas deviner : ton équipe, tes projets, tes habitudes…"></textarea>
+      <span class="field__hint">Ajouté au début de chaque nouvelle conversation.</span>
+    </div>
+    <div class="btn-row">
+      <button type="button" id="assistant-contexte-save" class="btn btn--primary btn--sm">Enregistrer</button>
+      <span id="assistant-contexte-flag" class="dirty-flag"></span>
+    </div>
+  </div>
+  <div id="assistant-messages" class="drawer__body bz-assist__fil" aria-live="polite"></div>
+  <div class="drawer__foot">
+    <p id="assistant-status" class="bz-assist__status" role="status"></p>
+    <form id="assistant-form" class="bz-assist__form" autocomplete="off">
+      <label class="sr-only" for="assistant-input">Message à l'assistant</label>
+      <textarea id="assistant-input" class="textarea" rows="2"
+                placeholder="Dis-lui quoi faire, même pendant qu'il travaille…" title="Entrée pour envoyer, Maj+Entrée pour une nouvelle ligne"></textarea>
+      <div class="bz-assist__boutons">
+        <button type="button" id="assistant-stop" class="btn btn--sm" hidden
+                title="Coupe le tour en cours de l'assistant (Échap) : il garde ce qu'il a déjà fait et repart avec tes messages en attente">Interrompre</button>
+        <button type="submit" id="assistant-send" class="btn btn--primary">Envoyer</button>
+      </div>
+    </form>
+  </div>
+</aside>
+
+<button type="button" id="assistant-bulle" class="bz-fab" aria-controls="assistant-drawer"
+        aria-expanded="false" aria-label="Ouvrir l'assistant" title="Assistant (Ctrl+J)">
+  <svg viewBox="0 0 24 24" width="24" height="24" aria-hidden="true" focusable="false">
+    <path d="M4 5.5A2.5 2.5 0 0 1 6.5 3h11A2.5 2.5 0 0 1 20 5.5v8a2.5 2.5 0 0 1-2.5 2.5H10l-4.2 3.6A.5.5 0 0 1 5 19.2V16h-.5A.5.5 0 0 1 4 15.5z"
+          fill="none" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round"/>
+    <path d="M8 8.5h8M8 11.5h5" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/>
+  </svg>
+  <span class="bz-fab__pastille" hidden></span>
+</button>
+{% endblock %}
+
+{% block scripts %}
+<script type="module" src="{{ url_for('static', filename='js/bureau/main.js') }}"></script>
+{% endblock %}

@@ -45,7 +45,13 @@ _ACTIVE_STATES = ("running", "starting", "awaiting_input", "awaiting_plan_valida
 # Outils qui MUTENT la flotte d'agents, jamais l'arbre de travail. Leur ToolDef porte
 # `read_only=False` (ils ont bien un effet de bord : ils spawnent/pilotent des agents),
 # mais aucun octet du dépôt n'en sort — un manager qui dispatche n'écrase aucun fichier.
-_FLEET_TOOLS = frozenset({"Agent", "MessageAgent", "Fleet"})
+# `LancerAgent` : même nature (crée une tâche du Bureau et la lance, en local ou sur Rundeck).
+_FLEET_TOOLS = frozenset({"Agent", "MessageAgent", "Fleet", "LancerAgent"})
+# Outils du Bureau et de Microsoft Graph : ils écrivent dans les stores du Bureau (tâches,
+# chantiers, décisions) ou dans Outlook (brouillon, créneau, réunion), jamais dans le dépôt.
+# Sans eux, l'assistant du Bureau comptait comme ÉCRIVAIN : il se voyait refuser l'ouverture
+# (409 `collision_isolation`) dès qu'un agent `shared` restait au repos dans le dépôt.
+_BUREAU_TOOLS = frozenset({"Taches", "Chantiers", "Decisions", "Brouillon", "Creneau", "Reunion"})
 
 _COLLISION_COMMENT = (
     "🔀 Isolation relevée de « shared » à « worktree » : {count} agent(s) ÉCRIVAIN(S) "
@@ -67,7 +73,7 @@ def _tool_writes_working_tree(name: str) -> bool:
 
     Prudence volontaire : un outil INCONNU du registre (plugin non chargé dans le process
     serveur) est compté comme écrivain — le garde-fou ne doit jamais s'effacer par ignorance."""
-    if name in _FLEET_TOOLS:
+    if name in _FLEET_TOOLS or name in _BUREAU_TOOLS:
         return False
     import bouzecode.backend.tools.registration  # noqa: F401 — peuple le registre
     from bouzecode.backend.core.tool_registry import get_tool
@@ -101,11 +107,26 @@ def agents_sharing_cwd(cwd: str) -> list[str]:
     le travail de personne, donc ils n'ont aucune raison de forcer un worktree à un voisin.
     Le filtre par chemin est fait AVANT toute lecture de session/profil — seuls les candidats
     réels coûtent une I/O."""
-    from ...runtime import runner
+    from ...runtime.runner import agent_registre
     from ..sessions import store
-    candidates = [a for a in runner.list_agents() if a.cwd and _same_path(a.cwd, cwd)]
+    candidates = [a for a in agent_registre.list_agents() if a.cwd and _same_path(a.cwd, cwd)]
     return [a.agent_id for a in candidates
             if store.agent_status(a)["state"] in _ACTIVE_STATES and agent_can_write(a)]
+
+
+def message_isolation(requested: str, mode: str, reason: str) -> str:
+    """Phrase lisible pour l'utilisateur quand le serveur n'a PAS retenu l'environnement demandé
+    (vide sinon). `reason` est la raison technique (logs, infobulle) ; ceci est ce qu'on affiche."""
+    demande = requested if requested in ISOLATION_MODES else SHARED
+    if mode == demande:
+        return ""
+    if mode == SHARED:
+        return ("Ce dossier n'est pas un dépôt git : l'agent travaille directement dans le "
+                "dossier, sans copie isolée.")
+    if reason.startswith("garde-fou"):
+        return ("Un autre agent modifie déjà ce dépôt : celui-ci travaille dans sa propre "
+                "copie isolée, pour que les deux ne s'écrasent pas.")
+    return "Cette tâche exige une copie isolée du dépôt : l'agent travaille dans la sienne."
 
 
 def resolve_isolation(project_path: str, requested: str,

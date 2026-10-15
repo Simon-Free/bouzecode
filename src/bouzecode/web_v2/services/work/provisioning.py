@@ -2,7 +2,7 @@
 """Tout ce qui PRÉPARE le terrain d'un agent, sorti de `dispatch.py` (qui décidait ET creusait).
 
 Ces étapes sont les LONGUES du lancement, et c'est pourquoi elles vivent ensemble : sur ce
-poste un `git worktree add` coûte ~50 s par essai (antivirus temps réel) et peut être rejoué
+poste un `git worktree add` coûte ~50 s par essai (antivirus d'entreprise) et peut être rejoué
 3 fois, un `uv sync --all-extras` court jusqu'à 600 s, et la ré-isolation d'un ticket abandonné
 enchaîne récolte, retrait de worktree et re-sortie de branche. Chacune pose sa phase via
 `launch_phase` pour que l'attente soit lisible au lieu d'être un « provisioning » muet.
@@ -15,7 +15,8 @@ from __future__ import annotations
 import os
 from typing import Any
 
-from ...runtime import runner
+from ...runtime import env_signal
+from ...runtime.runner import agent_fiche
 from . import branch_rescue, delivery, launch_phase, projects, repos, tickets, worktrees
 from .isolation import SHARED, WORKTREE
 
@@ -64,13 +65,13 @@ def reisolate(slug: str, ticket: dict, project_path: str) -> str:
     # secondes pendant lesquelles un `/continue` semblait ne rien faire. `rehome_agent_cwd`
     # passe ici avant tout respawn.
     launch_phase.set_phase(slug, ticket, launch_phase.REISOLATING, detail=f"branche {branch}")
-    delivery.harvest_before_reclaiming(ticket)
+    if not delivery.harvest_before_reclaiming(slug, ticket) and meta.get("worktree"):
+        return meta["worktree"]  # merge inachevé : on reprend DANS ce worktree pour le finir
     worktrees.discard_worktree(root, ticket["id"])
     resumed = branch_rescue.resume_on_branch(root, ticket["id"], branch, base,
                                              worktrees.WORKTREES_DIR)
     if resumed:
-        ticket["worktree"] = resumed
-        tickets.update_ticket(slug, ticket)
+        tickets.poser(slug, ticket, worktree=meta_du_worktree(resumed))
         tickets.add_comment(slug, ticket, _RESUMED_COMMENT.format(branch=branch), True)
         return resumed["worktree"]
     dropped = worktrees.discard_stale(root, ticket["id"], base_branch=base)
@@ -86,44 +87,77 @@ def _is_live_worktree(cwd: str, ticket: dict | None) -> bool:
     os.path.isdir NE suffit PAS : après un merge+reap le dossier peut subsister VIDE (readme_sync
     y repeint un AGENTS.md solitaire) alors que le code a disparu → l'agent renaît sans source.
     On exige donc : dossier présent ET un `.git` (fichier `gitdir:` dans un worktree, ou dossier
-    dans un dépôt principal) ET un state de worktree qui n'est ni 'cleaned' ni 'integrated'."""
+    dans un dépôt principal) ET un ticket qui n'est ni intégré ni à worktree retiré."""
     if not (cwd and os.path.isdir(cwd)):
         return False
     if not os.path.exists(os.path.join(cwd, ".git")):
         return False
-    state = ((ticket or {}).get("worktree") or {}).get("state")
-    return state not in ("cleaned", "integrated")
+    from . import etat_ticket
+    retire = bool(((ticket or {}).get("worktree") or {}).get("retire_at"))
+    return not (retire or etat_ticket.integre(ticket or {}))
+
+
+def meta_du_worktree(provision: dict) -> dict:
+    """Ce qu'un ticket garde d'un provisionnement : le chemin, la branche, la base… — jamais
+    un `state` (l'état du ticket est `ticket.state`) ni le drapeau `ok` de l'appel."""
+    return {k: v for k, v in provision.items() if k not in ("ok", "state")}
+
+
+def _same_dir(a: str, b: str) -> bool:
+    if not a or not b:
+        return False
+    return os.path.normcase(os.path.abspath(a)) == os.path.normcase(os.path.abspath(b))
+
+
+def _deplacer(agent, cwd: str) -> str:
+    agent.cwd = cwd
+    agent_fiche._save(agent)
+    return cwd
+
+
+def _suivre_le_signal(agent) -> None:
+    """L'agent a pu se déplacer LUI-MÊME en vol (`Environment(action='worktree')`, un chdir
+    invisible d'ici) et l'a signalé dans son dossier IPC. Consulté AVANT le test de vivacité :
+    le cas réel est un cwd encore valide mais PÉRIMÉ (l'arbre partagé d'où il est parti)."""
+    signalled = env_signal.read(getattr(agent, "ipc_dir", "") or "").get("cwd") or ""
+    if signalled and os.path.isdir(signalled) and not _same_dir(signalled, agent.cwd):
+        _deplacer(agent, signalled)
+
+
+def _reisoler(agent, slug: str, ticket: dict | None) -> str:
+    """Un worktree NEUF depuis la base vivante (la reprise garde l'isolation ET voit le travail
+    mergé). "" si le ticket n'est pas adossé à un dépôt git."""
+    project_path = _path_of(slug, projects.list_projects()) if slug else None
+    if ticket is None or not project_path or not repos.repo_root(project_path):
+        return ""
+    new_cwd = reisolate(slug, ticket, project_path)
+    if not (new_cwd and os.path.isdir(new_cwd)):
+        return ""
+    # Ce chemin ne passe PAS par `add_run` : il retire lui-même la phase qu'il a posée.
+    launch_phase.drop_phase(slug, ticket)
+    return _deplacer(agent, new_cwd)
 
 
 def rehome_agent_cwd(agent) -> str:
     """Give a respawn a valid cwd when the agent's worktree was cleaned away (ticket merged →
     worktree removed). Without this, `/continue` (and every resume) calls Popen(cwd=<gone>) →
-    NotADirectoryError → HTTP 500 the UI mislabels 'interrupt the agent first (Ctrl+C)'.
+    NotADirectoryError → HTTP 500.
 
     Re-provisions a FRESH worktree off the live base branch when the agent belongs to a
-    git-backed ticket (a follow-up keeps isolation AND sees the merged work); else falls back
-    to the ticket's recorded repo_root. No-op — returns the current cwd — when it still exists.
-    Mutates and persists agent.cwd."""
+    git-backed ticket; else falls back to the ticket's recorded repo_root. No-op — returns the
+    current cwd — when it still exists. Mutates and persists agent.cwd."""
     slug = getattr(agent, "ticket_slug", "") or ""
     ticket_id = getattr(agent, "ticket_id", "") or ""
     ticket = tickets.get_ticket(slug, ticket_id) if (slug and ticket_id) else None
+    _suivre_le_signal(agent)
     if _is_live_worktree(agent.cwd, ticket):
         return agent.cwd
-    project_path = _path_of(slug, projects.list_projects()) if slug else None
-    if ticket is not None and project_path and repos.repo_root(project_path):
-        new_cwd = reisolate(slug, ticket, project_path)
-        if new_cwd and os.path.isdir(new_cwd):
-            agent.cwd = new_cwd
-            runner._save(agent)
-            # Ce chemin ne passe PAS par `add_run` (c'est la route de reprise qui respawne) :
-            # il retire donc lui-même la phase qu'il a posée, sinon le ticket resterait
-            # « en ré-isolation » alors que la ré-isolation est finie.
-            launch_phase.drop_phase(slug, ticket)
-            return new_cwd
+    nouveau = _reisoler(agent, slug, ticket)
+    if nouveau:
+        return nouveau
     repo_root = ((ticket or {}).get("worktree") or {}).get("repo_root") or ""
     if repo_root and os.path.isdir(repo_root):
-        agent.cwd = repo_root
-        runner._save(agent)
+        _deplacer(agent, repo_root)
     return agent.cwd
 
 
@@ -169,14 +203,14 @@ def _provision_worktree(slug: str, ticket: dict, project_path: str, resume_branc
         tickets.add_comment(slug, ticket, _NO_ISOLATION_COMMENT.format(
             error=meta.get("error") or "échec du provisioning"), True)
         return project_path
-    ticket["worktree"] = meta
-    tickets.update_ticket(slug, ticket)
+    meta = meta_du_worktree(meta)
+    tickets.poser(slug, ticket, worktree=meta)
     if isolation == "worktree+venv":
         # `uv sync --all-extras` court jusqu'à 600 s en fond : la phase le DIT, et son issue est
         # rapportée sur le ticket au lieu d'être perdue (un venv en échec laisse l'agent dans un
         # worktree sans dépendances — le défaut le plus coûteux à diagnostiquer après coup).
-        # `update_ticket` a été avancé avant le lancement du thread : celui-ci écrit la phase via
-        # `_mutate` (ligne fraîche), il ne doit pas courir contre l'écriture du `worktree` ci-dessus.
+        # Le `worktree` est écrit avant le lancement du thread : celui-ci écrit la phase via
+        # `_mutate` (ligne fraîche), il ne court donc contre aucune écriture.
         launch_phase.set_phase(slug, ticket, launch_phase.SYNCING_VENV)
         worktrees.setup_venv_async(
             meta["worktree"], meta["repo_root"],

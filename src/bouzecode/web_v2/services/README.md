@@ -6,8 +6,10 @@ Couche service : toute la logique métier, séparée des routes Flask. Testable 
 
 | Fichier | Rôle |
 |---------|------|
+| `erreurs.py` | `Refus(code, message, status, **details)` : le refus métier UNIQUE des services ; les routes le sérialisent (un service n'importe jamais `routes/`) |
 | `file_service.py` | Diffs HTML des `file_snapshots` d'une session (onglet « fichiers modifiés ») |
 | `message_view.py` | Rendu des messages de session (Markdown, tool_calls, thinking blocks) |
+| `horodatage.py` | Dates du store et de l'API : écriture UTC unique (`maintenant_iso`), lecture tolérante des dates locales héritées (`lire_instant`, `age_s`, `cle_chrono`) — voir `work/README.md` |
 
 ## Sous-dossiers
 

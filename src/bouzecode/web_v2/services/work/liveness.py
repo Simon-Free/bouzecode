@@ -1,31 +1,20 @@
-"""Classification UNIFIÉE, dérivée de PREUVES, de l'état vivant/mort d'un run et
-d'un ticket. Source unique de vérité pour distinguer un agent/ticket qui TOURNE
-ENCORE, qui a LIVRÉ proprement, qui a CRASHÉ (à relancer à la main), ou qui est
-resté COINCÉ (fini mais chaîne d'intégration non aboutie).
+"""Vivacité d'un AGENT, dérivée de preuves (process, IPC, session) — détection seulement.
 
-Ce module NE déclenche AUCUNE reprise automatique : il OBSERVE et CLASSIFIE.
-
-Pourquoi croiser plusieurs preuves plutôt qu'un seul champ close_reason ?
-- close_reason peut être VIDE sur des sessions historiques (le stamp a manqué sur
-  certains chemins de clôture) → on tolère cela via la présence d'un final_answer
-  ou d'un verdict de run.
-- returncode == -1 ne couvre PAS tous les morts (un agent tué au restart peut avoir
-  un rc stampé autrement, ou un enregistrement disparu) → on croise pid + session.
-
-Réutilise SANS dupliquer les prédicats d'autorité existants :
-- runner.is_running / load_agent (preuve PID)
-- store.load_session_json (close_reason / final_answer disque = fait autorité)
-- wake.GRACEFUL_CLOSE_REASONS + wake._is_work_abandoned_mid_turn
-- wake.work_delivered + reaper.terminal_outcome + workflow.derive_state
+Ce module ne décide plus de l'état d'un TICKET : `ticket.state` est persisté et écrit par
+`ticket_fsm` (spec B2). Il répond à « que fait cet agent ? » pour les vues d'agents (arbre,
+conversations, Bureau) et fournit au watchdog (`constats`) ce qu'il constate :
+'running' | 'idle' | 'awaiting_input' | 'missing' | 'delivered' | 'crashed'.
+Un agent mort est `delivered` si sa clôture prouve une livraison selon la SEULE table
+`close_reasons.issue_de_fin` (C14 : une fin forcée n'est jamais une livraison), `crashed` sinon.
 """
 from __future__ import annotations
 
 from pathlib import Path
 
 from ... import close_reasons
-from ...runtime import runner
-from ..sessions import store
-from . import delivery, reaper, wake, workflow
+from ...runtime.runner import agent_fiche, agent_vivacite
+from ..sessions import empreintes, store
+from .distant import runs as runs_distants
 
 # close_reasons de CRASH franc (mort infra / interruption non-gracieuse). `cancelled`
 # est inclus : un arrêt utilisateur laisse un ticket à RELANCER à la main, exactement
@@ -43,12 +32,36 @@ def _session_path(agent_id: str, agent) -> Path:
     déchargé (nettoyé après mort). MÊME logique que wake._reconcile_graceful_close."""
     session_path = getattr(agent, "session_path", "") or ""
     if not session_path:
-        session_path = str(runner.AGENTS_DIR / f"{agent_id}.session.json")
+        session_path = str(agent_fiche.AGENTS_DIR / f"{agent_id}.session.json")
     return Path(session_path)
 
 
+# Clôture lue sur disque, retenue par VERSION du fichier de session (`empreintes`) : décoder la
+# session ENTIÈRE (jusqu'à 100 Mo sous Windows) pour deux champs, à chaque classification d'un
+# agent mort, coûtait 10 s par `/api/nav/counts` à froid sur un parc de 480 agents. La mémoire
+# de process qui l'évitait se perdait à chaque redémarrage (712 sessions redécodées par le
+# premier `/api/inbox`, 63 s cache froid) : elle est désormais persistée, ~100 octets par agent.
+_CLOTURES = empreintes.Empreintes("clotures_sessions.json", version=1)
+
+
+def _cloture_lue(path: Path) -> dict | None:
+    data = store.load_session_json(path)
+    if data is None:  # en cours d'écriture ou illisible : rien à retenir
+        return None
+    return {"close_reason": data.get("close_reason") or "",
+            "final_answer": bool(data.get("final_answer"))}
+
+
 def _session_data(agent_id: str, agent) -> dict:
-    return store.load_session_json(_session_path(agent_id, agent)) or {}
+    """`close_reason` et `final_answer` (vérité seulement) de la session, lus UNE fois par
+    version du fichier, puis relus de l'empreinte persistée."""
+    path = _session_path(agent_id, agent)
+    return _CLOTURES.lire(path, lambda: _cloture_lue(path)) or {}
+
+
+def oublier_clotures() -> None:
+    """Oublie la mémoire des clôtures (isolation des tests ; le fichier reste)."""
+    _CLOTURES.oublier()
 
 
 # Vivacités qui prouvent qu'un agent n'est PAS fini. `awaiting_input` en fait partie :
@@ -76,7 +89,7 @@ ALIVE = frozenset({"running", AWAITING, IDLE})
 MISSING = "missing"
 
 
-def classify_agent_run(ticket: dict, run: dict) -> str:
+def classify_agent_run(ticket: dict, run: dict, agent=None) -> str:
     """Classe UN run : 'running' | 'awaiting_input' | 'idle' | 'missing' | 'delivered'
     | 'crashed'.
 
@@ -88,13 +101,20 @@ def classify_agent_run(ticket: dict, run: dict) -> str:
     - missing       : l'enregistrement de l'agent est INTROUVABLE — on ne peut plus rien
                       dire de lui, ni le joindre.
     - delivered     : mort ET clôture prouvée propre (close_reason clean, OU final_answer
-                      présent, OU verdict de run) — hors abandon mid-turn.
+                      présent) — hors abandon mid-turn.
     - crashed       : mort SANS clôture prouvée (close_reason crash, close_reason vide sans
-                      final_answer/verdict, ou run work abandonné en plein tour)."""
+                      final_answer, ou run work abandonné en plein tour).
+
+    `agent` : la fiche déjà chargée par l'appelant (sinon relue sur disque). L'arbre et la vue
+    du Bureau classent des centaines d'agents qu'ils viennent de lister : relire chaque fiche
+    coûtait 727 lectures de fichier par `/api/inbox` à froid."""
     agent_id = str((run or {}).get("agent_id", "") or "")
     if not agent_id:
         return "crashed"
-    agent = runner.load_agent(agent_id)
+    if runs_distants.est_distant(run):  # execution Rundeck : lue sur le run, jamais un process
+        return runs_distants.vivacite(run)
+    if agent is None:
+        agent = agent_fiche.load_agent(agent_id)
     if agent is None:
         return MISSING
     # `store.agent_status` est la SEULE source qui croise pid + IPC + question pendante
@@ -106,40 +126,34 @@ def classify_agent_run(ticket: dict, run: dict) -> str:
     if state == IDLE:
         # Chaud mais oisif : lu sur la MÊME source que l'attente, jamais redérivé ici.
         return IDLE
-    if runner.is_running(agent):
+    if agent_vivacite.is_running(agent):
         return "running"
 
-    data = _session_data(agent_id, agent)
-    close_reason = data.get("close_reason") or ""
-    final_answer = data.get("final_answer") or ""
-    verdict = (run or {}).get("verdict") or ""
+    return _issue_d_un_run_mort(agent_id, agent, run)
 
-    # Un run WORK clos sur text_no_tools = arrêté en plein milieu (aucune FinalAnswer) :
-    # CRASH fonctionnel, jamais une livraison — testé AVANT la branche clean (text_no_tools
-    # ∈ GRACEFUL, donc ∈ CLEAN : ce filtre doit primer pour les runs work).
-    if wake._is_work_abandoned_mid_turn(run, close_reason):
-        return "crashed"
-    if close_reason in CRASH_CLOSE_REASONS:
-        return "crashed"
-    if close_reason in CLEAN_CLOSE_REASONS or final_answer or verdict:
+
+def _issue_d_un_run_mort(agent_id: str, agent, run: dict) -> str:
+    """'delivered' si la clôture lue sur disque prouve une livraison (`issue_de_fin`), ou si le
+    ticket de l'agent a été intégré depuis (tué après le merge) ; 'crashed' sinon."""
+    data = _session_data(agent_id, agent)
+    issue, _code = close_reasons.issue_de_fin(data.get("close_reason") or "",
+                                              bool(data.get("final_answer")))
+    if issue == "delivered" or travail_integre(agent):
         return "delivered"
-    # Mort sans clôture stampée, sans final_answer, sans verdict → crash silencieux
-    # (cas 5 : la mort au restart n'a laissé AUCUNE trace de fin propre).
     return "crashed"
 
 
-def run_verdict(agent, state: str) -> str:
-    """Verdict lisible d'un run `validate` TERMINÉ : rc=0 → 'OK', rc≠0 → 'KO'. Vide sinon.
+def travail_integre(agent) -> bool:
+    """Le ticket de l'agent a-t-il été intégré (clos par un merge) ? Lit `ticket.state`."""
+    slug = str(getattr(agent, "ticket_slug", "") or "")
+    ticket_id = str(getattr(agent, "ticket_id", "") or "")
+    if not (slug and ticket_id):
+        return False
+    from . import etat_ticket, tickets
+    return etat_ticket.integre(tickets.get_ticket(slug, ticket_id) or {})
 
-    UNE seule définition, partagée par le node de l'arbre (`fleet._node`), par le panneau de
-    conversation et par `classify_agent` : deux surfaces ne peuvent plus dériver deux verdicts
-    différents du même agent."""
-    if (getattr(agent, "run_kind", "") or "") != "validate" or state != "finished":
-        return ""
-    return "OK" if agent.returncode == 0 else "KO"
 
-
-def classify_agent(agent, state: str) -> str:
+def classify_agent(agent) -> str:
     """Vivacité d'un agent CHARGÉ, hors chaîne d'intégration :
     'running'|'awaiting_input'|'delivered'|'crashed'.
 
@@ -150,86 +164,5 @@ def classify_agent(agent, state: str) -> str:
     return classify_agent_run({}, {
         "agent_id": agent.agent_id,
         "kind": getattr(agent, "run_kind", "") or "",
-        "verdict": run_verdict(agent, state),
         "parent": getattr(agent, "parent", "") or "",
-    })
-
-
-def _classifiable_runs(ticket: dict) -> list[dict]:
-    return [r for r in (ticket.get("runs") or [])
-            if isinstance(r, dict) and r.get("agent_id")
-            and (str(r.get("kind", "")) == "work"
-                 or str(r.get("kind", "")).startswith("validate"))]
-
-
-def classify_ticket(ticket: dict) -> str:
-    """Classe un TICKET : 'running' | 'awaiting_input' | 'missing' | 'delivered'
-    | 'awaiting_decision' | 'stalled' | 'crashed' | 'launching'.
-
-    - launching        : en cours de lancement (spawn différé) sans aucun run démarré.
-    - running          : au moins un run encore vivant.
-    - awaiting_input   : un run attend une réponse de l'utilisateur.
-    - missing          : ANOMALIE D'INVENTAIRE. Le ticket est OUVERT et référence un agent
-                         dont l'enregistrement n'existe plus : il est injoignable (tout
-                         message vers lui échoue) et sa fiche est à restaurer. Un ticket
-                         CLOS garde `crashed`/`delivered` : la fiche d'un agent rangé après
-                         coup a le droit d'avoir disparu.
-    - awaiting_decision: le codeur a LIVRÉ (travail commité sur sa branche) et aucune issue
-                         terminale n'a été décidée. Depuis le retrait de la chaîne
-                         automatique c'est l'issue NORMALE de tout ticket : quelqu'un doit
-                         choisir entre relancer, valider ou intégrer.
-    - delivered        : issue terminale prouvée (mergé/verdict/parké) — livraison actée.
-    - stalled          : ANOMALIE. Le run a livré mais son travail n'est commité NULLE PART
-                         (`delivery.delivery_at_risk`) : une perte silencieuse est possible,
-                         il faut intervenir.
-    - crashed          : mort sans clôture prouvée.
-
-    POURQUOI CE DÉCOUPAGE : `stalled` couvrait AUSSI l'attente de décision. Le board
-    annonçait donc « stalled » — lu comme « planté » — pendant que `/api/agents/tree`
-    annonçait « delivered » pour le MÊME instant (cas vécu 28/07, tickets a88aeb4c /
-    e03adb3b). Les deux vues répondaient à deux questions sous le même mot. `stalled` ne
-    désigne plus qu'un ticket qui a RÉELLEMENT quelque chose à perdre."""
-    runs = _classifiable_runs(ticket)
-    if ticket.get("launching") and not runs:
-        return "launching"
-    if not runs:
-        # Ticket sans run classifiable : s'appuyer sur l'état dérivé (idle) — non interrompu.
-        return "delivered" if workflow.derive_state(ticket) == "done" else "crashed"
-
-    statuses = [classify_agent_run(ticket, r) for r in runs]
-    # Le vocabulaire du TICKET n'a pas de notion de « chaud » : un run oisif est un run
-    # dont personne n'a encore décidé le sort et qui repart au premier message — le ticket
-    # est donc TOUJOURS en vol. On normalise ici plutôt qu'au niveau du run pour que la
-    # distinction serve la joignabilité et l'affichage des AGENTS (arbre, sidebar, panneau)
-    # sans rien changer au board : lâcher `idle` dans la suite ferait basculer le ticket en
-    # `awaiting_decision`, voire crier `stalled` (« livraison en péril ») sur un codeur qui
-    # n'a simplement pas encore commité le travail de son prochain tour.
-    statuses = ["running" if s == IDLE else s for s in statuses]
-    if AWAITING in statuses:
-        # Un run bloqué sur une question ne peut PAS être classé comme livré ni planté :
-        # il reprendra dès qu'on lui répond. Il remonte au niveau du ticket pour que le
-        # board dise « attend une réponse » au lieu de « en cours » (indiscernable).
-        return AWAITING
-    if "running" in statuses:
-        return "running"
-    # `missing` est un RAFFINEMENT STRICT de `crashed`, jamais un état de plus dans le
-    # flux normal : on laisse d'abord la classification habituelle se dérouler, et on ne
-    # renomme qu'à la toute fin, si elle a conclu « planté ». Un ticket dont le travail
-    # est livré/mergé garde donc son état — la fiche d'un agent rangé après coup n'est pas
-    # une anomalie. Sans cette précaution, TOUT ticket un peu ancien (agents purgés depuis
-    # longtemps) se serait mis à crier « agent introuvable ».
-    agent_manquant = MISSING in statuses and not (ticket.get("done") or ticket.get("archived"))
-    statuses = ["crashed" if s == MISSING else s for s in statuses]
-
-    outcome = reaper.terminal_outcome(ticket)
-    if outcome == "crashed":
-        return MISSING if agent_manquant else "crashed"
-    if outcome in ("integrated", "failed", "needs_attention"):
-        # Issue terminale connue et prouvée (mergé, verdict KO, ou merge parké) : actée.
-        return "delivered"
-
-    # Aucune issue terminale : un run livré attend une décision — SAUF si son travail n'est
-    # commité nulle part, auquel cas il n'attend pas, il est en péril (`stalled`).
-    if "delivered" in statuses:
-        return "stalled" if delivery.delivery_at_risk(ticket) else "awaiting_decision"
-    return MISSING if agent_manquant else "crashed"
+    }, agent=agent)

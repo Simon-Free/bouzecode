@@ -5,7 +5,7 @@ L'ancienne version ne rendait qu'UNE ligne par enfant (`- Ticket <id> « <titre>
 plus, parfois, un `VERDICT:` entre parenthèses. Un manager ne pouvait donc RIEN décider :
 il redemandait le détail par `MessageAgent` — et cette ré-instruction ne changeait pas
 `wake.children_signature`, donc son réveil ne revenait jamais (cas mesuré le 2026-07-29 sur
-le manager 0123456789ab : « le digest ne me donne pas la cause racine, et je viens de lui
+le manager 9d0789f2fdca : « le digest ne me donne pas la cause racine, et je viens de lui
 redemander le détail par message », puis 54 minutes de sommeil).
 
 Chaque enfant arrive maintenant avec DE QUOI TRANCHER :
@@ -31,9 +31,10 @@ from __future__ import annotations
 import re
 from pathlib import Path
 
-from ...runtime import runner
+from ...runtime.runner import agent_fiche
 from ..sessions import store
 from . import tickets as tickets_svc
+from .distant import runs as runs_distants
 
 # Un rapport de FinalAnswer est écrit CONCLUSION D'ABORD (contrat du harnais : la réponse,
 # pas le journal) → on garde la TÊTE. 600 caractères ≈ 150 jetons : un manager supervise en
@@ -49,8 +50,7 @@ _THINKING_RE = re.compile(r"<thinking>.*?</thinking>", re.DOTALL | re.IGNORECASE
 
 def newest_run(ticket: dict) -> dict | None:
     """Le run le PLUS RÉCENT du ticket (`add_run` insère en tête). C'est lui qui porte
-    l'information fraîche : le rapport d'un validateur spawné après coup prime sur celui du
-    codeur, et un enfant relancé prime sur sa passe précédente."""
+    l'information fraîche : un enfant relancé prime sur sa passe précédente."""
     return next((r for r in ticket.get("runs") or [] if isinstance(r, dict)), None)
 
 
@@ -70,7 +70,9 @@ def read_run_evidence(run: dict | None) -> dict[str, str]:
     empty = {"close_reason": "", "report": "", "last_text": ""}
     if not run or not run.get("agent_id"):
         return empty
-    agent = runner.load_agent(run["agent_id"])
+    if runs_distants.est_distant(run):  # exécution Rundeck : la réponse rapatriée, pas une session
+        return runs_distants.preuves(run)
+    agent = agent_fiche.load_agent(run["agent_id"])
     if agent is None or not getattr(agent, "session_path", ""):
         return empty
     data = store.load_session_json(Path(agent.session_path)) or {}
@@ -114,7 +116,7 @@ def _tail(text: str, limit: int) -> str:
 
 def verdict_line(report: str) -> str:
     """La ligne 'VERDICT: …' d'un rapport, "" s'il n'y en a pas. Elle vit à la FIN du
-    rapport (contrat des validateurs) donc la tête bornée ne la contient pas : on l'extrait
+    rapport (convention des rapports d'agents) donc la tête bornée ne la contient pas : on l'extrait
     séparément pour ne jamais la perdre à la coupe."""
     for raw in report.splitlines():
         stripped = raw.strip()
@@ -125,14 +127,21 @@ def verdict_line(report: str) -> str:
 
 def _delivery_line(ticket: dict) -> str:
     """De quoi JUGER une livraison SANS ouvrir quoi que ce soit : où est le code (branche +
-    head commité par la récolte), et combien de tours l'enfant a clos (un enfant ré-instruit
+    head constaté en fin de run, fichiers laissés non commités), et combien de tours l'enfant a clos (un enfant ré-instruit
     qui a re-livré affiche 2, 3… — c'est la preuve visible qu'il a retravaillé)."""
+    run = newest_run(ticket)
+    if runs_distants.est_distant(run):
+        return runs_distants.ligne_de_livraison(run)
     meta = ticket.get("worktree") if isinstance(ticket.get("worktree"), dict) else {}
     branch = str(meta.get("branch") or "")
     head = str(meta.get("delivered_head") or "")[:12]
     where = f"branche {branch}" if branch else "dépôt principal (ticket partagé)"
     if head:
         where += f" @ {head}"
+    restes = meta.get("non_commites") or []
+    if restes:
+        where += (f", {len(restes)} fichier(s) NON commité(s) (commités seulement si tu "
+                  f"intègres : {', '.join(str(f) for f in restes[:5])})")
     return f"    LIVRAISON : {where} — {run_turns(ticket)} tour(s) clos."
 
 
@@ -145,13 +154,43 @@ def _reason_lines(ticket: dict, evidence: dict[str, str]) -> list[str]:
         lines.append(f"    ⛔ RAISON (clôture de la boucle) : {evidence['close_reason']}")
     if evidence["last_text"]:
         lines.append(f"    DERNIER MOT DE L'AGENT : {_tail(evidence['last_text'], _LAST_WORD_CHARS)}")
-    peril = ticket.get("uncommitted")
+    from .delivery import delivery_at_risk
+    peril = (ticket.get("worktree") or {}).get("non_commites") if delivery_at_risk(ticket) else []
     if isinstance(peril, list) and peril:
-        lines.append(f"    ⛔ TRAVAIL NON COMMITÉ (perdu si le worktree est nettoyé) : "
+        lines.append(f"    ⛔ TRAVAIL NON COMMITÉ (une récolte a échoué ; aucun nettoyage ne le "
+                     f"détruira) : "
                      f"{', '.join(str(f) for f in peril[:10])}")
     if not lines:
         lines.append("    (aucune trace exploitable : ni rapport, ni close_reason, ni "
                      "session lisible — l'agent n'a rien laissé.)")
+    return lines
+
+
+def pending_question(ticket: dict) -> dict[str, object]:
+    """La question que l'enfant attend de voir tranchée : {agent_id, question, options,
+    allow_freetext}. UNE lecture du statut de l'agent du run le plus récent (celle que le
+    réveil fait déjà pour rafraîchir le run). Vide si l'agent est introuvable : le parent sait
+    au moins qu'une question attend, et qui la pose."""
+    run = newest_run(ticket) or {}
+    agent_id = str(run.get("agent_id") or "")
+    agent = agent_fiche.load_agent(agent_id) if agent_id else None
+    status = store.agent_status(agent) if agent is not None else {}
+    options = [str(o.get("label") if isinstance(o, dict) else o)
+               for o in status.get("options") or []]
+    return {"agent_id": agent_id, "question": str(status.get("question") or ""),
+            "options": [o for o in options if o],
+            "allow_freetext": bool(status.get("allow_freetext", True))}
+
+
+def question_lines(question: dict) -> list[str]:
+    """La question EN CLAIR, avec ses options : sans elle, le parent réveillé « parce qu'un
+    enfant attend » devait aller la chercher avant de pouvoir répondre."""
+    texte = _head(str(question.get("question") or ""), _REPORT_CHARS) or "(texte illisible)"
+    lines = [f"    ❓ QUESTION EN ATTENTE (agent {question.get('agent_id') or '?'}) : {texte}"]
+    options = question.get("options") or []
+    if options:
+        libre = " — réponse libre acceptée" if question.get("allow_freetext") else ""
+        lines.append(f"    OPTIONS : {' | '.join(str(o) for o in options)}{libre}")
     return lines
 
 
@@ -162,7 +201,13 @@ def child_block(ticket: dict, delivered: bool) -> list[str]:
     lines = [f"- Ticket {ticket['id']} « {ticket['title']} » : {wake.ticket_outcome(ticket)}"]
     if wake.launch_failed(ticket):
         return lines  # aucun agent n'a démarré : l'erreur est DÉJÀ dans l'étiquette d'issue
-    evidence = read_run_evidence(newest_run(ticket))
+    if wake.child_blocked_on_question(ticket):
+        #  Il n'a rien livré ni échoué : il attend. La matière utile est la question elle-même.
+        return lines + question_lines(pending_question(ticket))
+    run = newest_run(ticket)
+    if runs_distants.est_distant(run):  # exécution Rundeck : livrée seulement si son issue le dit
+        delivered = runs_distants.vivacite(run) == "delivered"
+    evidence = read_run_evidence(run)
     verdict = verdict_line(evidence["report"])
     if verdict:
         lines[0] += f" ({verdict})"

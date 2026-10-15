@@ -12,7 +12,7 @@ typologies_bp = Blueprint("typologies", __name__)
 
 @typologies_bp.get("/api/typologies")
 def api_typologies():
-    """List available typologies, optionally scoped to a project."""
+    """?project=<slug> — typologies d'agents déclarées (projet + global)"""
     slug = request.args.get("project", "")
     project_path: str | None = None
     if slug:

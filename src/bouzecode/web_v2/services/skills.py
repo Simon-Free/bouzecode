@@ -57,10 +57,19 @@ def get_skill(name: str) -> dict | None:
             try:
                 content = Path(s.file_path).read_text(encoding="utf-8")
             except OSError:
-                content = ""
+                # Skill intégrée (file_path = "<builtin>") : pas de fichier, mais tout est chargé.
+                # On la RECONSTRUIT plutôt que de servir un éditeur vide — c'est ce texte que
+                # « Enregistrer une copie globale » écrira.
+                content = _rebuild_markdown(s)
             return {"name": name, "content": content, "source": getattr(s, "source", ""),
                     "editable": _is_editable(s.file_path)}
     return None
+
+
+def _rebuild_markdown(skill) -> str:
+    description = " ".join((getattr(skill, "description", "") or "").split())
+    return (f"---\nname: {skill.name}\ndescription: {description}\n---\n\n"
+            f"{(getattr(skill, 'prompt', '') or '').strip()}\n")
 
 
 def new_skill_template(name: str) -> dict:
@@ -92,11 +101,21 @@ def frontmatter_problem(content: str) -> str:
     return ""
 
 
-def save_skill(name: str, content: str) -> dict | str:
-    """Write ~/.bouzecode/skills/<name>.md. Returns {name, path} or an error string."""
+class SkillExists(Exception):
+    """Creating a skill under a name that already exists (409) : never overwrite in silence."""
+
+
+def save_skill(name: str, content: str, create: bool = False) -> dict | str:
+    """Write ~/.bouzecode/skills/<name>.md. Returns {name, path} or an error string.
+
+    `create=True` (the « Nouvelle skill » path) refuses a name already used by ANY
+    discoverable skill : writing it would silently replace (or shadow) that skill.
+    """
     name = (name or "").strip()
     if not _NAME_RE.match(name):
         return "nom invalide : minuscules, chiffres, - et _ uniquement"
+    if create and (get_skill(name) is not None or (_skills_dir() / f"{name}.md").is_file()):
+        raise SkillExists(f"une skill « {name} » existe déjà : ouvre-la ou choisis un autre nom")
     if not (content or "").strip():
         return "contenu vide"
     problem = frontmatter_problem(content)

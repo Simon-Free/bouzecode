@@ -6,7 +6,7 @@ import sys
 import pytest
 
 from bouzecode.web_v2.runtime import deferred as web_deferred
-from bouzecode.web_v2.runtime import runner
+from bouzecode.web_v2.runtime.runner import agent_reprise
 from bouzecode.backend.tools.interaction import DeferredChecks
 
 
@@ -18,10 +18,23 @@ def test_run_deferred_check_uses_powershell_not_cmd(tmp_path):
     i.e. cmd.exe on Windows, which fails instantly on `$env:` / `;`-chained PowerShell
     syntax — so a queued Azure deploy silently never executed. `_run_deferred_check`
     routes through the canonical PowerShell wrapper instead."""
-    result = runner._run_deferred_check(
+    result = agent_reprise._run_deferred_check(
         '$env:DEFERRED_PROBE = "ok"; Write-Output $env:DEFERRED_PROBE', str(tmp_path), 60)
     assert result.returncode == 0, result.stderr
     assert "ok" in result.stdout
+
+
+@pytest.mark.skipif(sys.platform != "win32", reason="PowerShell shell path is Windows-only")
+def test_lancer_une_ne_transmet_pas_pythonhome(tmp_path, monkeypatch):
+    """Le PYTHONHOME que uv laisse fuir dans bouzecode ne doit pas atteindre la vérification.
+
+    Régression : `lancer_une` héritait de l'env du process ; un venv 3.13 lancé avec le
+    PYTHONHOME de la cpython-3.12 de uv mourait sur `AssertionError: SRE module mismatch`."""
+    monkeypatch.setenv("PYTHONHOME", r"C:\fuite\cpython-3.12")
+    result = web_deferred.lancer_une(
+        'Write-Output "[$env:PYTHONHOME]"', str(tmp_path), 60)
+    assert result.returncode == 0, result.stderr
+    assert "[]" in result.stdout, result.stdout
 
 
 def test_deferred_save_load_delete_round_trip(tmp_path):

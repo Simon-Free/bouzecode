@@ -1,8 +1,7 @@
 # [desc] Détecte qu'un ticket dispatché recouvre le périmètre d'un ticket frère déjà ouvert. [/desc]
 """Un livrable, un ticket. Deux frères au périmètre identique = du travail jeté.
 
-Cas réel observé : un manager a dispatché trois écrivains sur la même « mesure
-directe ». Ils ont
+Le manager `31b01ead` a dispatché trois écrivains sur la même « mesure directe » : ils ont
 produit trois implémentations concurrentes du même service (`view_service.py`,
 `views_service.py`, `view_tracker.py`). Rien côté serveur ne l'a vu. Ce module le voit —
 sans rien demander au LLM, en comparant les périmètres des prompts.
@@ -14,7 +13,7 @@ from typing import Any
 from . import signature
 
 OVERLAP_FLAG_KEY = "scope_overlap"
-# Calibré sur six prompts réels d'un même manager : les rédactions d'un MÊME livrable
+# Calibré sur les six prompts réels du ticket 31b01ead : les rédactions d'un MÊME livrable
 # passent au-dessus, les deux moitiés distinctes de la demande restent en dessous.
 OVERLAP_THRESHOLD = 0.40
 # En dessous, le prompt ne DÉCRIT aucun périmètre : il ne reste que du texte de service.

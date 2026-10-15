@@ -1,4 +1,4 @@
-# [desc] Web service: list installed plugins and install a plugin (user scope, from the package index). [/desc]
+# [desc] Web service: list installed plugins and install a plugin (user scope, from Artifactory). [/desc]
 """Plugin management for the agent builder UI.
 
 Thin wrapper over backend.plugin: list what's installed and install a package
@@ -97,7 +97,7 @@ def install(package: str, source: str | None = None, confirm_git: bool = False) 
     """Install a plugin at user scope. Returns info dict or error string.
 
     ``source`` may be a git URL (cloned + installed), a local directory, or
-    omitted (pip name resolved from the configured package index). For a git/local source the
+    omitted (pip name resolved from Artifactory). For a git/local source the
     ``package`` (pip distribution name) is still required as the registry key.
 
     Installing from a git source runs code fetched from that URL, so it requires
@@ -127,7 +127,7 @@ def from_gitlab(raw_input: str, confirm_git: bool = False) -> dict | str:
     """Install a plugin from a GitLab repo URL or a local git folder path.
 
     One repo == one pip package: we derive the distribution name and try
-    the private package index first; if it's not published there, we fall back to installing
+    Artifactory first; if it's not published there, we fall back to installing
     from the repo's git source (clone + run fetched code), which requires an
     explicit ``confirm_git``. Returns an info dict, a ``requires_confirmation``
     payload, or an error string.
@@ -141,14 +141,14 @@ def from_gitlab(raw_input: str, confirm_git: bool = False) -> dict | str:
         return str(exc)
     package, git_source = plugin_install_target(info)
 
-    ok, msg = install_plugin(package, scope=PluginScope.USER, source=None)  # package index
+    ok, msg = install_plugin(package, scope=PluginScope.USER, source=None)  # Artifactory
     if ok:
-        return {"ok": True, "message": msg, "package": package, "via": "index"}
+        return {"ok": True, "message": msg, "package": package, "via": "artifactory"}
     if not confirm_git:
         return {
             "requires_confirmation": True, "package": package, "source": git_source,
             "message": (
-                f"'{package}' introuvable sur l'index de paquets. Installer depuis le repo git "
+                f"'{package}' introuvable sur Artifactory. Installer depuis le repo git "
                 f"{info['web_url']} (clone + exécution de code) ?"
             ),
         }
@@ -157,7 +157,7 @@ def from_gitlab(raw_input: str, confirm_git: bool = False) -> dict | str:
     if not ok:
         return (
             f"Échec du clone de {info['web_url']} : {msg}. Vérifie ta connexion au "
-            "GitLab et ton accès au repo (git doit pouvoir cloner), ou publie le "
-            "plugin sur l'index de paquets pour l'installer par nom."
+            "GitLab corporate et ton accès au repo (git doit pouvoir cloner), ou publie le "
+            "plugin sur Artifactory pour l'installer par nom."
         )
     return {"ok": True, "message": msg, "package": package, "via": "git"}

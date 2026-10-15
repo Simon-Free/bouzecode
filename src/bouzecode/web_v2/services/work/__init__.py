@@ -1,1 +1,1 @@
-# [desc] Services "travail": projets ouverts et tickets (création, runs, commentaires, validations). [/desc]
+# [desc] Services "travail": projets ouverts et tickets (création, runs, commentaires, intégration, clôture). [/desc]

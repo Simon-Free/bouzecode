@@ -93,6 +93,16 @@ def _has_cc(block) -> bool:
     return isinstance(block, dict) and "cache_control" in block
 
 
+def _premiere_ligne(text: str) -> str:
+    """`text.strip().splitlines()[0]` sans découper tout le bloc (un bloc système fait
+    jusqu'à 400 000 caractères, et il y en a un par bloc et par appel) : la première ligne
+    au sens de `splitlines` s'arrête au plus tard au premier « \\n »."""
+    nettoye = text.strip()
+    if not nettoye:
+        return ""
+    return nettoye.partition("\n")[0].splitlines()[0]
+
+
 def _system_block_items(system_blocks: list) -> list[dict]:
     """Build one context item per REAL wire system block (source of truth for
     what Anthropic actually caches). A block carrying a `cache_control` marker
@@ -107,7 +117,7 @@ def _system_block_items(system_blocks: list) -> list[dict]:
         text = _extract_block_text(block)
         if not text:
             continue
-        first_line = text.strip().splitlines()[0] if text.strip() else ""
+        first_line = _premiere_ligne(text)
         label = first_line[:80] or "System block"
         items.append({
             "kind": "system_block",
@@ -122,16 +132,34 @@ def _system_block_items(system_blocks: list) -> list[dict]:
     return items
 
 
+def _notes_dans_le_systeme(notes: dict, items: list[dict], payload: list[dict]) -> bool:
+    """Les notes voyagent dans le préfixe mis en cache : un BLOC SYSTÈME jusqu'au 2026-10-07,
+    depuis en <working_notes> en tête du premier message user. Les ajouter en élément
+    « notes_block » les comptait deux fois (≈ ×2 sur les tokens estimés d'un tour dont la note
+    fait 170 000 caractères)."""
+    blocs = [it.get("text") or "" for it in items if it.get("kind") == "system_block"]
+    blocs += [message_text(m) for m in payload[:1] if m.get("role") == "user"]
+    contenus = [str(c) for c in notes.values() if str(c).strip()]
+    return bool(blocs) and bool(contenus) and all(_dans_un_bloc(c, blocs) for c in contenus)
+
+
+def _dans_un_bloc(contenu: str, blocs: list[str]) -> bool:
+    return any(contenu[:500] in b and contenu[-500:] in b for b in blocs)
+
+
+def _notes_a_montrer(notes: dict, items: list[dict], payload: list[dict]) -> dict:
+    """Les notes à montrer en élément à part : aucune si elles sont déjà sur le fil."""
+    return {} if notes and _notes_dans_le_systeme(notes, items, payload) else notes
+
+
 def build_items_for_payload(
     payload: list[dict], system_prompt: str, context_state, tc_index: dict,
     system_blocks: list | None = None,
 ) -> list[dict]:
     """Build the flat list of context objects from an already-compacted payload.
 
-    The notes_block is INJECTED into the last user message at dispatch time
-    (`providers/backends/dispatch.py:_inject_into_last_user_message`), so we
-    show it positioned right BEFORE that user message rather than as a top-
-    of-context item.
+    Notes not found on the wire (old dumps, before <working_notes>) are shown as a
+    notes_block positioned right BEFORE the last user message.
 
     When the turn dump captured the REAL wire `system_blocks`, we expose one
     item per block segmented by `cache_control` (the actual cache truth).
@@ -145,7 +173,7 @@ def build_items_for_payload(
     last_user_idx = max(
         (i for i in range(len(payload)) if payload[i].get("role") == "user"), default=-1,
     )
-    notes = context_state.notes
+    notes = _notes_a_montrer(context_state.notes, items, payload)
 
     for i, msg in enumerate(payload):
         role = msg.get("role", "")
@@ -168,6 +196,32 @@ def build_items_for_payload(
         item["payload_idx"] = i
         items.append(item)
     return items
+
+
+def annotate_system_cache_status(items: list[dict], cur_blocks: list | None,
+                                  prev_blocks: list | None, api_cache_read: int) -> None:
+    """Statut RÉEL des blocs système porteurs de `cache_control` : lus en cache (`cached`)
+    seulement si l'appel précédent envoyait le MÊME préfixe et que l'API a bien lu du cache.
+
+    Avant : tout bloc marqué était « cached », y compris au premier appel (écriture) et après
+    une expiration du TTL ou une mutation du préfixe (réécriture complète) — exactement la
+    perte de cache que la vue Tours doit faire voir, rendue invisible."""
+    prev_blocks = prev_blocks or []
+    prefix_intact = bool(prev_blocks) and api_cache_read > 0
+    by_text: dict[str, str] = {}
+    for i, block in enumerate(cur_blocks or []):
+        if prefix_intact and (i >= len(prev_blocks) or prev_blocks[i] != block):
+            prefix_intact = False
+        if _has_cc(block):
+            by_text.setdefault(_extract_block_text(block),
+                               "cached" if prefix_intact else "new-cache")
+    for item in items:
+        if item["kind"] == "system_block" and item.get("text") in by_text:
+            item["cache_status"] = by_text[item["text"]]
+        # L'API n'a RIEN lu en cache (1er appel, TTL expiré, préfixe muté) : aucun item ne
+        # peut être « cached », quelle que soit la déduction par positions.
+        if api_cache_read == 0 and item.get("cache_status") == "cached":
+            item["cache_status"] = "new-cache"
 
 
 def annotate_cache_status(

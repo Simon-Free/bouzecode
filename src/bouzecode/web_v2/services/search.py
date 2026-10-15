@@ -89,45 +89,50 @@ def _session_paths(scope: str, index: dict) -> list[tuple[str, Path]]:
 
 
 def _agents_dir() -> Path:
-    from ..runtime import runner as _runner
-    return _runner.AGENTS_DIR
+    from ..runtime.runner import agent_fiche
+    return agent_fiche.AGENTS_DIR
+
+
+def _load_messages(path: Path, first: bytes) -> list | None:
+    """Messages de la session, ou None si le pré-filtre binaire (1er mot) l'écarte ou si
+    le fichier est illisible."""
+    try:
+        raw = path.read_bytes()
+    except OSError:
+        return None
+    if first not in raw.lower():
+        return None
+    try:
+        data = json.loads(raw.decode("utf-8", "replace"))
+    except (ValueError, TypeError):
+        return None
+    messages = data.get("messages") if isinstance(data, dict) else None
+    return messages if isinstance(messages, list) else None
+
+
+def _textes_cherchables(messages: list):
+    """(rôle, texte) : chaque message utilisateur, puis la réponse finale."""
+    for message in messages:
+        if isinstance(message, dict) and message.get("role") == "user" \
+                and isinstance(message.get("content"), str):
+            yield "user", message["content"]
+    final = extract_final_answer(messages)
+    if final:
+        yield "final_answer", final
 
 
 def _search_session(path: Path, words: list[str], first: bytes) -> list[dict]:
     """Pré-filtre binaire puis parse : renvoie les extraits matchant (AND)."""
-    try:
-        raw = path.read_bytes()
-    except OSError:
+    messages = _load_messages(path, first)
+    if messages is None:
         return []
-    if first not in raw.lower():
-        return []
-    try:
-        data = json.loads(raw.decode("utf-8", "replace"))
-    except (ValueError, TypeError):
-        return []
-
-    messages = data.get("messages") if isinstance(data, dict) else None
-    if not isinstance(messages, list):
-        return []
-
     matches: list[dict] = []
-    for message in messages:
-        if not isinstance(message, dict):
-            continue
-        if message.get("role") == "user":
-            content = message.get("content")
-            if isinstance(content, str):
-                snippet = _match_snippet(content, words)
-                if snippet is not None:
-                    matches.append({"role": "user", "snippet": snippet})
-                    if len(matches) >= MAX_MATCHES_PER_AGENT:
-                        return matches
-
-    final = extract_final_answer(messages)
-    if final and len(matches) < MAX_MATCHES_PER_AGENT:
-        snippet = _match_snippet(final, words)
+    for role, text in _textes_cherchables(messages):
+        snippet = _match_snippet(text, words)
         if snippet is not None:
-            matches.append({"role": "final_answer", "snippet": snippet})
+            matches.append({"role": role, "snippet": snippet})
+            if len(matches) >= MAX_MATCHES_PER_AGENT:
+                break
     return matches
 
 

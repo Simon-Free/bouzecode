@@ -7,7 +7,7 @@ l'agent renaissait sans source. Le backstop rabat sur le cwd serveur (checkout v
 TOUT chemin de reprise, y compris un sous-agent manager SANS ticket que rehome ne peut pas
 re-provisionner.
 """
-import bouzecode.web_v2.runtime.runner as runner
+from bouzecode.web_v2.runtime.runner import agent_respawn
 
 
 def _worktree(tmp_path, alive: bool):
@@ -22,23 +22,23 @@ def _worktree(tmp_path, alive: bool):
 
 def test_dead_worktree_floored_to_none(tmp_path):
     dead = _worktree(tmp_path, alive=False)
-    assert runner._is_dead_worktree(str(dead)) is True
-    assert runner._safe_cwd(str(dead)) is None
+    assert agent_respawn._is_dead_worktree(str(dead)) is True
+    assert agent_respawn._safe_cwd(str(dead)) is None
 
 
 def test_live_worktree_kept(tmp_path):
     live = _worktree(tmp_path, alive=True)
-    assert runner._is_dead_worktree(str(live)) is False
-    assert runner._safe_cwd(str(live)) == str(live)
+    assert agent_respawn._is_dead_worktree(str(live)) is False
+    assert agent_respawn._safe_cwd(str(live)) == str(live)
 
 
 def test_non_worktree_dir_without_git_kept(tmp_path):
     # Un projet NON-git (hors ~/.bouzecode/worktrees) tourne dans son propre dossier : jamais rabattu.
     proj = tmp_path / "some_project"
     proj.mkdir()
-    assert runner._is_dead_worktree(str(proj)) is False
-    assert runner._safe_cwd(str(proj)) == str(proj)
+    assert agent_respawn._is_dead_worktree(str(proj)) is False
+    assert agent_respawn._safe_cwd(str(proj)) == str(proj)
 
 
 def test_vanished_dir_floored_to_none(tmp_path):
-    assert runner._safe_cwd(str(tmp_path / "gone")) is None
+    assert agent_respawn._safe_cwd(str(tmp_path / "gone")) is None

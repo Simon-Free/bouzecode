@@ -6,7 +6,7 @@ les tickets en cours de lancement, et son commentaire annonçait `provisioning_w
 _venv / spawning`. Or AUCUN code de production n'écrivait ce champ — seul un test le posait.
 Toute l'attente du lancement se présentait donc comme un unique `provisioning` indifférencié,
 alors qu'elle enchaîne des étapes de durées très inégales sur ce poste : `git worktree add`
-coûte ~50 s par essai (antivirus temps réel, cf. `worktrees.add_worktree_bounded`) et peut
+coûte ~50 s par essai (antivirus d'entreprise, cf. `worktrees.add_worktree_bounded`) et peut
 être rejoué 3 fois, `uv sync --all-extras` court jusqu'à 600 s. L'utilisateur voyait « en
 préparation » pendant plusieurs minutes sans pouvoir distinguer un provisionnement lent d'un
 serveur bloqué.
@@ -16,10 +16,9 @@ bien qu'un agent de monitoring lisant l'API et l'interface humaine disent la MÊ
 libellé rendu ici, plutôt que recopié dans le front, évite exactement la divergence qui
 existait déjà (le front commentait un badge « préparation… » qu'il n'implémentait pas).
 
-La phase est un état TRANSITOIRE, jamais une issue : elle est posée avant une étape longue et
-retirée par `tickets.add_run` (un agent a démarré) ou `dispatch.record_launch_failure` (le
-lancement a échoué). Personne ne doit conclure quoi que ce soit d'une phase — le sort du
-ticket se lit dans ses runs, comme avant.
+La phase est un DÉTAIL de l'état `provisioning`, jamais une issue : elle est posée avant une
+étape longue et retirée par toute transition qui quitte `provisioning` (`ticket_fsm`). Personne
+ne doit conclure quoi que ce soit d'une phase — le sort du ticket se lit dans `ticket.state`.
 """
 from __future__ import annotations
 
@@ -66,15 +65,17 @@ def set_phase(slug: str, ticket: dict, phase: str, detail: str = "") -> None:
         else:
             fresh.pop(PHASE_DETAIL_KEY, None)
 
-    tickets._mutate(slug, ticket["id"], _apply)
-    _apply(ticket)  # miroir sur l'objet appelant, comme set_launching/add_run
+    frais = tickets._mutate(slug, ticket["id"], _apply)
+    _apply(ticket)  # miroir sur l'objet appelant (version comprise), comme set_launching/add_run
+    if frais is not None:
+        ticket["version"] = frais["version"]
 
 
 def clear_phase(ticket: dict) -> None:
     """Retire les champs de phase d'un ticket DÉJÀ en cours de mutation.
 
-    Appelée depuis les `_apply` de `tickets.add_run` et `record_launch_failure`, qui écrivent
-    la ligne fraîche eux-mêmes : la phase disparaît donc DANS la mutation qui la rend inutile,
+    Appelée par `ticket_fsm.appliquer` sur toute transition qui quitte `provisioning`, qui écrit
+    la ligne fraîche elle-même : la phase disparaît donc DANS la mutation qui la rend inutile,
     sans seconde écriture ni fenêtre où le ticket porterait à la fois un run et une phase de
     lancement (le node afficherait « démarrage de l'agent » sur un agent qui tourne déjà)."""
     ticket.pop(PHASE_KEY, None)
@@ -87,8 +88,10 @@ def drop_phase(slug: str, ticket: dict) -> None:
     passer par `add_run` (`dispatch.rehome_agent_cwd` : le worktree est reconstruit, mais c'est
     la route de reprise qui respawne l'agent). Sans cela le ticket garderait « ré-isolation du
     worktree » après la fin de la ré-isolation — une phase qui MENT est pire que pas de phase."""
-    tickets._mutate(slug, ticket["id"], clear_phase)
+    frais = tickets._mutate(slug, ticket["id"], clear_phase)
     clear_phase(ticket)
+    if frais is not None:
+        ticket["version"] = frais["version"]
 
 
 def phase_view(ticket: dict) -> dict:

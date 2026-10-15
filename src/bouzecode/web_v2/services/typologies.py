@@ -2,6 +2,7 @@
 """Build agent typologies from real profiles and the builtin system agents."""
 from __future__ import annotations
 
+from bouzecode.paths import project_dir as bouzecode_project_dir
 import logging
 from pathlib import Path
 from typing import Any
@@ -17,57 +18,40 @@ _DEFAULT_TYPOLOGY: dict[str, Any] = {
 }
 
 
-def list_typologies(project_path: str | None = None) -> list[dict[str, Any]]:
-    """Return typologies built from real profiles + agent definitions (single source of truth).
+def _typologie(name: str, description: str, profile) -> dict[str, Any]:
+    return {"name": name, "description": description, "profile": name,
+            "default_model": getattr(profile, "model", "") or "", "default_cwd": ""}
 
-    The 'default' typology is always first.
-    """
+
+def _profils_yaml(project_path: str | None):
+    """(nom, profil) des profils YAML éditables : projet, global, puis dossiers extra.
+    Les agents autonomes d'application (`kind: app`, ex. `focus`) ne sont pas dispatchables."""
     from bouzecode.backend.core.paths import get_extra_dirs
-    from bouzecode.backend.profiles.discovery import load_system_profiles
     from bouzecode.web_v2.services.profiles import load_profiles_from_dir, user_global_dir
 
-    seen: set[str] = {"default"}
-    result: list[dict[str, Any]] = [dict(_DEFAULT_TYPOLOGY)]
-
-    # 1) Profiles YAML (project-local, global, extra dirs) — these are the user-editable ones
-    sources: list[tuple[str, Path]] = []
-    if project_path:
-        sources.append(("projet", Path(project_path) / ".bouzecode" / "profiles"))
-    sources.append(("global", user_global_dir()))
-    sources += [("extra", d / "profiles") for d in get_extra_dirs()]
-
-    for _label, directory in sources:
+    directories = [bouzecode_project_dir(Path(project_path)) / "profiles"] if project_path else []
+    directories += [user_global_dir(), *(d / "profiles" for d in get_extra_dirs())]
+    for directory in directories:
         for name, profile in load_profiles_from_dir(directory).items():
-            if name in seen:
-                continue
-            # Standalone host-app agents (kind: app, e.g. `focus`) route directly via their
-            # host, never via the manager — they must not be a dispatchable typology.
-            if getattr(profile, "kind", "user") == "app":
-                continue
-            seen.add(name)
-            result.append({
-                "name": name,
-                "description": (getattr(profile, "system_prompt_extra", "") or "")[:80] or f"Profil {name}",
-                "profile": name,
-                "default_model": getattr(profile, "model", "") or "",
-                "default_cwd": "",
-            })
+            if getattr(profile, "kind", "user") != "app":
+                yield name, profile
 
-    # 2) Built-in system agents (general-purpose / meta-agent / manager), unless a
-    #    same-named user profile already shadows them.
+
+def list_typologies(project_path: str | None = None) -> list[dict[str, Any]]:
+    """Typologies = profils YAML + agents système intégrés (source unique).
+
+    'default' toujours en premier ; au premier nom rencontré de gagner (un profil utilisateur
+    masque l'agent système homonyme)."""
+    from bouzecode.backend.profiles.discovery import load_system_profiles
+
+    result: dict[str, dict[str, Any]] = {"default": dict(_DEFAULT_TYPOLOGY)}
+    for name, profile in _profils_yaml(project_path):
+        description = (getattr(profile, "system_prompt_extra", "") or "")[:80] or f"Profil {name}"
+        result.setdefault(name, _typologie(name, description, profile))
     for name, profile in load_system_profiles().items():
-        if name in seen:
-            continue
-        seen.add(name)
-        result.append({
-            "name": name,
-            "description": (getattr(profile, "description", "") or "") or f"Agent {name}",
-            "profile": name,
-            "default_model": getattr(profile, "model", "") or "",
-            "default_cwd": "",
-        })
-
-    return result
+        description = getattr(profile, "description", "") or f"Agent {name}"
+        result.setdefault(name, _typologie(name, description, profile))
+    return list(result.values())
 
 
 def get_typology(name: str, project_path: str | None = None) -> dict[str, Any] | None:
