@@ -1,4 +1,4 @@
-"""`kind: app` = agent standalone d'une app hôte. Il partage le FORMAT de
+"""`kind: app` = agent standalone d'une app hôte (ex. focus). Il partage le FORMAT de
 profil mais n'est PAS un agent dev bouzecode : exclu du set switchable/spawnable (/agent,
 Agent()) ET des typologies dispatchables (manager). Son app le charge DIRECTEMENT par path."""
 from bouzecode.backend.profiles import discovery, loader

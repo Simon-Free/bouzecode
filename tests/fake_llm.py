@@ -29,20 +29,25 @@ class MockLLM:
         self.responses = responses
         self.call_index = 0
         self.recorded_calls: list[dict] = []
-        # Answer served to SIDE calls — the nested completions the engine makes on
-        # its own behalf (thinking-overflow summary, close validator…), marked by
-        # `config["_depth"]`. They are not turns of the conversation: served from
-        # the main script they would silently shift every following reply by one,
-        # and the summary the test asserts on would be the next turn's text.
-        # Left at None, a side call falls through to the script as before.
-        self.side_call_response: str | None = None
-        self.side_calls: list[dict] = []
+        # Side-calls (thinking-summary, enforcement, task-classifier,
+        # close-validator, sub-agents) run at _depth>0. They must NOT draw from
+        # the main scripted queue, else they desync call_index and pollute
+        # deterministic tests. Served a canned response instead — override
+        # .side_call_response for tests that assert on side-call output.
+        self.side_call_response = ""
+        self.side_calls = 0
 
     def stream(self, model, system, messages, tool_schemas, config):
-        if self.side_call_response is not None and (config or {}).get("_depth"):
-            self.side_calls.append({"model": model, "system": system,
-                                    "messages": list(messages)})
-            yield from self._emit(self.side_call_response, [], "end_turn")
+        if (config or {}).get("_depth", 0) > 0:
+            self.side_calls += 1
+            yield StreamStarted()
+            text = self.side_call_response
+            if text:
+                yield TextChunk(text)
+            yield AssistantTurn(
+                text=text, tool_calls=[], in_tokens=0, out_tokens=0,
+                stop_reason="end_turn",
+            )
             return
 
         assert self.call_index < len(self.responses), (
@@ -72,10 +77,6 @@ class MockLLM:
         })
         self.call_index += 1
 
-        yield from self._emit(raw_text, thinking_parts, stop_reason)
-
-    def _emit(self, raw_text, thinking_parts, stop_reason):
-        """Stream one canned answer as the real backend would."""
         yield StreamStarted()
 
         for _thought in thinking_parts:

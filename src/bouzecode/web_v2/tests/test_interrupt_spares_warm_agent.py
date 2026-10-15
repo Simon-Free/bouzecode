@@ -1,4 +1,4 @@
-# [desc] /interrupt ne doit pas TUER un agent qui a cédé : un agent chaud garde son process. [/desc]
+# [desc] POST /api/agents/<id>/interruptions (ex-/interrupt) ne doit pas TUER un agent qui a cédé : un agent chaud garde son process. [/desc]
 """Interrompre ne doit pas coûter un cold-start.
 
 Cas vécu (31/07) : dans une conversation web_v2, Ctrl+C — ou l'envoi d'un nouveau message,
@@ -71,22 +71,22 @@ def _ecrire_agent(agents_dir, agent_id, *, pid, ipc_status):
 
 @pytest.fixture()
 def agents_dir(tmp_path, monkeypatch, processus_jetables):
-    from bouzecode.web_v2.runtime import runner
+    from bouzecode.web_v2.runtime.runner import agent_etat, agent_fiche
     from bouzecode.web_v2.services.sessions import purge, store
 
     d = tmp_path / "web_agents"
     d.mkdir()
-    monkeypatch.setattr(runner, "AGENTS_DIR", d)
+    monkeypatch.setattr(agent_fiche, "AGENTS_DIR", d)
     monkeypatch.setattr(purge, "TRASH_DIR", d / "_trash")
     monkeypatch.setattr(purge, "DELETED_PATH", tmp_path / "deleted_sessions.json")
     monkeypatch.setattr(store, "_status_cache", {})
-    runner._list_agents_cache.clear()
-    runner._ipc_state_cache.clear()
+    agent_fiche._list_agents_cache.clear()
+    agent_etat._ipc_state_cache.clear()
 
     pid_cede, pid_coince = processus_jetables
     _ecrire_agent(d, CEDE, pid=pid_cede, ipc_status="idle")
     _ecrire_agent(d, COINCE, pid=pid_coince, ipc_status="running")
-    runner._list_agents_cache.clear()
+    agent_fiche._list_agents_cache.clear()
     return d
 
 
@@ -105,14 +105,14 @@ def client(agents_dir):
 def test_interrupting_an_agent_that_gave_up_does_not_kill_it(client, agents_dir):
     """Le cœur du bug : l'annulation a réussi, il n'y a plus rien à tuer."""
     import psutil
-    from bouzecode.web_v2.runtime import runner
+    from bouzecode.web_v2.runtime.runner import agent_fiche
 
-    pid_avant = runner.load_agent(CEDE).pid
+    pid_avant = agent_fiche.load_agent(CEDE).pid
 
-    reponse = client.post(f"/api/agents/{CEDE}/interrupt")
+    reponse = client.post(f"/api/agents/{CEDE}/interruptions")
 
-    assert reponse.status_code == 200
-    assert reponse.get_json() == {"ok": True, "escalated": False}, \
+    assert reponse.status_code == 202
+    assert reponse.get_json() == {"ok": True, "agent_id": CEDE, "escalated": False}, \
         "un agent chaud qui a cédé se fait encore tuer par l'escalade"
     assert psutil.pid_exists(pid_avant), "le process a été tué alors qu'il avait obéi"
 
@@ -121,7 +121,7 @@ def test_the_soft_flag_is_posted_even_when_nothing_is_escalated(client, agents_d
     """L'interruption douce reste faite : c'est elle qui arrête le tour suivant."""
     from bouzecode.web_v2.runtime import ipc
 
-    client.post(f"/api/agents/{CEDE}/interrupt")
+    client.post(f"/api/agents/{CEDE}/interruptions")
 
     assert ipc.is_cancelled(ipc.from_dir(str(agents_dir / f"{CEDE}.ipc"))) is True
 
@@ -131,34 +131,35 @@ def test_the_agent_is_still_reachable_hot_right_after(client, agents_dir):
 
     C'est tout l'écart de temps ressenti — `followup.txt` poussé dans un process résident,
     au lieu d'un respawn qui réémet le contexte entier avant le premier jeton."""
-    from bouzecode.web_v2.runtime import runner
+    from bouzecode.web_v2.runtime.runner import agent_fiche
 
-    pid_avant = runner.load_agent(CEDE).pid
-    client.post(f"/api/agents/{CEDE}/interrupt")
+    pid_avant = agent_fiche.load_agent(CEDE).pid
+    client.post(f"/api/agents/{CEDE}/interruptions")
 
-    reponse = client.post(f"/api/agents/{CEDE}/continue", json={"text": "en fait, plutôt X"})
+    reponse = client.post(f"/api/agents/{CEDE}/messages",
+                          json={"text": "en fait, plutôt X", "mode": "refuse"})
 
     assert reponse.status_code == 200, reponse.get_json()
     followup = agents_dir / f"{CEDE}.ipc" / "followup.txt"
     assert followup.read_text(encoding="utf-8") == "en fait, plutôt X"
-    assert runner.load_agent(CEDE).pid == pid_avant, "l'agent a été respawné à froid"
+    assert agent_fiche.load_agent(CEDE).pid == pid_avant, "l'agent a été respawné à froid"
 
 
 # ── NON-RÉGRESSION : un agent coincé est toujours escaladé ───────────────────
 
 def test_an_agent_still_holding_its_turn_is_still_escalated(client):
     """La porte de sortie tient : un agent qui ne cède pas finit par être tué."""
-    reponse = client.post(f"/api/agents/{COINCE}/interrupt")
+    reponse = client.post(f"/api/agents/{COINCE}/interruptions")
 
-    assert reponse.status_code == 200
+    assert reponse.status_code == 202
     assert reponse.get_json()["escalated"] is True, \
         "un agent coincé hors point d'interruption n'est plus escaladé — il devient injoignable"
 
 
 def test_who_gave_up_is_read_from_the_turn_not_from_the_pid(agents_dir):
     """Le prédicat lui-même : deux process également VIVANTS, un seul tient son tour."""
-    from bouzecode.web_v2.runtime import runner
+    from bouzecode.web_v2.runtime.runner import agent_chaud, agent_fiche, agent_vivacite
 
-    assert runner.is_running(runner.load_agent(CEDE)) is True, "prémisse : le process est vivant"
-    assert runner.is_mid_turn(runner.load_agent(CEDE)) is False
-    assert runner.is_mid_turn(runner.load_agent(COINCE)) is True
+    assert agent_vivacite.is_running(agent_fiche.load_agent(CEDE)) is True, "prémisse : le process est vivant"
+    assert agent_chaud.is_mid_turn(agent_fiche.load_agent(CEDE)) is False
+    assert agent_chaud.is_mid_turn(agent_fiche.load_agent(COINCE)) is True

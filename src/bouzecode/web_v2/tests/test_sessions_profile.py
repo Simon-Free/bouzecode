@@ -4,7 +4,7 @@ import pytest
 
 
 def _make_agent(agent_id, profile, session_path):
-    from bouzecode.web_v2.runtime.runner import Agent
+    from bouzecode.web_v2.runtime.runner.agent_fiche import Agent
 
     return Agent(
         agent_id=agent_id,
@@ -41,9 +41,9 @@ def _fake_agents(tmp_path, monkeypatch):
         _make_agent("gp1", "general-purpose", sess_gp),
     ]
 
-    from bouzecode.web_v2.services.sessions.store import runner as _runner
+    from bouzecode.web_v2.runtime.runner import agent_registre
 
-    monkeypatch.setattr(_runner, "list_agents", lambda: agents)
+    monkeypatch.setattr(agent_registre, "list_agents", lambda: agents)
 
 
 @pytest.fixture()

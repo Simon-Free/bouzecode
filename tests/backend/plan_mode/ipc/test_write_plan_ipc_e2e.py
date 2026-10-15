@@ -19,6 +19,8 @@ It stays a unit test in test_plan_validation_ipc.py.
 from __future__ import annotations
 
 import json
+import shutil
+from pathlib import Path
 
 import pytest
 
@@ -26,12 +28,6 @@ from tests.e2e_harness import bouzecode
 from tests.fake_llm import MockLLM
 
 METH = '<tool_use name="Methodology" id="m1"><param name="content">ok</param></tool_use>'
-
-# WritePlan runs the plan auto-validator (an LLM call) before writing anything.
-# `_plan_auto_validate_result` is the production override read first by
-# `validate_plan_auto`; injecting an approval here keeps these tests on the IPC
-# behaviour they are about instead of reaching the real API.
-_APPROVED_PLAN = {"_plan_auto_validate_result": (True, "")}
 
 
 def _writeplan(content, tid="p1", validate=False):
@@ -46,13 +42,12 @@ def _results(result, name):
 
 
 @pytest.fixture(autouse=True)
-def _plans_in_a_private_cwd(tmp_path_factory, monkeypatch):
-    """`_write_plan` writes to `<cwd>/.nano_claude/plans/<session>.md`, and the
-    session id defaults to "default" — so every plan test writes the SAME path.
-    Wiping that shared directory was safe sequentially and destructive under
-    `-n auto`: one worker deleted the plan another had just written. Giving each
-    test its own cwd removes the shared path instead of racing on it."""
-    monkeypatch.chdir(tmp_path_factory.mktemp("plan_cwd"))
+def _clean_plans():
+    """Plan files land in <cwd>/.nano_claude/plans — wipe before AND after so a
+    leftover plan from another test cannot make these tests order-dependent."""
+    shutil.rmtree(Path.cwd() / ".nano_claude" / "plans", ignore_errors=True)
+    yield
+    shutil.rmtree(Path.cwd() / ".nano_claude" / "plans", ignore_errors=True)
 
 
 def test_writeplan_writes_plan_md_next_to_the_agent(tmp_path):
@@ -62,7 +57,7 @@ def test_writeplan_writes_plan_md_next_to_the_agent(tmp_path):
     writeplan_call = _writeplan("# Test Plan\\n\\nStep 1")
     mock = MockLLM([f"{METH}\n{writeplan_call}", "done."])
     result = bouzecode(["plan it"], mock_llm=mock,
-                       config_overrides={"_web_agent_dir": str(ipc), **_APPROVED_PLAN})
+                       config_overrides={"_web_agent_dir": str(ipc)})
     assert "Plan saved" in _results(result, "WritePlan")[0]
     plan_md = ipc / "plan.md"
     assert plan_md.exists()
@@ -78,7 +73,7 @@ def test_several_plans_are_appended_not_overwritten(tmp_path):
         "done.",
     ])
     bouzecode(["two plans"], mock_llm=mock,
-              config_overrides={"_web_agent_dir": str(ipc), **_APPROVED_PLAN})
+              config_overrides={"_web_agent_dir": str(ipc)})
     text = (ipc / "plan.md").read_text(encoding="utf-8")
     assert "Plan A" in text and "Plan B" in text
     assert "---" in text

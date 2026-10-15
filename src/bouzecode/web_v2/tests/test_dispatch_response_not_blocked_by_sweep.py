@@ -1,4 +1,4 @@
-# [desc] POST /api/dispatch répond sans attendre le ménage du warm-pool. [/desc]
+# [desc] La création d'un ticket lancé (POST /api/projects/{slug}/tickets, ex-/api/dispatch) répond sans attendre le ménage du warm-pool. [/desc]
 """L'utilisateur qui envoie un prompt attend la confirmation, pas le ménage du parc.
 
 `sweep_warm_pool()` est de l'entretien : il évince des process idle en trop et n'apporte RIEN
@@ -6,7 +6,7 @@ au lancement demandé. Il coûtait pourtant sa durée à CHAQUE dispatch, en tê
 réponse HTTP. Mesuré le 2026-08-03 sur le parc réel (324 agents, 264 sessions) : ses deux
 briques, `runner.list_agents()` et `store.list_agent_sessions()`, prennent 13,6 s et 14,6 s
 quand le cache disque est froid — et 7,3 s ont été observées au navigateur sur un POST
-/api/dispatch réel, avant que la moindre trace du nouvel agent n'apparaisse à l'écran.
+la création de ticket réelle, avant que la moindre trace du nouvel agent n'apparaisse à l'écran.
 
 Le ménage garde son moment causal (un dispatch ajoute un process au parc) mais part en fond :
 la réponse ne l'attend plus.
@@ -21,7 +21,6 @@ import pytest
 
 from bouzecode.web_v2 import api_sanity
 from bouzecode.web_v2.app import create_app
-from bouzecode.web_v2.routes.work import fleet as fleet_routes
 from bouzecode.web_v2.services.work import dispatch, fleet, projects
 
 SLUG = "projet-test"
@@ -71,7 +70,6 @@ def menage_lent(monkeypatch):
         return []
 
     monkeypatch.setattr(fleet, "sweep_warm_pool", _lent)
-    monkeypatch.setattr(fleet_routes.fleet, "sweep_warm_pool", _lent)
     return parti, fini
 
 
@@ -80,12 +78,12 @@ def test_la_reponse_au_prompt_n_attend_pas_le_menage_du_parc(client, menage_lent
     parti, fini = menage_lent
 
     debut = time.perf_counter()
-    resp = client.post("/api/dispatch", json={
-        "prompt": "réponds PONG", "project_slug": SLUG, "defer": True,
+    resp = client.post(f"/api/projects/{SLUG}/tickets", json={
+        "title": "PONG", "prompt": "réponds PONG", "defer": True,
     })
     duree = time.perf_counter() - debut
 
-    assert resp.status_code == 200
+    assert resp.status_code == 201
     assert resp.get_json().get("ticket_id")
     assert duree < ATTENTE_MENAGE / 2, (
         f"la réponse a attendu le ménage ({duree:.2f}s pour un ménage de {ATTENTE_MENAGE}s)")
@@ -96,8 +94,8 @@ def test_le_menage_du_parc_a_bien_lieu_apres_la_reponse(client, menage_lent):
     """Déporté en fond n'est pas abandonné : le ménage tourne quand même."""
     parti, fini = menage_lent
 
-    client.post("/api/dispatch", json={
-        "prompt": "réponds PONG", "project_slug": SLUG, "defer": True,
+    client.post(f"/api/projects/{SLUG}/tickets", json={
+        "title": "PONG", "prompt": "réponds PONG", "defer": True,
     })
 
     assert parti.wait(timeout=5.0), "le ménage n'a jamais démarré"

@@ -1,0 +1,2 @@
+# [desc] Pytest conftest that re-exports the fake_anthropic fixture for use across the test suite [/desc]
+from tests.backend.cache.fake_anthropic import fake_anthropic  # noqa: F401

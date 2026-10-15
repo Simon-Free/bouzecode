@@ -1,7 +1,8 @@
-"""Tests du classifieur partagé dérivé de PREUVES (liveness).
+"""Tests du classifieur d'AGENT dérivé de PREUVES (liveness).
 
-Chacun des 4 états cibles (running / delivered / crashed / stalled) est reproduit
-en fixture minimale, PLUS le cas 5 mesuré : agent mort avec close_reason VIDE et
+L'état d'un TICKET n'est plus classé ici (lot L2 : `ticket.state`, écrit par `ticket_fsm`).
+Chaque vivacité d'agent (running / delivered / crashed) est reproduite en fixture minimale,
+PLUS le cas 5 mesuré : agent mort avec close_reason VIDE et
 returncode != -1 (donc invisible à l'ancien test `returncode == -1`) doit être
 classé `crashed`. AUCUN mock.patch — on redirige les stores fichier sur tmp_path
 et on écrit de vrais fichiers agent + session, exactement comme le boot réel les lit.
@@ -12,7 +13,7 @@ from datetime import datetime
 
 import pytest
 
-from bouzecode.web_v2.runtime import runner
+from bouzecode.web_v2.runtime.runner import agent_fiche
 from bouzecode.web_v2.services.work import liveness
 
 
@@ -20,7 +21,7 @@ from bouzecode.web_v2.services.work import liveness
 def stores(tmp_path, monkeypatch):
     agents_dir = tmp_path / "agents"
     agents_dir.mkdir()
-    monkeypatch.setattr(runner, "AGENTS_DIR", agents_dir)
+    monkeypatch.setattr(agent_fiche, "AGENTS_DIR", agents_dir)
     return {"agents": agents_dir}
 
 
@@ -92,12 +93,13 @@ def test_run_crashed_work_abandoned_mid_turn(stores):
     assert liveness.classify_agent_run(_ticket([run]), run) == "crashed"
 
 
-def test_run_delivered_clean_close_reason(stores):
-    """text_no_tools sur un run validate (pas work) = clôture gracieuse → delivered."""
+def test_une_fin_sur_de_la_prose_n_est_jamais_une_livraison(stores):
+    """text_no_tools, quel que soit le kind (même un run `validate` hérité) : aucune réponse
+    finale n'est prouvée — la SEULE table (`close_reasons.issue_de_fin`) le dit non livré."""
     _write_agent(stores["agents"], "a5", returncode=0)
     _write_session(stores["agents"], "a5", close_reason="text_no_tools")
     run = _run("a5", kind="validate")
-    assert liveness.classify_agent_run(_ticket([run]), run) == "delivered"
+    assert liveness.classify_agent_run(_ticket([run]), run) == "crashed"
 
 
 def test_run_running_pid_alive(stores):
@@ -106,60 +108,43 @@ def test_run_running_pid_alive(stores):
     assert liveness.classify_agent_run(_ticket([run]), run) == "running"
 
 
-# --- classify_ticket ------------------------------------------------------
+# --- clôture mémorisée par version du fichier de session --------------------
 
-def test_ticket_work_done_sans_issue_terminale_attend_une_decision(stores):
-    """Run work fini, aucun validateur, aucun merge → `awaiting_decision`.
+def _compter_lectures(monkeypatch):
+    lectures = []
+    vraie = liveness.store.load_session_json
 
-    Ce test attendait `stalled`. `stalled` a été RESTREINT depuis (cf. la docstring de
-    `classify_ticket`) : il ne désigne plus qu'un ticket dont le travail n'est commité
-    NULLE PART, donc réellement en péril. Le mot couvrait aussi la simple attente de
-    décision, et le board annonçait « stalled » — lu comme « planté » — pour un ticket
-    sain. Depuis le retrait de la chaîne automatique, attendre une décision est l'issue
-    NORMALE : c'est ce que ce test tient maintenant."""
-    _write_agent(stores["agents"], "b1", returncode=0)
-    _write_session(stores["agents"], "b1", close_reason="final_answer",
-                   final_answer="rien à faire")
-    run = _run("b1", kind="work")
-    run["no_diff_notified"] = True
-    ticket = _ticket([run])  # pas de worktree.state integrated → terminal_outcome None
-    assert liveness.classify_ticket(ticket) == "awaiting_decision"
+    def espion(path):
+        lectures.append(str(path))
+        return vraie(path)
+
+    monkeypatch.setattr(liveness.store, "load_session_json", espion)
+    return lectures
 
 
-def test_ticket_stalled_quand_le_travail_n_est_commite_nulle_part(stores, monkeypatch):
-    """L'autre moitié du découpage, qui doit rester tenue : un travail livré mais commité
-    nulle part est en PÉRIL, pas en attente — c'est le seul cas où `stalled` subsiste."""
-    _write_agent(stores["agents"], "b9", returncode=0)
-    _write_session(stores["agents"], "b9", close_reason="final_answer",
-                   final_answer="fait, mais rien de commité")
-    run = _run("b9", kind="work")
-    ticket = _ticket([run])
-    monkeypatch.setattr(liveness.delivery, "delivery_at_risk", lambda t: True)
-    assert liveness.classify_ticket(ticket) == "stalled"
+def test_cloture_lue_une_seule_fois_tant_que_la_session_ne_change_pas(stores, monkeypatch):
+    """Un agent mort n'écrit plus : sa session n'est décodée qu'UNE fois, quel que soit le
+    nombre de classifications (le poll de la navigation en fait une par agent mort)."""
+    _write_agent(stores["agents"], "m1", returncode=0)
+    _write_session(stores["agents"], "m1", close_reason="", final_answer="VERDICT: OK")
+    lectures = _compter_lectures(monkeypatch)
+    run = _run("m1")
+    verdicts = [liveness.classify_agent_run(_ticket([run]), run) for _ in range(5)]
+    assert verdicts == ["delivered"] * 5
+    assert len(lectures) == 1
 
 
-def test_ticket_delivered_integrated(stores):
-    _write_agent(stores["agents"], "b2", returncode=0)
-    _write_session(stores["agents"], "b2", close_reason="final_answer",
-                   final_answer="done")
-    run = _run("b2", kind="work", completed=True)
-    ticket = _ticket([run], worktree={"state": "integrated"})
-    assert liveness.classify_ticket(ticket) == "delivered"
-
-
-def test_ticket_crashed(stores):
-    _write_agent(stores["agents"], "b3", returncode=0)
-    _write_session(stores["agents"], "b3", close_reason="", final_answer="")
-    run = _run("b3", kind="work")
-    assert liveness.classify_ticket(_ticket([run])) == "crashed"
-
-
-def test_ticket_launching_no_run(stores):
-    ticket = _ticket([], launching=True)
-    assert liveness.classify_ticket(ticket) == "launching"
-
-
-def test_ticket_running(stores):
-    _write_agent(stores["agents"], "b4", returncode=None, alive=True)
-    run = _run("b4")
-    assert liveness.classify_ticket(_ticket([run])) == "running"
+def test_cloture_relue_quand_la_session_change(stores, monkeypatch):
+    """La mémoire suit la VERSION du fichier : une session réécrite (clôture différente)
+    est relue et le verdict suit, identique à une lecture sans mémoire."""
+    _write_agent(stores["agents"], "m2", returncode=0)
+    _write_session(stores["agents"], "m2", close_reason="", final_answer="VERDICT: OK")
+    run = _run("m2")
+    assert liveness.classify_agent_run(_ticket([run]), run) == "delivered"
+    chemin = stores["agents"] / "m2.session.json"
+    avant = chemin.stat().st_mtime_ns
+    _write_session(stores["agents"], "m2", close_reason="api_error")
+    os.utime(chemin, ns=(avant + 10**9, avant + 10**9))
+    lectures = _compter_lectures(monkeypatch)
+    assert liveness.classify_agent_run(_ticket([run]), run) == "crashed"
+    assert len(lectures) == 1

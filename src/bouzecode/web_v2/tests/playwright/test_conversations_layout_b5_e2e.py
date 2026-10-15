@@ -13,11 +13,14 @@ la présence du composer et l'absence du bouton "+" se lisent dans le HTML rendu
 """
 from __future__ import annotations
 
-from pathlib import Path
-
 import pytest
 
-_SHOT_DIR = Path(__file__).parent / "_artifacts"
+
+@pytest.fixture()
+def shot_dir(tmp_path):
+    """Les captures vont dans le dossier du test, jamais dans le dépôt (plugin home_etanche)."""
+    return tmp_path
+
 
 # Le violet accent de l'app, #7c3aed, tel que le navigateur le rend.
 _ACCENT_RGB = "124, 58, 237"
@@ -36,9 +39,8 @@ def _open_conversations(page, server: str):
     page.wait_for_selector(".conv-main")
 
 
-def test_the_prompt_bar_stays_visible_once_a_tab_is_open(server, page):
+def test_the_prompt_bar_stays_visible_once_a_tab_is_open(server, page, shot_dir):
     """La barre de prompt reste visible à l'écran, à l'accueil comme avec un onglet ouvert."""
-    _SHOT_DIR.mkdir(parents=True, exist_ok=True)
     _open_conversations(page, server)
 
     # Accueil : aucun onglet ouvert.
@@ -49,7 +51,7 @@ def test_the_prompt_bar_stays_visible_once_a_tab_is_open(server, page):
     assert _computed_display(page, "#conv-new-bar") != "none", (
         "la barre de prompt doit être visible à l'accueil"
     )
-    page.screenshot(path=str(_SHOT_DIR / "prompt_bar_home.png"))
+    page.screenshot(path=str(shot_dir / "prompt_bar_home.png"))
 
     # Onglet ouvert : la classe est posée directement pour éprouver la RÈGLE CSS
     # (le JS qui la pose est couvert par le test DOM conversations.b5.test.js).
@@ -58,13 +60,12 @@ def test_the_prompt_bar_stays_visible_once_a_tab_is_open(server, page):
     assert _computed_display(page, "#conv-new-bar") != "none", (
         "la barre de prompt doit RESTER visible quand un onglet est ouvert"
     )
-    page.screenshot(path=str(_SHOT_DIR / "prompt_bar_tab_open.png"))
+    page.screenshot(path=str(shot_dir / "prompt_bar_tab_open.png"))
 
 
-def test_the_send_button_sits_on_the_same_line_as_the_prompt(server, page):
+def test_the_send_button_sits_on_the_same_line_as_the_prompt(server, page, shot_dir):
     """Le bouton d'envoi est à droite du champ, sur la même ligne, et la barre occupe
     toute la largeur de la zone de lecture."""
-    _SHOT_DIR.mkdir(parents=True, exist_ok=True)
     _open_conversations(page, server)
     page.wait_for_selector("#conv-new-bar")
 
@@ -98,7 +99,7 @@ def test_the_send_button_sits_on_the_same_line_as_the_prompt(server, page):
         f"de lecture ({rects['main']['width']:.1f}px), ratio mesuré {width_ratio:.3f}"
     )
 
-    page.screenshot(path=str(_SHOT_DIR / "prompt_bar_layout.png"))
+    page.screenshot(path=str(shot_dir / "prompt_bar_layout.png"))
 
 
 # Luminance relative WCAG du fond calculé d'un élément — sert à mesurer un contraste.
@@ -129,9 +130,8 @@ def _open_first_conversation(page, ready_selector: str) -> bool:
         return False
 
 
-def test_message_cards_stand_out_from_the_reading_panel(server, page):
+def test_message_cards_stand_out_from_the_reading_panel(server, page, shot_dir):
     """Une carte de message se détache du panneau de lecture : fond plus clair, bordure et ombre."""
-    _SHOT_DIR.mkdir(parents=True, exist_ok=True)
     _open_conversations(page, server)
 
     if not _open_first_conversation(page, ".conv-messages .pui-bubble"):
@@ -159,13 +159,12 @@ def test_message_cards_stand_out_from_the_reading_panel(server, page):
     assert box["border"] == "1px", f"bordure de carte attendue à 1px, obtenu {box['border']}"
     assert box["shadow"] and box["shadow"] != "none", "une ombre courte est attendue sur la carte"
 
-    page.screenshot(path=str(_SHOT_DIR / "message_card_contrast.png"))
+    page.screenshot(path=str(shot_dir / "message_card_contrast.png"))
 
 
-def test_opening_a_conversation_highlights_exactly_one_tab_and_one_sidebar_item(server, page):
+def test_opening_a_conversation_highlights_exactly_one_tab_and_one_sidebar_item(server, page, shot_dir):
     """Ouvrir une conversation souligne l'onglet actif en accent, tronque son titre trop
     long, et ne laisse qu'une seule entrée surlignée dans la barre latérale."""
-    _SHOT_DIR.mkdir(parents=True, exist_ok=True)
     _open_conversations(page, server)
 
     if not _open_first_conversation(page, ".conv-tab.active"):
@@ -208,4 +207,4 @@ def test_opening_a_conversation_highlights_exactly_one_tab_and_one_sidebar_item(
         f"obtenu {styles['highlightedSidebarItems']}"
     )
 
-    page.screenshot(path=str(_SHOT_DIR / "active_tab_and_sidebar.png"))
+    page.screenshot(path=str(shot_dir / "active_tab_and_sidebar.png"))

@@ -89,9 +89,9 @@ def test_install_writes_profile_and_ok(client, fake_catalog):
 
 def test_install_unknown_agent_returns_error(client, fake_catalog):
     resp = client.post("/api/agents/install", json={"name": "ghost"})
-    data = resp.get_json()
-    assert data["ok"] is False
-    assert data["errors"]
+    erreur = resp.get_json()["error"]
+    assert resp.status_code == 422 and erreur["code"] == "installation_impossible"
+    assert erreur["details"]["errors"]
 
 
 def test_install_surfaces_plugin_errors(client, fake_catalog, monkeypatch):
@@ -100,9 +100,9 @@ def test_install_surfaces_plugin_errors(client, fake_catalog, monkeypatch):
         lambda requires: ([], ["plugin boom: unreachable"]),
     )
     resp = client.post("/api/agents/install", json={"name": "avail-agent"})
-    data = resp.get_json()
-    assert data["ok"] is False
-    assert any("boom" in e for e in data["errors"])
+    erreur = resp.get_json()["error"]
+    assert resp.status_code == 422
+    assert any("boom" in e for e in erreur["details"]["errors"])
 
 
 def test_refresh_calls_refresh_catalog(client, fake_catalog):

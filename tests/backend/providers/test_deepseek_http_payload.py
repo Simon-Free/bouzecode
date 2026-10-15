@@ -35,7 +35,7 @@ def capture_session(monkeypatch):
     monkeypatch.setenv("OPENROUTER_KEY", "sk-or-fake")
     monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
     monkeypatch.delenv("ANTHROPIC_AUTH_TOKEN", raising=False)
-    # Ignore any ambient proxy configuration
+    # Disable NTLM proxy
     monkeypatch.delenv("HTTP_PROXY", raising=False)
     monkeypatch.delenv("HTTPS_PROXY", raising=False)
 
@@ -93,7 +93,7 @@ class TestDeepSeekHttpPayload:
         desc = meth["function"]["description"]
         # Must explain what it does
         assert len(desc) > 100, f"Description too short ({len(desc)} chars): {desc}"
-        assert "WORKING MEMORY" in desc or "working memory" in desc.lower()
+        assert "note de travail" in desc and "delta" in desc  # description FR (audit 2026-09-24)
 
     def test_system_message_contains_methodology_instructions(self, capture_session):
         _run_stream()

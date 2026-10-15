@@ -203,11 +203,10 @@ def test_symbol_rules_reach_the_model_system_prompt():
     """Symbol-reading guidance lives in the default code profile (injected at depth 0
     by dispatch), not in the shared noyau."""
     from pathlib import Path
-    from bouzecode.backend.profiles import load_profiles_from_dir
+    from bouzecode.backend.profiles import load_system_profiles
     from bouzecode.backend.core.context import build_system_prompt_parts
 
-    repo_root = Path(__file__).resolve().parents[4]
-    extra = load_profiles_from_dir(repo_root / ".bouzecode" / "profiles")["default"].system_prompt_extra
+    extra = load_system_profiles()["default"].system_prompt_extra
     assert "Read(symbol=" in extra
     assert "symbol=" in extra
     assert "Read(symbol=" not in build_system_prompt_parts()[0]

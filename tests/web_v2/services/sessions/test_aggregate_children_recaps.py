@@ -75,24 +75,6 @@ def test_includes_children_without_recap_as_link_only():
         assert k["diffs"] == []
 
 
-def test_verdict_injected_per_child():
-    """find_verdict(agent) est appelé par enfant et remonté dans l'entrée (OK/KO/None)."""
-    recap = {"symptoms": "s", "explanation": "e", "tests": "t", "changes": []}
-    agents = [
-        FakeAgent("green", "mgr", "g.json", "corrige X", started_at="a"),
-        FakeAgent("red", "mgr", "", "corrige Y", started_at="b"),
-    ]
-    by_path = {"g.json": _session(recap)}
-    verdicts = {"green": "OK", "red": "KO"}
-    kids = recap_service.aggregate_children_recaps(
-        "mgr", agents, _loader(by_path), find_verdict=lambda a: verdicts.get(a.agent_id))
-    by_id = {k["agent_id"]: k for k in kids}
-    assert by_id["green"]["verdict"] == "OK"
-    assert by_id["green"]["has_recap"] is True
-    assert by_id["red"]["verdict"] == "KO"
-    assert by_id["red"]["has_recap"] is False
-
-
 def test_no_children_returns_empty():
     agents = [FakeAgent("solo", "dispatcher:manual", "s.json", "s", started_at="a")]
     kids = recap_service.aggregate_children_recaps(
@@ -187,3 +169,64 @@ def test_session_recap_diffs_prefers_snapshots_then_git_text_then_empty():
 
     # 3. ni snapshots ni diff → liste vide (comportement historique préservé).
     assert recap_service.session_recap_diffs(recap, {}) == []
+
+
+# --- sessions réelles : lues une fois par version du fichier ------------------------------
+
+def _enfants_sur_disque(tmp_path):
+    import json
+    recap = {"symptoms": "s", "explanation": "e", "tests": "t",
+             "changes": [{"file": "src/a.py", "summary": "fix"}]}
+    agents = []
+    for i in range(3):
+        chemin = tmp_path / f"enfant{i}.session.json"
+        chemin.write_text(json.dumps(_session(recap, {"src/a.py": {"before": "a\n", "after": f"{i}\n"}})),
+                          encoding="utf-8")
+        agents.append(FakeAgent(f"e{i}", "mgr", str(chemin), f"tâche {i}", started_at=f"t{i}"))
+    return agents
+
+
+def _chargeur_compte():
+    import json
+    from pathlib import Path
+    lectures = []
+
+    def charger(p):
+        lectures.append(p)
+        return json.loads(Path(p).read_text(encoding="utf-8"))
+
+    return charger, lectures
+
+
+def test_sessions_des_enfants_lues_une_fois_par_version(tmp_path):
+    """Ouvrir trois fois le récap d'un manager : chaque session d'enfant est lue UNE fois."""
+    from bouzecode.web_v2.runtime.context_viewer import builder
+    builder.oublier()
+    agents = _enfants_sur_disque(tmp_path)
+    charger, lectures = _chargeur_compte()
+    resultats = [recap_service.aggregate_children_recaps("mgr", agents, charger)
+                 for _ in range(3)]
+    assert resultats[0] == resultats[1] == resultats[2]
+    assert len(lectures) == 3
+    builder.oublier()
+
+
+def test_session_d_enfant_reecrite_relue(tmp_path):
+    import json
+    import os
+    from pathlib import Path
+    from bouzecode.web_v2.runtime.context_viewer import builder
+    builder.oublier()
+    agents = _enfants_sur_disque(tmp_path)
+    charger, lectures = _chargeur_compte()
+    avant = recap_service.aggregate_children_recaps("mgr", agents, charger)
+    chemin = Path(agents[0].session_path)
+    nouveau = {"symptoms": "autre", "explanation": "e", "tests": "t", "changes": []}
+    chemin.write_text(json.dumps(_session(nouveau)), encoding="utf-8")
+    st = chemin.stat()
+    os.utime(chemin, ns=(st.st_atime_ns, st.st_mtime_ns + 5 * 10**9))
+    apres = recap_service.aggregate_children_recaps("mgr", agents, charger)
+    assert avant[0]["recap"]["symptoms"] == "s" and apres[0]["recap"] == nouveau
+    assert apres[1:] == avant[1:]
+    assert len(lectures) == 4
+    builder.oublier()

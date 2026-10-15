@@ -4,6 +4,8 @@ Hypotheses to verify:
 1. ends_turn("Methodology") returns False → loop continues
 2. build_minimal_payload strips the tool_result → empty messages → 500
 """
+import sys
+sys.path.insert(0, r"C:\Users\user01\PycharmProjects\demo\bouzecode\src")
 
 
 def test_methodology_ends_turn_value():

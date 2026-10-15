@@ -1,5 +1,5 @@
-# [desc] Le geste exact du 28/07 : POST .../launch avec un corps VIDE ne doit rien effacer. [/desc]
-"""`POST /api/tickets/<slug>/<id>/launch` appelé avec `{}`.
+# [desc] Le geste exact du 28/07 : relancer (POST …/runs, ex-/launch) avec un corps VIDE ne doit rien effacer. [/desc]
+"""`POST /api/projects/<slug>/tickets/<id>/runs` appelé avec `{}` (ex-`…/launch`).
 
 Le corps vide n'est pas un « lancement neutre » : `isolation` retombe sur celle INSCRITE
 sur le ticket (`worktree`), donc la route re-provisionne — et re-provisionner détruisait la
@@ -16,7 +16,7 @@ from types import SimpleNamespace
 import pytest
 
 from bouzecode.web_v2 import api_sanity
-from bouzecode.web_v2.routes.work import tickets as troute
+from bouzecode.web_v2.runtime.runner import agent_creation
 from bouzecode.web_v2.services.work import tickets, worktrees
 
 SLUG = "proj-relance-http"
@@ -44,15 +44,15 @@ def repo(tmp_path: Path) -> Path:
 
 
 @pytest.fixture()
-def relancer(monkeypatch, repo):
+def relancer(monkeypatch, repo, tmp_path):
     """Relance un ticket LIVRÉ via l'API réelle et renvoie (sha livré, cwd du nouvel agent)."""
     from bouzecode.web_v2.app import create_app
 
+    from aides_tickets import projet
+    projet(tmp_path, monkeypatch, SLUG, chemin=repo)
     monkeypatch.setattr(api_sanity, "require_api_sanity", lambda: None)
-    monkeypatch.setattr(troute, "_project_or_404",
-                        lambda slug: ({"path": str(repo), "name": "P", "slug": slug}, None))
     spawned: dict = {}
-    monkeypatch.setattr(troute.runner, "create_agent",
+    monkeypatch.setattr(agent_creation, "create_agent",
                         lambda prompt, model, cwd, **kw: spawned.update(cwd=cwd)
                         or SimpleNamespace(agent_id="relance-1"))
     app = create_app()
@@ -72,8 +72,9 @@ def relancer(monkeypatch, repo):
         tickets.update_ticket(SLUG, ticket)
 
         with app.test_client() as client:
-            reponse = client.post(f"/api/tickets/{SLUG}/{ticket['id']}/launch", json={})
-        assert reponse.status_code == 200, reponse.get_data(as_text=True)
+            reponse = client.post(f"/api/projects/{SLUG}/tickets/{ticket['id']}/runs",
+                                  json={"defer": False})
+        assert reponse.status_code == 202, reponse.get_data(as_text=True)
         return {"livre": livre, "cwd": spawned["cwd"],
                 "ticket": tickets.get_ticket(SLUG, ticket["id"])}
 

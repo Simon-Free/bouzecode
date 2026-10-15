@@ -1,0 +1,8 @@
+data: {"id": "gen-1", "object": "chat.completion.chunk", "created": 1790286032, "model": "deepseek/deepseek-v4-flash", "provider": "DeepSeek", "choices": [{"index": 0, "delta": {"role": "assistant", "content": "Voilà, c'est fait."}, "finish_reason": null}]}
+
+data: {"id": "gen-1", "object": "chat.completion.chunk", "created": 1790286032, "model": "deepseek/deepseek-v4-flash", "provider": "DeepSeek", "choices": [{"index": 0, "delta": {}, "finish_reason": "stop"}]}
+
+data: {"id": "gen-1", "object": "chat.completion.chunk", "created": 1790286032, "model": "deepseek/deepseek-v4-flash", "provider": "DeepSeek", "choices": [], "usage": {"prompt_tokens": 7300, "completion_tokens": 9}}
+
+data: [DONE]
+

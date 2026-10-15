@@ -44,21 +44,21 @@ def _write_awaiting(agents_dir, agent_id, hours_ago, *, running=False):
 
 @pytest.fixture()
 def agents_dir(tmp_path, monkeypatch):
-    from bouzecode.web_v2.runtime import runner
+    from bouzecode.web_v2.runtime.runner import agent_etat, agent_fiche
     from bouzecode.web_v2.services.sessions import purge
 
     d = tmp_path / "web_agents"
     d.mkdir()
-    monkeypatch.setattr(runner, "AGENTS_DIR", d)
+    monkeypatch.setattr(agent_fiche, "AGENTS_DIR", d)
     monkeypatch.setattr(purge, "TRASH_DIR", d / "_trash")
     monkeypatch.setattr(purge, "DELETED_PATH", tmp_path / "deleted_sessions.json")
-    runner._list_agents_cache.clear()
-    runner._ipc_state_cache.clear()
+    agent_fiche._list_agents_cache.clear()
+    agent_etat._ipc_state_cache.clear()
 
     _write_awaiting(d, "oldold", 100)          # >12h, pid mort  -> archivée
     _write_awaiting(d, "recent", 1)            # <12h            -> épargnée
     _write_awaiting(d, "runrun", 100, running=True)  # vivante   -> jamais touchée
-    runner._list_agents_cache.clear()
+    agent_fiche._list_agents_cache.clear()
     return d
 
 
@@ -83,9 +83,8 @@ def test_auto_archive_only_hits_old_dead_awaiting(client, agents_dir):
 
     assert _stale_ids(client) == {"oldold", "recent"}  # runrun est vivante : jamais candidate
 
-    resp = client.post("/api/conversations/auto-archive-stale")
-    assert resp.status_code == 200
-    assert resp.get_json()["archived"] == ["oldold"]
+    # Route `POST /api/conversations/auto-archive-stale` retirée (R11) : le service, directement.
+    assert purge.auto_archive_stale_need_input()["archived"] == ["oldold"]
 
     # La vieille orpheline sort de la liste à traiter ; la question récente y reste.
     assert _stale_ids(client) == {"recent"}
@@ -103,9 +102,20 @@ def _stale_ids(client) -> set[str]:
     return {c["agent_id"] for c in resp.get_json()["candidates"]}
 
 
-def test_age_hours_parses_and_defaults_to_infinity():
-    from bouzecode.web_v2.services.sessions import purge
+def test_une_question_orpheline_sans_date_lisible_compte_comme_ancienne(client, agents_dir):
+    """Faute de date de départ lisible, on ne peut pas prouver qu'elle est récente : la
+    question orpheline est archivée comme une vieille."""
+    from bouzecode.web_v2.runtime.runner import agent_fiche
 
-    assert purge._age_hours(None) == float("inf")
-    assert purge._age_hours("pas-une-date") == float("inf")
-    assert purge._age_hours(_iso(24)) >= 23.0
+    _write_awaiting(agents_dir, "sansdate", 0)
+    fiche = agents_dir / "sansdate.json"
+    fiche.write_text(fiche.read_text(encoding="utf-8").replace(_iso_prefix(fiche), "pas-une-date"),
+                     encoding="utf-8")
+    agent_fiche._list_agents_cache.clear()
+
+    from bouzecode.web_v2.services.sessions import purge
+    assert sorted(purge.auto_archive_stale_need_input()["archived"]) == ["oldold", "sansdate"]
+
+
+def _iso_prefix(fiche) -> str:
+    return json.loads(fiche.read_text(encoding="utf-8"))["started_at"]

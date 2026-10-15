@@ -1,9 +1,10 @@
-"""Un enfant dispatché par un manager HÉRITE du projet de son manager.
+"""Un enfant lancé par l'outil `Agent` d'un manager HÉRITE du projet de son manager.
 
-Un manager n'a aucun moyen de connaître les slugs de projets : c'est le serveur qui
-remonte de son agent_id (`parent`) jusqu'à son projet. Sans cet héritage, CHAQUE dispatch
-d'un manager repartait en `needs_project` — zéro enfant créé, mission morte en silence.
-Un `project_slug` explicite prime toujours, et le lancement manuel de l'UI est intact.
+Un manager n'a aucun moyen de connaître les slugs de projets : son client (`client_tickets`)
+lit le projet sur la fiche du parent (`GET /api/agents/<parent>`) puis crée le ticket par LA
+route de création (`POST /api/projects/<slug>/tickets`). Un `project_slug` explicite prime ; un
+parent rattaché à aucun projet ouvert (ou inconnu du serveur) ne crée RIEN et le dit
+(`projet_requis`) — le serveur ne déduit jamais de projet (arbitrage P9, lot L6).
 """
 from __future__ import annotations
 
@@ -11,19 +12,22 @@ import json
 
 import pytest
 
-from bouzecode.web_v2.runtime import runner
-from bouzecode.web_v2.services.work import dispatch, projects
+from bouzecode.backend.multi_agent import client_tickets
+from bouzecode.web_v2 import api_sanity
+from bouzecode.web_v2.runtime.runner import agent_fiche
+from bouzecode.web_v2.services.work import dispatch, projects, tickets
+from bouzecode.web_v2.tests.client_de_l_outil import brancher
 
-SLUG = "demo-app"
+SLUG = "demo-application"
 OTHER_SLUG = "demo-ingestion"
-MANAGER_ID = "0123456789ab"
+MANAGER_ID = "9d0789f2fdca"
 
 
 @pytest.fixture()
 def open_projects(tmp_path):
     """Deux projets ouverts sur le board, chacun avec son dossier (non-git → isolation shared)."""
     entries = []
-    for slug, name in ((SLUG, "demo_app"), (OTHER_SLUG, "demo_ingestion")):
+    for slug, name in ((SLUG, "demo_application"), (OTHER_SLUG, "demo_ingestion")):
         path = tmp_path / name
         path.mkdir()
         entries.append({"slug": slug, "name": name, "path": str(path)})
@@ -36,7 +40,7 @@ def open_projects(tmp_path):
 def agents_dir(tmp_path, monkeypatch):
     directory = tmp_path / "web_agents"
     directory.mkdir()
-    monkeypatch.setattr(runner, "AGENTS_DIR", directory)
+    monkeypatch.setattr(agent_fiche, "AGENTS_DIR", directory)
     return directory
 
 
@@ -45,40 +49,45 @@ def _write_manager(agents_dir, cwd: str, ticket_slug: str) -> str:
     (agents_dir / f"{MANAGER_ID}.json").write_text(json.dumps({
         "agent_id": MANAGER_ID, "prompt": "orchestre la mission", "model": "opus",
         "cwd": cwd, "pid": 4242, "started_at": "2026-07-27T10:00:00",
-        "ticket_slug": ticket_slug, "ticket_id": "beefcafe", "parent": "dispatcher:manual",
+        "ticket_slug": ticket_slug, "ticket_id": "642e1a3f", "parent": "dispatcher:manual",
     }), encoding="utf-8")
     return MANAGER_ID
 
 
 @pytest.fixture()
 def launched(monkeypatch):
-    """Remplace la partie LOURDE (worktree + spawn de process) par un enregistrement."""
+    """Le client de l'outil parle à la vraie app ; seule la partie LOURDE du lancement en fond
+    (worktree + spawn) est remplacée par un enregistrement."""
+    from bouzecode.web_v2.app import create_app
     calls: list[dict] = []
-
-    class _SpawnedAgent:
-        agent_id = "enfant-1"
-
-    # `**_` : ce test n'observe QUE le routage (slug/projet/parent). Épingler la liste
-    # exhaustive des arguments de `_launch` le faisait casser à chaque nouvelle option de
-    # dispatch (work_branch…) alors que le comportement testé n'avait pas bougé.
-    def fake_launch(slug, ticket, project_path, profile, model,
-                    isolation="", parent="", *_, **__):
-        calls.append({"slug": slug, "project_path": project_path, "parent": parent})
-        return _SpawnedAgent()
-
-    monkeypatch.setattr(dispatch, "_launch", fake_launch)
+    monkeypatch.setattr(api_sanity, "require_api_sanity", lambda: None)
+    monkeypatch.setattr(dispatch, "_launch_bg", lambda slug, ticket, project_path, *args: calls.append(
+        {"slug": slug, "project_path": project_path, "parent": args[3]}))
+    brancher(monkeypatch, create_app().test_client())
     return calls
 
 
+def _lancer(prompt: str, parent: str, project_slug: str = "") -> dict:
+    return client_tickets.creer_ticket({"prompt": prompt, "parent": parent, "isolation": "shared",
+                                        "project_slug": project_slug})
+
+
+def _attendre(calls: list, n: int = 1) -> None:
+    import time
+    limite = time.monotonic() + 5
+    while len(calls) < n and time.monotonic() < limite:
+        time.sleep(0.02)
+
+
 def test_a_child_inherits_the_project_of_its_manager(open_projects, agents_dir, launched):
-    """Le manager dispatche sans nommer de projet : l'enfant naît dans CELUI du manager."""
+    """Le manager lance sans nommer de projet : l'enfant naît dans CELUI du manager."""
     parent = _write_manager(agents_dir, open_projects[0]["path"], SLUG)
 
-    decision = dispatch.dispatch("répare la boucle", parent=parent)
+    decision = _lancer("répare la boucle", parent)
 
-    assert decision["routed"] is True
-    assert decision["project_slug"] == SLUG
-    assert launched[0]["slug"] == SLUG
+    assert decision["routed"] is True and decision["project_slug"] == SLUG
+    _attendre(launched)
+    assert launched[0]["slug"] == SLUG and launched[0]["parent"] == parent
 
 
 def test_a_manager_working_in_a_worktree_still_finds_its_project(open_projects, agents_dir,
@@ -86,51 +95,41 @@ def test_a_manager_working_in_a_worktree_still_finds_its_project(open_projects, 
     """Un manager isolé travaille HORS du dossier du projet et hérite quand même du bon."""
     # Un worktree vit sous ~/.bouzecode/worktrees/… : le cwd ne dit RIEN du projet, seul le
     # slug enregistré au spawn le sait. C'est pourquoi il est consulté en premier.
-    worktree = tmp_path / "worktrees" / "demo_app" / "beefcafe"
+    worktree = tmp_path / "worktrees" / "demo_application" / "642e1a3f"
     worktree.mkdir(parents=True)
     parent = _write_manager(agents_dir, str(worktree), SLUG)
 
-    decision = dispatch.dispatch("répare la boucle", parent=parent)
-
-    assert decision["project_slug"] == SLUG
+    assert _lancer("répare la boucle", parent)["project_slug"] == SLUG
 
 
 def test_an_explicit_project_slug_wins_over_the_inherited_one(open_projects, agents_dir,
                                                               launched):
-    """Le manager peut dispatcher dans un AUTRE projet en le nommant explicitement."""
+    """Le manager peut lancer dans un AUTRE projet en le nommant explicitement."""
     parent = _write_manager(agents_dir, open_projects[0]["path"], SLUG)
 
-    decision = dispatch.dispatch("ingère les données", project_slug=OTHER_SLUG, parent=parent)
+    decision = _lancer("ingère les données", parent, project_slug=OTHER_SLUG)
 
     assert decision["project_slug"] == OTHER_SLUG
+    _attendre(launched)
     assert launched[0]["slug"] == OTHER_SLUG
 
 
-def test_the_manual_ui_launch_still_needs_a_chosen_project(open_projects, agents_dir, launched):
-    """Le lancement manuel depuis l'UI n'hérite de rien : sans projet, il en réclame un."""
-    decision = dispatch.dispatch("un besoin flou")
-
-    assert decision["needs_project"] is True
-    assert decision["routed"] is False
-    assert launched == []
-
-
-def test_the_manual_ui_launch_with_a_chosen_project_still_works(open_projects, agents_dir,
-                                                                launched):
-    """Le lancement manuel avec projet choisi (la voie de l'UI) reste inchangé."""
-    decision = dispatch.dispatch("répare la boucle", project_slug=SLUG,
-                                 parent=dispatch._MANUAL_PARENT)
-
-    assert decision["routed"] is True
-    assert decision["project_slug"] == SLUG
-    assert launched[0]["parent"] == dispatch._MANUAL_PARENT
-
-
-def test_a_parent_attached_to_no_open_project_asks_for_one(open_projects, agents_dir, launched):
-    """Un parent rattaché à un projet fermé n'invente pas de projet : il en réclame un."""
+def test_a_parent_attached_to_no_open_project_creates_nothing(open_projects, agents_dir,
+                                                              launched):
+    """Un parent rattaché à un projet fermé n'invente pas de projet : refus, rien de créé."""
     parent = _write_manager(agents_dir, "/nulle/part", "projet-referme")
 
-    decision = dispatch.dispatch("répare la boucle", parent=parent)
+    decision = _lancer("répare la boucle", parent)
 
-    assert decision["needs_project"] is True
-    assert launched == []
+    #  Le slug de SA fiche n'est plus un projet ouvert : la route de création le refuse (404).
+    assert decision["routed"] is False and decision["code"] == "projet_inconnu"
+    assert [t for slug in (SLUG, OTHER_SLUG) for t in tickets.list_tickets(slug)] == []
+
+
+def test_a_parent_unknown_to_the_server_is_named(open_projects, agents_dir, launched):
+    """Incident du 2026-07-28 : l'enregistrement du manager a disparu sous lui. Le refus le DIT
+    (`parent_unknown`), au lieu d'envoyer chercher une erreur de configuration."""
+    decision = _lancer("construis X", "9d0789f2fdca")
+
+    assert decision["routed"] is False and decision["code"] == "projet_requis"
+    assert decision["parent_unknown"] is True

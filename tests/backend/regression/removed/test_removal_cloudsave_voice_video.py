@@ -6,10 +6,7 @@ import pytest
 def test_removed_commands_absent_from_dispatcher():
     from bouzecode.backend.commands.dispatcher import COMMANDS, _CMD_META
 
-    # `voice` / `video` are NOT removed in this (public) repo: they are wired on
-    # purpose by `commands/oss_shims/` to the flat `voice/` and `video/` packages.
-    # Only cloudsave is genuinely gone from the command surface.
-    removed = {"cloudsave"}
+    removed = {"cloudsave", "voice", "video"}
     for cmd in removed:
         assert cmd not in COMMANDS, f"{cmd} still in COMMANDS"
         assert cmd not in _CMD_META, f"{cmd} still in _CMD_META"

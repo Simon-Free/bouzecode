@@ -27,22 +27,22 @@ def client():
 
 def test_export_then_import_round_trips_profile(client):
     body = {
-        "name": "demo-explorer", "tools": ["Read", "Grep"],
-        "requires_plugins": [], "system_prompt_extra": "Explore la base de demo.",
+        "name": "demodb-explorer", "tools": ["Read", "Grep"],
+        "requires_plugins": [], "system_prompt_extra": "Explore DEMODB.",
     }
     assert client.post("/api/profiles", json=body).status_code == 200
 
-    exported = client.get("/api/agents/demo-explorer/export").get_json()
-    assert exported["name"] == "demo-explorer"
+    exported = client.get("/api/agents/demodb-explorer/export").get_json()
+    assert exported["name"] == "demodb-explorer"
     assert "requires_plugins" in exported["yaml"]
 
     # Delete then re-import from the exported YAML
-    client.delete("/api/profiles/demo-explorer")
+    client.delete("/api/profiles/demodb-explorer")
     result = client.post("/api/agents/import", json={"yaml": exported["yaml"]}).get_json()
-    assert result["name"] == "demo-explorer"
+    assert result["name"] == "demodb-explorer"
     assert result["errors"] == []
 
-    reloaded = client.get("/api/profiles/demo-explorer").get_json()
+    reloaded = client.get("/api/profiles/demodb-explorer").get_json()
     assert reloaded["tools"] == ["Read", "Grep"]
 
 
@@ -63,8 +63,8 @@ def test_plugins_list_is_empty_when_none_installed(client):
 _GIT_AGENT = (
     "name: git-agent\n"
     "requires_plugins:\n"
-    "  - name: my-plugin\n"
-    "    source: git+https://example.com/x/my-plugin.git\n"
+    "  - name: demo-x-plugin\n"
+    "    source: git+https://gitlab/x/demo-x-plugin.git\n"
 )
 
 
@@ -80,8 +80,8 @@ def test_import_git_source_requires_confirmation_and_does_not_save(client):
 
 def test_install_plugin_git_source_requires_confirmation(client):
     resp = client.post("/api/plugins", json={
-        "package": "my-plugin",
-        "source": "git+https://example.com/x/my-plugin.git",
+        "package": "demo-x-plugin",
+        "source": "git+https://gitlab/x/demo-x-plugin.git",
     })
     body = resp.get_json()
     assert resp.status_code == 200

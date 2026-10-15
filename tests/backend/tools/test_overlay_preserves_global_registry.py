@@ -1,4 +1,4 @@
-# [desc] Un overlay thread-local ne doit jamais priver le registre GLOBAL des outils du noyau. [/desc]
+# [desc] Un overlay thread-local ne doit jamais priver le registre GLOBAL des outils du gateway. [/desc]
 """`register_tool()` route vers `_local.registry` dès qu'un overlay est actif.
 
 Si `push_local_overlay()` est actif au moment du PREMIER import de `registration`, ses 35
@@ -46,7 +46,7 @@ def _sonde(tmp_path: Path) -> dict:
 
 
 def test_overlay_actif_au_premier_import_ne_vide_pas_le_registre_global(tmp_path):
-    """Après pop, le registre global DOIT porter les outils du noyau, pas seulement les 7
+    """Après pop, le registre global DOIT porter les outils du gateway, pas seulement les 7
     outils de flotte enregistrés hors overlay."""
     mesure = _sonde(tmp_path)
     assert mesure["read"], (

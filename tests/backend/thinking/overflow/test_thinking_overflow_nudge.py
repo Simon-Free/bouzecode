@@ -1,4 +1,4 @@
-# [desc] Tests that thinking overflow nudge message starts with </thinking> and contains required keywords [/desc]
+# [desc] Tests that the thinking overflow notice is neutral (no </thinking>, no reasoning vocabulary) and only informs [/desc]
 """Test that the thinking overflow nudge message has correct format."""
 import types
 from unittest.mock import MagicMock
@@ -17,18 +17,13 @@ def _fake_stream_that_overflows(state, config, system_prompt, ctx, cancel_check)
     yield  # make it a generator
 
 
-def test_nudge_message_starts_with_closing_thinking_tag():
-    """The nudge injected after overflow must start with </thinking> to close model's open block."""
+def test_nudge_message_is_neutral_notice():
+    """The notice injected after overflow is neutral: no tag, no reasoning vocabulary."""
     from bouzecode.backend.agent.state import AgentState
     import bouzecode.backend.agent.loop as loop_mod
 
     state = AgentState()
-    # The domain-specific action tail (mention of tests/hypotheses) now comes from
-    # config["overflow_action_hint"] so the shared loop stays agent-agnostic.
-    config = {
-        "model": "test", "thinking_overflow_limit": 20000,
-        "overflow_action_hint": "Write a failing test, then state your hypothesis.",
-    }
+    config = {"model": "test", "thinking_overflow_limit": 20000}
 
     # Patch stream_llm_turn to simulate overflow
     original = loop_mod.stream_llm_turn
@@ -61,13 +56,14 @@ def test_nudge_message_starts_with_closing_thinking_tag():
         loop_mod.stream_llm_turn = original
 
     # Find the nudge message in state.messages
-    nudge_msgs = [m for m in state.messages if m["role"] == "user" and "thinking" in m.get("content", "").lower()]
+    nudge_msgs = [m for m in state.messages if m["role"] == "user" and "interrompu" in m.get("content", "")]
     assert len(nudge_msgs) >= 1, f"No nudge message found. Messages: {[m['content'][:80] for m in state.messages]}"
 
     nudge = nudge_msgs[0]["content"]
-    # Must start with </thinking> to close model's thinking block
-    assert nudge.startswith("</thinking>"), f"Nudge must start with '</thinking>', got: {nudge[:60]}"
-    # Must mention writing tests
-    assert "test" in nudge.lower(), f"Nudge must mention tests, got: {nudge}"
-    # Must mention hypothesis
-    assert "hypoth" in nudge.lower(), f"Nudge must mention hypotheses, got: {nudge}"
+    # No `</thinking>` sent to the model: the cut assistant turn is stored closed and stripped
+    # from the wire, and the tag trips claude-opus-5's refusal classifier (2026-09-29).
+    assert "</thinking>" not in nudge, nudge
+    # Pure information: says the turn was cut, never how to reason or act
+    assert nudge.startswith("[SYSTEM] Tour précédent interrompu (longueur : 25000 caractères)"), nudge
+    for instruction in ("STOP DELIBERATING", "ACT NOW", "AGIS", "re-déroule", "test_*.py"):
+        assert instruction not in nudge, f"Nudge must not instruct ({instruction!r}): {nudge}"

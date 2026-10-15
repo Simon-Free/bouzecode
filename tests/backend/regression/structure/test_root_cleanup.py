@@ -20,7 +20,6 @@ def test_thinking_parser_moved():
     from bouzecode.backend.agent.thinking_parser import (
         ThinkingStreamParser, LoopDetector,
         strip_thinking_tags, strip_tool_use_xml,
-        ThinkingDisciplineMonitor,
     )
     assert ThinkingStreamParser is not None
 

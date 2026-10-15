@@ -3,12 +3,9 @@ import pytest
 
 from bouzecode.backend.agent.snippet_wire import (
     SNIPPET_MIN_LINES,
-    wrap_snippetable,
-    wrap_file_snippetable,
+    mark_snippetable,
+    mark_file_snippetable,
     _line_count,
-    _SNIPPET_OPEN,
-    _FILE_SNIPPET_OPEN,
-    _SNIPPET_CLOSE,
 )
 
 
@@ -45,61 +42,50 @@ class TestLineCount:
 
 
 # ---------------------------------------------------------------------------
-# Tests: wrap_snippetable threshold
+# Tests: mark_snippetable threshold (the instruction rides apart, in <harness_notes>)
 # ---------------------------------------------------------------------------
 
-class TestWrapSnippetableThreshold:
-    def test_small_content_not_wrapped(self):
-        """Content with fewer than SNIPPET_MIN_LINES should NOT be wrapped."""
+class TestMarkSnippetableThreshold:
+    def test_small_content_not_marked(self):
+        """Content with fewer than SNIPPET_MIN_LINES gets no instruction and stays as is."""
         content = _make_content(10)
-        result = wrap_snippetable(content, "tool123")
+        assert mark_snippetable(content, "tool123") == (content, "")
+
+    def test_exactly_threshold_is_marked(self):
+        """Content with exactly SNIPPET_MIN_LINES lines SHOULD be marked."""
+        _, instruction = mark_snippetable(_make_content(SNIPPET_MIN_LINES), "tool123")
+        assert "A SNIPPETER id: tool_id=tool123" in instruction
+
+    def test_large_content_marked(self):
+        """Content with more than SNIPPET_MIN_LINES lines SHOULD be marked."""
+        result, instruction = mark_snippetable(_make_content(100), "tool123")
+        assert "A SNIPPETER id: tool_id=tool123" in instruction
         assert "A SNIPPETER" not in result
-        assert result == content
-
-    def test_exactly_threshold_is_wrapped(self):
-        """Content with exactly SNIPPET_MIN_LINES lines SHOULD be wrapped."""
-        content = _make_content(SNIPPET_MIN_LINES)
-        result = wrap_snippetable(content, "tool123")
-        assert _SNIPPET_OPEN.format(tool_id="tool123") in result
-        assert _SNIPPET_CLOSE in result
-
-    def test_large_content_wrapped(self):
-        """Content with more than SNIPPET_MIN_LINES lines SHOULD be wrapped."""
-        content = _make_content(100)
-        result = wrap_snippetable(content, "tool123")
-        assert _SNIPPET_OPEN.format(tool_id="tool123") in result
 
     def test_empty_result_is_left_untouched(self):
         """Un resultat vide n'est jamais marque a snippeter."""
-        result = wrap_snippetable("", "tool123")
-        assert result == ""
-        assert "A SNIPPETER" not in result
+        assert mark_snippetable("", "tool123") == ("", "")
 
 
 # ---------------------------------------------------------------------------
-# Tests: wrap_file_snippetable threshold
+# Tests: mark_file_snippetable threshold
 # ---------------------------------------------------------------------------
 
-class TestWrapFileSnippetableThreshold:
+class TestMarkFileSnippetableThreshold:
     def test_small_file_result_is_not_marked(self):
-        """Un extrait de fichier court repart tel quel, sans marqueur."""
+        """Un extrait de fichier court repart tel quel, sans consigne."""
         content = _make_content(10)
-        result = wrap_file_snippetable(content, "/some/path.py")
-        assert "A SNIPPETER" not in result
-        assert result == content
+        assert mark_file_snippetable(content, "/some/path.py", "r1") == (content, "")
 
     def test_file_result_at_the_threshold_is_marked(self):
         """Pile au seuil, le resultat de fichier est marque a snippeter."""
-        content = _make_content(SNIPPET_MIN_LINES)
-        result = wrap_file_snippetable(content, "/some/path.py")
-        assert _FILE_SNIPPET_OPEN.format(file_path="/some/path.py") in result
-        assert _SNIPPET_CLOSE in result
+        _, consigne = mark_file_snippetable(_make_content(SNIPPET_MIN_LINES), "/some/path.py", "r1")
+        assert "A SNIPPETER id: file=/some/path.py" in consigne
 
     def test_long_file_result_is_marked(self):
         """Un long extrait de fichier est marque a snippeter."""
-        content = _make_content(100)
-        result = wrap_file_snippetable(content, "/some/path.py")
-        assert _FILE_SNIPPET_OPEN.format(file_path="/some/path.py") in result
+        _, consigne = mark_file_snippetable(_make_content(100), "/some/path.py", "r1")
+        assert "A SNIPPETER id: file=/some/path.py" in consigne
 
 
 # ---------------------------------------------------------------------------

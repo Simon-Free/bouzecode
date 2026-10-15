@@ -1,5 +1,5 @@
 # [desc] E2E (mock_llm): Bash(deferred=True) empile sans executer ; FinalAnswer leve DeferredChecks. [/desc]
-"""Flux deferred au niveau conversation (LLM mocke, pas d'appel reseau).
+"""Flux deferred au niveau conversation (LLM mocke, pas de gateway).
 
 Couvre la moitie 'boucle agent' du mecanisme : un Bash(deferred=True) passe par
 le vrai pipeline d'outils (enqueue, n'execute pas), puis FinalAnswer avec une file
@@ -21,11 +21,15 @@ def test_deferred_bash_enqueues_then_finalanswer_raises():
     mock = MockLLM([
         f'{METH}\n<tool_use name="Bash" id="b1"><param name="command">echo hi</param>'
         f'<param name="deferred">true</param></tool_use>',
-        f'{METH}\n<tool_use name="FinalAnswer" id="f1"><param name="answer">livrable</param></tool_use>',
+        f'{METH}\n<tool_use name="FinalAnswer" id="f1"><param name="answer">livrable</param>'
+        f'<param name="taches_terminees">[]</param>'
+        f'<param name="taches_restantes">[]</param></tool_use>',
     ])
     with pytest.raises(DeferredChecks) as exc:
         bouzecode(["valide le deferred"], mock_llm=mock)
-    assert exc.value.answer == "livrable"
+    #  La réponse livrée dit que la vérification n'est pas encore faite (a5536ec2).
+    assert exc.value.answer.startswith("livrable")
+    assert "NON FAITE" in exc.value.answer and "echo hi" in exc.value.answer
     assert len(exc.value.checks) == 1
     assert exc.value.checks[0]["command"] == "echo hi"
     assert "timeout" in exc.value.checks[0]

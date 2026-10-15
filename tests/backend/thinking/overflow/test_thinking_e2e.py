@@ -396,6 +396,10 @@ class TestCLIFlags:
         monkeypatch.setattr(sys, "argv", ["bouzecode"] + argv)
         monkeypatch.setattr(config_mod, "load_config", lambda: {"model": "test"})
         monkeypatch.setattr(config_mod, "has_api_key", lambda m: True)
+        # main() installe ripgrep dans ~/.local/bin s'il manque : pas de téléchargement ni
+        # d'écriture dans le vrai HOME depuis un test.
+        import bouzecode.ui.cli as cli_mod
+        monkeypatch.setattr(cli_mod, "_ensure_ripgrep", lambda *a, **k: None)
 
         def _fake_repl(config, initial_prompt=None):
             if capture_dict is not None:

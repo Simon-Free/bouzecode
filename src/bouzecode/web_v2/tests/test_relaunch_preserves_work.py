@@ -1,11 +1,11 @@
 # [desc] Relancer un ticket ne doit JAMAIS faire disparaître un commit de sa branche. [/desc]
-"""Cas vécu du 28/07 : `POST /api/tickets/<slug>/<id>/launch` avec un corps VIDE hérite de
+"""Cas vécu du 28/07 : `POST /api/projects/<slug>/tickets/<id>/runs` avec un corps VIDE hérite de
 l'isolation inscrite sur le ticket (`worktree`), donc passe par `dispatch.reisolate` →
 `worktrees.discard_stale` → `git branch -D agent/<id>`. Les commits que la branche portait
 partaient avec elle, sans un mot :
 
-    agent/cafed00d@{0}: branch: Created from develop
-    agent/d0d0face@{0}: branch: Created from develop
+    agent/a51cefa0@{0}: branch: Created from develop
+    agent/869d263c@{0}: branch: Created from develop
 
 (le second effaçait une sauvegarde manuelle, `bd63566`, récupérée in extremis par un tag).
 Quatre tickets relancés dans la même minute ont perdu ainsi leur livraison ; les deux qui
@@ -110,7 +110,8 @@ def test_une_branche_sans_travail_est_re_provisionnee(repo, ticket_isole):
 
     assert Path(cwd).is_dir() and (Path(cwd) / "README.md").is_file()
     apres = tickets.get_ticket(SLUG, ticket["id"])["worktree"]
-    assert apres["ok"] and apres["branch"] == f"agent/{ticket['id']}"
+    #  Le ticket garde la méta du worktree, jamais le drapeau `ok` de l'appel (lot L2).
+    assert Path(apres["worktree"]).is_dir() and apres["branch"] == f"agent/{ticket['id']}"
 
 
 def test_le_travail_non_commite_est_recolte_avant_la_relance(repo, ticket_isole):

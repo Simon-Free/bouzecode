@@ -8,7 +8,9 @@ from tests.fake_llm import MockLLM
 
 METH = '<tool_use name="Methodology" id="m1"><param name="content">[x] tout fait</param></tool_use>'
 FINAL = ('<tool_use name="FinalAnswer" id="f1">'
-         '<param name="answer">Fichiers créés, 2 tests verts.</param></tool_use>')
+         '<param name="answer">Fichiers créés, 2 tests verts.</param>'
+         '<param name="taches_terminees">[]</param>'
+         '<param name="taches_restantes">[]</param></tool_use>')
 
 
 def _users(result):
@@ -27,7 +29,11 @@ def test_refused_close_keeps_session_running(monkeypatch):
     verdicts = iter([(False, "la commande de validation n'a pas été exécutée"), (True, "")])
     monkeypatch.setattr(
         "bouzecode.backend.agent.close_validator.validate_close",
-        lambda answer, config, recap=None: next(verdicts),  # validate_close prend recap (T7)
+        #  `validate_close` prend recap (T7) PLUS les deux listes de clôture déclarées
+        #  (taches_terminees / taches_restantes). Le doublon reste indifférent au STYLE
+        #  d'appel — positionnel ou nommé — sinon un argument de plus le fait exploser
+        #  en TypeError, que close_guard lit comme un outil en échec et rejoue le tour.
+        lambda *a, **kw: next(verdicts),
     )
     bash = '<tool_use name="Bash" id="b1"><param name="command">echo run-tests</param></tool_use>'
     mock = MockLLM([

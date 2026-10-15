@@ -48,13 +48,9 @@ def _snippet(params):
 
 
 def _run(first_turn, second_turn):
-    # CLOSE twice: when the enforcement warning DOES fire, the loop injects its
-    # nudge and asks the model for one more turn, so the scenario needs a reply
-    # to spare. MockLLM never requires its script to be exhausted, so the
-    # no-warning cases simply stop one reply earlier.
     result = bouzecode(
         ["regarde ce module"],
-        mock_llm=MockLLM([first_turn, second_turn, CLOSE, CLOSE]),
+        mock_llm=MockLLM([first_turn, second_turn, CLOSE]),
         config_overrides=RECOVER,
     )
     return [e for e in result.events

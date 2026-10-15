@@ -9,6 +9,7 @@ from pathlib import Path
 
 import pytest
 
+import os
 import shutil
 import uuid
 
@@ -80,6 +81,20 @@ def test_cleanup_destroys_scratch_and_registry(tmp_path):
     assert "file not found" in out
 
 
+def test_read_after_cleanup_never_resolves_to_a_destroyed_file(tmp_path):
+    """Le registre des fichiers lus est global au process : un `dump.txt` lu par un test
+    PRÉCÉDENT du même worker y restait, et le repli de Read le « résolvait » alors qu'il
+    n'existe plus — « [Errno 2] » sur un autre chemin au lieu de « file not found »
+    (échec de test_cleanup_destroys_scratch_and_registry selon la répartition xdist)."""
+    first = str(tmp_path / "first" / "dump.txt")
+    _write(first, "content", temp=True)
+    assert "content" in _read(first)
+    scratch.cleanup_scratch()
+
+    out = _read(str(tmp_path / "second" / "dump.txt"))
+    assert "file not found" in out and "Errno" not in out
+
+
 def test_temp_file_never_in_logical_location(tmp_path):
     """The whole point: a temp file is structurally uncommittable because it
     is never written into the (git) worktree location."""
@@ -109,9 +124,10 @@ def test_bash_resolves_logical_scratch_path_in_command(tmp_path):
     command referring to the logical name actually reads the scratch file."""
     logical = str(tmp_path / "temp_data.txt")
     _write(logical, "SCRATCH_MARKER_42", temp=True)
-    # Windows: `type <path>` prints the file content. The logical path does NOT
+    # `type` (Windows) / `cat` prints the file content. The logical path does NOT
     # exist on disk, so this only works if Bash rewrote it to the real path.
-    out = _bash(f'type "{logical}"')
+    show = "type" if os.name == "nt" else "cat"
+    out = _bash(f'{show} "{logical}"')
     assert "SCRATCH_MARKER_42" in out
 
 
@@ -122,7 +138,7 @@ def test_bash_executes_logical_temp_script(tmp_path):
         pytest.skip("no python interpreter on PATH")
     logical = str(tmp_path / "temp_script.py")
     _write(logical, "print('HELLO_FROM_SCRATCH')", temp=True)
-    out = _bash(f'python "{logical}"')
+    out = _bash(f'{Path(py).name} "{logical}"')
     assert "HELLO_FROM_SCRATCH" in out
     # Zero write into the (git) worktree: the logical path stays absent.
     assert not Path(logical).exists()

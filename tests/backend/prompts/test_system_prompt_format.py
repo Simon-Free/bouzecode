@@ -11,7 +11,7 @@ def test_build_system_prompt_no_keyerror():
     from bouzecode.backend.core.context import build_system_prompt
 
     prompt = build_system_prompt({})
-    assert "Bouzecode" in prompt
+    assert "bouzecode" in prompt
     assert "{platform}" not in prompt
     assert "{platform_hints}" not in prompt
     assert "{claude_md}" not in prompt

@@ -5,7 +5,7 @@
 tous les agents meurent en silence. Le verdict doit etre KO et les spawns refuses.
 
 27/07 : un hoquet reseau au boot a fige un KO MENSONGER pour toute la vie du process
-(la passerelle repondait en 0,39 s), bandeau rouge + 503 sur tous les spawns, sans autre
+(le gateway repondait en 0,39 s), bandeau rouge + 503 sur tous les spawns, sans autre
 remede qu'un redemarrage inutile. Le verdict doit donc retenter, puis se re-sonder.
 
 Aucun mock.patch : capture_api_sanity(env=, ping=, sleep=) prend l'env, la sonde reseau
@@ -13,7 +13,10 @@ et le backoff par injection de dependance.
 """
 from bouzecode.web_v2 import api_sanity
 
-ENV_OK = {"ANTHROPIC_BASE_URL": "https://gateway.example.com", "ANTHROPIC_API_KEY": "k"}
+ENV_OK = {"ANTHROPIC_BASE_URL": "http://gateway.local", "ANTHROPIC_API_KEY": "k"}
+# Ces tests verrouillent le verdict du gateway Anthropic : modèle épinglé, indépendant du
+# défaut du code (claude-opus-5-5 en préprod depuis le 2026-10-05, couvert ailleurs).
+GATEWAY_MODEL = "claude-opus-5"
 
 
 def _no_sleep(_seconds):
@@ -34,7 +37,7 @@ def _ping_failing_n_times(failures):
 
 def _capture(env, ping):
     api_sanity.reset_api_sanity()
-    api_sanity.capture_api_sanity(env=env, ping=ping, sleep=_no_sleep)
+    api_sanity.capture_api_sanity(env=env, ping=ping, sleep=_no_sleep, model=GATEWAY_MODEL)
 
 
 def test_env_absente_donne_un_ko_qui_dit_de_relancer():
@@ -153,27 +156,24 @@ def test_un_verdict_ok_ne_declenche_aucune_sonde_supplementaire():
 
 
 def test_require_api_sanity_refuse_le_spawn_en_503_et_le_laisse_passer_sinon():
-    """Le garde lui-meme : (reponse, 503) quand KO, None quand OK."""
+    """Le garde lui-meme : le refus 503 quand KO, None quand OK (aucun contexte Flask requis)."""
     _capture({}, lambda url: True)
-    app = _app()
 
-    with app.app_context():
-        response, status = api_sanity.require_api_sanity()
-        assert status == 503
-        assert "bouzeui.ps1" in response.get_json()["error"]
+    refus = api_sanity.require_api_sanity()
+    assert (refus.status, refus.code) == (503, "env_indisponible")
+    assert "bouzeui.ps1" in refus.message
 
-        _capture(ENV_OK, lambda url: True)
-        assert api_sanity.require_api_sanity() is None
+    _capture(ENV_OK, lambda url: True)
+    assert api_sanity.require_api_sanity() is None
 
 
 def test_le_503_dun_reseau_injoignable_propose_reverifier_pas_un_redemarrage():
     _capture(ENV_OK, lambda url: False)
 
-    with _app().app_context():
-        response, status = api_sanity.require_api_sanity()
+    refus = api_sanity.require_api_sanity()
 
-    assert status == 503
-    assert "Revérifier" in response.get_json()["error"]
+    assert refus.status == 503
+    assert "Revérifier" in refus.message
 
 
 def test_un_spawn_repasse_des_que_le_reseau_revient_sans_redemarrage():
@@ -181,37 +181,37 @@ def test_un_spawn_repasse_des_que_le_reseau_revient_sans_redemarrage():
     network = {"up": False}
     _capture(ENV_OK, lambda url: network["up"])
     client = _client()
-    assert client.post("/api/dispatch", json={"prompt": "fais un truc"}).status_code == 503
+    assert client.post("/api/agents", json={"prompt": "fais un truc"}).status_code == 503
 
     network["up"] = True
     api_sanity.LAST_CHECK_AT = 0.0  # le cooldown est ecoule
 
     # prompt vide -> 400 : on a franchi le garde sans lancer d'agent.
-    assert client.post("/api/dispatch", json={"prompt": ""}).status_code != 503
+    assert client.post("/api/agents", json={"prompt": ""}).status_code != 503
 
 
-def test_dispatch_repond_503_quand_lenv_est_ko():
+def test_un_lancement_repond_503_quand_lenv_est_ko():
     _capture({}, lambda url: True)
 
-    resp = _client().post("/api/dispatch", json={"prompt": "fais un truc"})
+    resp = _client().post("/api/agents", json={"prompt": "fais un truc"})
 
     assert resp.status_code == 503
-    assert "bouzeui.ps1" in resp.get_json()["error"]
+    assert "bouzeui.ps1" in resp.get_json()["error"]["message"]
 
 
 def test_agent_launch_repond_503_quand_lenv_est_ko():
     _capture({}, lambda url: True)
 
-    resp = _client().post("/api/agents/launch", json={"prompt": "fais un truc"})
+    resp = _client().post("/api/agents", json={"prompt": "fais un truc"})
 
     assert resp.status_code == 503
-    assert "bouzeui.ps1" in resp.get_json()["error"]
+    assert "bouzeui.ps1" in resp.get_json()["error"]["message"]
 
 
-def test_dispatch_nest_pas_bloque_quand_le_verdict_est_ok():
+def test_un_lancement_nest_pas_bloque_quand_le_verdict_est_ok():
     """Verdict OK -> le garde 503 ne se declenche pas (prompt vide -> 400, pas 503)."""
     _capture(ENV_OK, lambda url: True)
 
-    resp = _client().post("/api/dispatch", json={"prompt": ""})
+    resp = _client().post("/api/agents", json={"prompt": ""})
 
     assert resp.status_code != 503

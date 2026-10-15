@@ -19,10 +19,6 @@ class TestConversationsPage:
         resp = client.get("/conversations")
         assert resp.status_code == 200
 
-    def test_layout_wrapper_present(self, client):
-        html = client.get("/conversations").get_data(as_text=True)
-        assert "conv-layout" in html
-
     def test_sidebar_present(self, client):
         html = client.get("/conversations").get_data(as_text=True)
         assert "conv-sidebar" in html

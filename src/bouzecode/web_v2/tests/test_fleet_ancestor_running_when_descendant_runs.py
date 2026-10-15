@@ -11,8 +11,9 @@ le fix (gp/p = delivered) et passe APRÈS (gp/p = running). Zéro unittest.mock,
 par monkeypatch.setattr comme le reste du dossier."""
 from __future__ import annotations
 
-from bouzecode.web_v2.runtime.runner import Agent
+from bouzecode.web_v2.runtime.runner.agent_fiche import Agent
 from bouzecode.web_v2.services.work import fleet
+from bouzecode.web_v2.runtime.runner import agent_registre
 
 
 def _agent(agent_id: str, parent: str) -> Agent:
@@ -41,7 +42,7 @@ def _wire(monkeypatch, running_ids: set[str]):
         _agent("p", "gp"),     # parent
         _agent("c", "p"),      # enfant : le seul qui tourne
     ]
-    monkeypatch.setattr(fleet.runner, "list_agents", lambda: agents)
+    monkeypatch.setattr(agent_registre, "list_agents", lambda: agents)
     monkeypatch.setattr(fleet.projects, "list_projects", lambda: [])
     monkeypatch.setattr(fleet.store, "list_agent_sessions", lambda: [])
     monkeypatch.setattr(fleet.store, "agent_status", lambda a: {"state": "finished"})
@@ -51,7 +52,8 @@ def _wire(monkeypatch, running_ids: set[str]):
     # propager aux ancêtres.
     monkeypatch.setattr(
         fleet.liveness, "classify_agent_run",
-        lambda ticket, run: "running" if str(run.get("agent_id")) in running_ids else "delivered",
+        lambda ticket, run, agent=None:
+        "running" if str(run.get("agent_id")) in running_ids else "delivered",
     )
 
 

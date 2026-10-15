@@ -71,38 +71,29 @@ def _section_text(page, section_id: str) -> str:
 
 def test_clicking_install_moves_the_agent_to_the_installed_list(seeded_catalog, server, page):
     """Cliquer « Installer » sur un agent disponible le fait passer, sans rechargement de
-    page, dans la liste des agents installés."""
+    page, dans la liste des agents installés (tiroir « Catalogue » de la page Profils)."""
     page.goto(f"{server}/agent-builder", wait_until="domcontentloaded")
-    # Le catalogue vit dans son propre onglet, hors du parcours de création.
-    page.locator('#ab-tabs .tab[data-panel="ab-panel-catalog"]').click()
+    # Le catalogue vit dans un tiroir, hors du parcours d'édition.
+    page.locator("#pf-catalog-open").click()
 
-    # Les deux sections se remplissent depuis le catalogue.
-    # La page est servie en anglais, langue par defaut de l'interface bilingue.
-    page.wait_for_function(
-        "document.querySelector('#cat-installed') && "
-        "!document.querySelector('#cat-installed').textContent.includes('Loading')"
-    )
-    assert "installed-agent" in _section_text(page, "cat-installed")
-    page.locator("#cat-available").wait_for()
-    assert "available-agent" in _section_text(page, "cat-available")
+    # Les deux sections se remplissent depuis le catalogue (squelette puis lignes).
+    page.wait_for_selector("#pf-cat-installed .pf-cat[data-name='installed-agent']")
+    assert "installed-agent" in _section_text(page, "pf-cat-installed")
+    assert "available-agent" in _section_text(page, "pf-cat-available")
 
     # Seul l'agent non installé propose un bouton d'installation.
     install_button = page.locator(
-        "#cat-available .cat-row", has_text="available-agent"
-    ).get_by_role("button", name="Install")
+        "#pf-cat-available .pf-cat", has_text="available-agent"
+    ).get_by_role("button", name="Installer")
     assert install_button.count() == 1
 
     install_button.click()
 
-    page.wait_for_function(
-        "document.querySelector('#cat-installed').textContent.includes('available-agent')"
-    )
-    assert "available-agent" in _section_text(page, "cat-installed")
-    assert "available-agent" not in _section_text(page, "cat-available")
+    page.wait_for_selector("#pf-cat-installed .pf-cat[data-name='available-agent']")
+    assert "available-agent" in _section_text(page, "pf-cat-installed")
+    assert "available-agent" not in _section_text(page, "pf-cat-available")
 
     # Rafraîchir redessine la liste sans la vider.
-    page.locator("#cat-refresh").click()
-    page.wait_for_function(
-        "document.querySelector('#cat-installed').textContent.includes('installed-agent')"
-    )
-    assert "installed-agent" in _section_text(page, "cat-installed")
+    page.locator("#pf-catalog-refresh").click()
+    page.wait_for_selector("#toasts .toast[data-kind='ok']:has-text('Catalogue rafraîchi')")
+    assert "installed-agent" in _section_text(page, "pf-cat-installed")

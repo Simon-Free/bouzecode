@@ -1,14 +1,17 @@
 """GET /api/schema décrit exactement les routes /api/ du serveur — la dérive est impossible.
 
-C'est le contrat que le parcours P7 du SPEC promet aux LLM. Ces gardes couvrent les deux
-sens de la dérive : une route ajoutée sans description, et une description qui survit à la
-route qu'elle décrivait.
+C'est le contrat que le parcours P7 du SPEC promet aux LLM. Le schéma est DÉRIVÉ : la liste des
+routes vient de `app.url_map`, la description du docstring de chaque vue, le corps attendu de
+`@corps_attendu` posé à côté de la route. Il n'existe plus de table écrite à la main (l'ancien
+`api_descriptions.py` a été retiré au lot L6) : une route sans docstring échoue ici.
 """
 
 import pytest
 
-from bouzecode.web_v2.api_descriptions import ENDPOINT_DESCRIPTIONS
-from bouzecode.web_v2.app import create_app, schema_key
+from bouzecode.web_v2.app import create_app
+from bouzecode.web_v2.schema import corps_attendu, routes_api, schema_key
+
+METHODES_MUTANTES = {"POST", "PUT", "PATCH", "DELETE"}
 
 
 @pytest.fixture
@@ -38,30 +41,36 @@ def test_schema_lists_every_registered_api_route(app, client):
     assert set(served) == _registered_api_keys(app)
 
 
-def test_new_route_without_description_is_refused(app, client):
-    """Une route /api/ sans description (ni docstring de vue, ni entrée écrite) échoue ici."""
+def test_new_route_without_docstring_is_refused(app, client):
+    """Une route /api/ dont la vue n'a pas de docstring échoue ici : c'est sa seule description."""
     served = client.get("/api/schema").get_json()["endpoints"]
 
     undescribed = sorted(key for key, description in served.items() if not description.strip())
 
     assert not undescribed, (
-        "Ces routes /api/ n'ont aucune description : ajoute un docstring à la vue, "
-        "ou une entrée dans ENDPOINT_DESCRIPTIONS (app.py).\n" + "\n".join(undescribed)
-    )
+        "Ces routes /api/ n'ont aucune description : ajoute un docstring à la vue.\n"
+        + "\n".join(undescribed))
 
 
-def test_description_of_a_removed_route_is_refused(app):
-    """Une description écrite à la main qui ne correspond à aucune route échoue ici."""
-    orphans = sorted(set(ENDPOINT_DESCRIPTIONS) - _registered_api_keys(app))
+def test_a_declared_body_is_served_and_only_on_mutations(app, client):
+    """`@corps_attendu` atterrit dans `corps` du schéma, et seulement pour des mutations."""
+    corps = client.get("/api/schema").get_json()["corps"]
 
-    assert not orphans, (
-        "Ces entrées de ENDPOINT_DESCRIPTIONS (api_descriptions.py) ne décrivent aucune route "
-        "enregistrée — route renommée/supprimée, ou faute de frappe.\n" + "\n".join(orphans)
-    )
+    assert corps["POST /api/projects/<slug>/tickets"]["title"]
+    assert set(corps) <= _registered_api_keys(app)
+    assert all(cle.split(" ", 1)[0] in METHODES_MUTANTES for cle in corps)
 
 
-def test_schema_keeps_its_public_shape(client):
-    """Le JSON servi reste {description: texte, endpoints: {'MÉTHODE /chemin': texte}}."""
+def test_corps_attendu_does_not_wrap_the_view():
+    def vue():
+        """une vue"""
+
+    assert corps_attendu(texte="requis")(vue) is vue
+    assert vue.__corps_attendu__ == {"texte": "requis"}
+
+
+def test_schema_keeps_its_public_shape(app, client):
+    """{description, endpoints: {'MÉTHODE /chemin': texte}, corps: {'MÉTHODE /chemin': {…}}}."""
     schema = client.get("/api/schema").get_json()
 
     assert isinstance(schema["description"], str)
@@ -71,3 +80,5 @@ def test_schema_keeps_its_public_shape(client):
         and isinstance(description, str)
         for key, description in schema["endpoints"].items()
     )
+    assert all(isinstance(champs, dict) for champs in schema["corps"].values())
+    assert len(list(routes_api(app))) == len(schema["endpoints"])

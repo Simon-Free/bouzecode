@@ -46,14 +46,14 @@ class TestSchedulingAttributesAreAccepted:
         assert [c["name"] for c in calls] == ["Bash"]
         assert calls[0]["id"] == "b1"
         assert calls[0]["input"]["command"] == "echo hi"
-        assert calls[0]["input"]["depends_on"] == '["w1"]'
+        assert calls[0]["input"]["depends_on"] == ["w1"]
 
     def test_brackets_inside_quotes_survive_a_cut_in_the_middle_of_the_attribute(self):
         """The stream splits wherever it likes, including inside `depends_on="["w1"]"`."""
         for size in (1, 3, 7, 13, 40):
             _, calls = _run(_in_chunks(QUOTED_BRACKETS, size))
             assert [c["name"] for c in calls] == ["Bash"], f"chunk size {size}"
-            assert calls[0]["input"]["depends_on"] == '["w1"]'
+            assert calls[0]["input"]["depends_on"] == ["w1"]
 
     def test_bare_brackets_still_call_bash(self):
         """`depends_on=["w1"]` — the form the system prompt teaches. No regression."""
@@ -62,7 +62,7 @@ class TestSchedulingAttributesAreAccepted:
             '<param name="command">echo hi</param></tool_use>'
         ])
         assert [c["name"] for c in calls] == ["Bash"]
-        assert calls[0]["input"]["depends_on"] == '["w1"]'
+        assert calls[0]["input"]["depends_on"] == ["w1"]
         assert calls[0]["input"]["tool_call_alias"] == "b1"
 
     def test_the_param_form_the_serializer_emits_round_trips(self):
@@ -84,6 +84,34 @@ class TestSchedulingAttributesAreAccepted:
         ])
         assert calls[0]["input"]["file_path"] == "a.py"
         assert calls[0]["id"] == "s1"
+
+
+class TestAMalformedAttributeNeverKillsTheWholeCall:
+    """Measured on agent b63d21ce5b09 (2026-08-27): two turns out of 26 were rejected
+    whole because ONE attribute was malformed — the model had dropped the closing
+    bracket of a bare list (`depends_on=["w1"`). The tool it named never ran, and the
+    agent believed its work had started. An attribute we cannot read must cost that
+    attribute, never the call."""
+
+    def test_a_bare_list_missing_its_closing_bracket_still_calls_bash(self):
+        """The exact payload from the incident, byte for byte."""
+        _, calls = _run([
+            '<tool_use name="Bash" id="t23_b1" depends_on=["w1">'
+            '<param name="command">echo hi</param></tool_use>'
+        ])
+        assert [c["name"] for c in calls] == ["Bash"]
+        assert calls[0]["id"] == "t23_b1"
+        assert calls[0]["input"]["command"] == "echo hi"
+        assert calls[0]["input"]["depends_on"] == ["w1"]
+
+    def test_an_unreadable_attribute_fragment_is_dropped_not_the_call(self):
+        _, calls = _run([
+            '<tool_use name="Bash" id="b1" oops depends_on=["w1"]>'
+            '<param name="command">echo hi</param></tool_use>'
+        ])
+        assert [c["name"] for c in calls] == ["Bash"]
+        assert calls[0]["input"]["depends_on"] == ["w1"]
+        assert "oops" not in calls[0]["input"]
 
 
 class TestProseIsNotACall:

@@ -31,24 +31,24 @@ def _write_agent(agents_dir, agent_id, *, started_at, pid, poids=1024, returncod
     (agents_dir / f"{agent_id}.session.json").write_text(
         json.dumps({"messages": [], "turn_count": 2}), encoding="utf-8")
     (agents_dir / f"{agent_id}.out.log").write_text("x" * poids, encoding="utf-8")
-    from bouzecode.web_v2.runtime import runner
-    runner._list_agents_cache.clear()
+    from bouzecode.web_v2.runtime.runner import agent_fiche
+    agent_fiche._list_agents_cache.clear()
 
 
 @pytest.fixture()
 def agents_dir(tmp_path, monkeypatch):
-    from bouzecode.web_v2.runtime import runner
+    from bouzecode.web_v2.runtime.runner import agent_fiche
     from bouzecode.web_v2.services.sessions import store
 
     d = tmp_path / "web_agents"
     d.mkdir()
-    monkeypatch.setattr(runner, "AGENTS_DIR", d)
+    monkeypatch.setattr(agent_fiche, "AGENTS_DIR", d)
     monkeypatch.setattr(purge, "TRASH_DIR", d / "_trash")
     monkeypatch.setattr(purge, "DELETED_PATH", d / "deleted_sessions.json")
     monkeypatch.setattr(store, "CACHE_PATH", d / "index_cache.json")
     store._status_cache.clear()
     yield d
-    runner._list_agents_cache.clear()
+    agent_fiche._list_agents_cache.clear()
 
 
 VIEUX = "2026-01-01T10:00:00Z"

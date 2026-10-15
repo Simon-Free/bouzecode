@@ -9,6 +9,7 @@ sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 
 from bouzecode.backend.context_manager.methodology import (
     append_ask_user_question_to_methodology,
+    append_final_answer_to_methodology,
     append_plan_to_methodology,
     append_user_msg_to_methodology,
     methodology_tool,
@@ -65,6 +66,35 @@ def test_append_user_msg_keeps_history():
     assert "first instruction" in note
     assert "second instruction" in note
     assert note.count("## User @") == 2
+
+
+def test_append_final_answer_to_methodology_adds_block():
+    """A TUI session continues after FinalAnswer: the answer must stay readable.
+
+    Regression: session_081618_e59985ab lost the wording of its 4 proposals
+    because the FinalAnswer text lived only on the wire (dropped next turn),
+    while the user's reply to it WAS persisted -- leaving an answer with no
+    referent."""
+    gc = ContextState()
+    append_final_answer_to_methodology(
+        gc, "1. archive the ticket\n2. wait 2 minutes\n3. drop the pending file",
+    )
+    note = gc.notes[METHODOLOGY_NOTE]
+    assert note.startswith("## FinalAnswer @")
+    assert "wait 2 minutes" in note
+    assert "drop the pending file" in note
+
+
+def test_append_final_answer_keeps_history_and_ignores_empty():
+    gc = ContextState()
+    append_final_answer_to_methodology(gc, "first verdict")
+    append_final_answer_to_methodology(gc, "   ")
+    append_final_answer_to_methodology(gc, None)
+    append_final_answer_to_methodology(gc, "second verdict")
+    note = gc.notes[METHODOLOGY_NOTE]
+    assert "first verdict" in note
+    assert "second verdict" in note
+    assert note.count("## FinalAnswer @") == 2
 
 
 def test_append_user_msg_then_replace_preserves_users():

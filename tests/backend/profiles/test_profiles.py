@@ -10,7 +10,7 @@ def test_load_profile_from_yaml(tmp_path):
     """Load a single profile YAML and verify all fields parsed correctly."""
     yaml_content = (
         "name: analyst\n"
-        "skills:\n  - demo-tables\n"
+        "skills:\n  - databricks-tables\n"
         "tools:\n  - Read\n  - Bash\n"
         "hooks:\n  - enforcement\n"
         "model: gpt-4\n"
@@ -19,7 +19,7 @@ def test_load_profile_from_yaml(tmp_path):
     (tmp_path / "analyst.yaml").write_text(yaml_content, encoding="utf-8")
     profile = load_profile_from_path(tmp_path / "analyst.yaml")
     assert profile.name == "analyst"
-    assert profile.skills == ["demo-tables"]
+    assert profile.skills == ["databricks-tables"]
     assert profile.tools == ["Read", "Bash"]
     assert profile.hooks == ["enforcement"]
     assert profile.model == "gpt-4"
@@ -80,7 +80,7 @@ def test_agent_definition_with_profiles_resolves(tmp_path):
     """End-to-end: profiles loaded from dir and merged produce correct resolution."""
     (tmp_path / "analyst.yaml").write_text(
         "name: analyst\n"
-        "skills:\n  - demo-tables\n"
+        "skills:\n  - databricks-tables\n"
         "tools:\n  - Read\n  - Bash\n"
         "hooks: []\n"
         "model: gpt-4\n"
@@ -101,20 +101,9 @@ def test_agent_definition_with_profiles_resolves(tmp_path):
     assert "secure" in profiles
 
     resolved = merge_profiles([profiles["analyst"], profiles["secure"]])
-    assert resolved.skills == ["demo-tables", "troubleshooting"]
+    assert resolved.skills == ["databricks-tables", "troubleshooting"]
     assert resolved.tools == ["Read", "Bash"]  # union, deduplicated
     assert resolved.hooks == ["enforcement"]
     assert resolved.model == "gpt-4"  # secure has empty model, analyst's wins
     assert "Data analyst." in resolved.system_prompt_extra
     assert "Security-focused." in resolved.system_prompt_extra
-
-
-def test_default_profile_loads():
-    """The shipped default.yaml profile loads and has expected structure."""
-    profiles_dir = Path(__file__).resolve().parents[3] / ".bouzecode" / "profiles"
-    profiles = load_profiles_from_dir(profiles_dir)
-    assert "default" in profiles
-    default = profiles["default"]
-    assert default.tools == []
-    assert default.hooks == []
-    assert default.skills == []

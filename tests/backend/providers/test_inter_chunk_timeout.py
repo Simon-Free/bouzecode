@@ -1,23 +1,13 @@
 # [desc] Tests inter-chunk stall detection and stream interruption in _iter_stream_resilient [/desc]
 """Tests for the inter-chunk stall detection in _iter_stream_resilient."""
+import inspect
 import threading
 import time
 import pytest
 
-from bouzecode.backend.agent.providers.backends import anthropic_helpers
 from bouzecode.backend.agent.providers.backends.anthropic_helpers import (
-    _iter_stream_resilient, _StreamInterrupted,
+    _iter_stream_resilient, _StreamInterrupted, _INTER_CHUNK_TIMEOUT_S,
 )
-
-# Production default is 60 s. `_iter_stream_resilient` reads the module global at
-# call time, so shortening it here exercises exactly the same code path in ~1 s
-# instead of stalling the suite for a minute per stall test.
-_TEST_TIMEOUT_S = 1
-
-
-@pytest.fixture(autouse=True)
-def _short_inter_chunk_timeout(monkeypatch):
-    monkeypatch.setattr(anthropic_helpers, "_INTER_CHUNK_TIMEOUT_S", _TEST_TIMEOUT_S)
 
 
 class FakeEvent:
@@ -85,17 +75,35 @@ def test_empty_stream_completes():
 
 
 def test_stall_after_first_event_raises_stream_interrupted():
+    """The stall path is exercised with an injected short deadline: waiting the
+    full production one would cost a minute for no extra coverage (the
+    production default itself is pinned by
+    test_inter_chunk_default_is_production_constant)."""
     stream = StallingStream(events_before_stall=2)
     warnings = []
 
     t0 = time.monotonic()
     with pytest.raises(_StreamInterrupted, match="inter-chunk stall"):
-        list(_iter_stream_resilient(stream, warnings.append))
+        list(_iter_stream_resilient(
+            stream, warnings.append, inter_chunk_timeout_s=0.5,
+        ))
     elapsed = time.monotonic() - t0
 
     stream.unstall()  # cleanup
-    assert _TEST_TIMEOUT_S <= elapsed < _TEST_TIMEOUT_S + 3
+    assert 0.5 <= elapsed < 3.0
     assert any("no data received" in w for w in warnings)
+
+
+def test_inter_chunk_default_is_production_constant():
+    """Guard: the injectable deadline must still default to the production
+    value, so no test can silently weaken the real stall detector."""
+    sig = inspect.signature(_iter_stream_resilient)
+    param = sig.parameters["inter_chunk_timeout_s"]
+    assert param.kind is inspect.Parameter.KEYWORD_ONLY
+    assert param.default == _INTER_CHUNK_TIMEOUT_S
+    assert _INTER_CHUNK_TIMEOUT_S >= 30, (
+        "production inter-chunk deadline looks far too short"
+    )
 
 
 def test_network_error_raises_stream_interrupted():
@@ -119,15 +127,19 @@ def test_stall_before_first_event_waits_indefinitely():
 
     def _consumer():
         try:
-            for ev in _iter_stream_resilient(stream, _noop_warn):
+            # A deliberately tiny inter-chunk deadline: if it were (wrongly)
+            # applied before the first event, it would fire almost instantly.
+            for ev in _iter_stream_resilient(
+                stream, _noop_warn, inter_chunk_timeout_s=0.2,
+            ):
                 result.append(ev)
         except _StreamInterrupted:
             timeout_fired.set()
 
     t = threading.Thread(target=_consumer, daemon=True)
     t.start()
-    # Wait 2s — should NOT have fired the inter-chunk timeout
-    t.join(timeout=2)
+    # Wait 1s (5x the inter-chunk deadline) — it must NOT have fired
+    t.join(timeout=1)
     assert not timeout_fired.is_set(), "Should not timeout before first event"
     stream.unstall()
     t.join(timeout=3)

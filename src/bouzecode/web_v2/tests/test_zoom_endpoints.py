@@ -260,7 +260,7 @@ class TestCallZoom:
         assert resp.status_code == 404
         data = resp.get_json()
         assert "error" in data
-        assert "call_nonexist" in data["error"]
+        assert "call_nonexist" in data["error"]["message"]
 
     def test_call_zoom_overflow_resolved(self, overflow_client):
         """Overflow pointer is resolved — full file content served."""

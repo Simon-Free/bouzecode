@@ -7,12 +7,13 @@ Régression réelle : `conftest._isolate_production_state` ne redirigeait que
 dans le magasin de tickets de production, et une suite non déterministe.
 """
 from __future__ import annotations
+from bouzecode.paths import data_dir as bouzecode_data_dir
 
 from pathlib import Path
 
 from bouzecode.web_v2.services.work import _persistence, projects, tickets, worktrees
 
-PRODUCTION_ROOT = Path.home() / ".bouzecode"
+PRODUCTION_ROOT = bouzecode_data_dir()
 
 
 def _is_isolated(path: Path) -> bool:

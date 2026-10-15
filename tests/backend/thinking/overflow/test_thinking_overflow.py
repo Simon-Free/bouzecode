@@ -13,13 +13,14 @@ def test_loop_context_has_thinking_overflow_field():
 
 def test_thinking_overflow_limit_in_defaults():
     assert "thinking_overflow_limit" in DEFAULTS
-    assert DEFAULTS["thinking_overflow_limit"] == 20000
+    # Désactivé par défaut : le modèle réfléchit jusqu'au bout (borné par max_tokens).
+    assert DEFAULTS["thinking_overflow_limit"] == 0
 
 
 def test_runner_command_includes_loud():
     """Verify that web agent runner builds command with --loud flag."""
-    from bouzecode.web_v2.runtime.runner import _bouzecode_launch_cmd
-    import bouzecode.web_v2.runtime.runner as runner_mod
+    from bouzecode.web_v2.runtime.runner.agent_commande import _bouzecode_launch_cmd
+    from bouzecode.web_v2.runtime.runner import agent_creation, agent_fiche
 
     # Patch create_agent minimally to capture the command without spawning
     import subprocess
@@ -37,13 +38,13 @@ def test_runner_command_includes_loud():
         import tempfile, os
         with tempfile.TemporaryDirectory() as tmp:
             # Patch AGENTS_DIR to tmp
-            orig_dir = runner_mod.AGENTS_DIR
+            orig_dir = agent_fiche.AGENTS_DIR
             from pathlib import Path
-            runner_mod.AGENTS_DIR = Path(tmp)
+            agent_fiche.AGENTS_DIR = Path(tmp)
             try:
-                runner_mod.create_agent("test prompt", "claude-sonnet-4-20250514", tmp)
+                agent_creation.create_agent("test prompt", "claude-sonnet-4-20250514", tmp)
             finally:
-                runner_mod.AGENTS_DIR = orig_dir
+                agent_fiche.AGENTS_DIR = orig_dir
     finally:
         subprocess.Popen = original_popen
 

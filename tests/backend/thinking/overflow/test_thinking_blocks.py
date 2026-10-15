@@ -1,8 +1,6 @@
 # [desc] Tests that tool_use XML inside thinking blocks is ignored by parser and renderer [/desc]
 """Tests for <thinking> block protection in XML parser and HTML renderer."""
 from bouzecode.backend.xml_tool_protocol.parser import XmlToolStreamParser, _is_in_thinking
-from bouzecode.web_v2.runtime.html_renderer.parser import parse_session
-from bouzecode.web_v2.runtime.html_renderer.json_parser import strip_tool_xml
 
 
 def _vt(items):
@@ -84,35 +82,3 @@ class TestStreamingParserThinking:
         v1, t1 = _split(parser.feed('<thinking>analysis <tool_use name="Read" id="x1"><param name="file_path">x</param></tool_use>'))
         assert t1 == []
 
-
-class TestParseSessionThinking:
-    def test_tool_use_in_thinking_ignored(self):
-        text = '<thinking>Let me use <tool_use name="Read" id="x1"><param name="file_path">foo</param></tool_use></thinking>\nSome visible text'
-        blocks = parse_session(text)
-        # Should not produce a ToolCall block from the thinking content
-        from bouzecode.web_v2.runtime.html_renderer.parser import ToolCall
-        tool_blocks = [b for b in blocks if isinstance(b, ToolCall)]
-        assert tool_blocks == []
-
-    def test_tool_use_outside_thinking_parsed(self):
-        text = '<thinking>plan</thinking>\n<tool_use name="Read" id="x1"><param name="file_path">foo</param></tool_use>'
-        blocks = parse_session(text)
-        from bouzecode.web_v2.runtime.html_renderer.parser import ToolCall
-        tool_blocks = [b for b in blocks if isinstance(b, ToolCall)]
-        assert len(tool_blocks) == 1
-
-
-class TestStripToolXmlThinking:
-    def test_thinking_content_preserved(self):
-        text = '<thinking>Let me <tool_use name="R" id="1"><param name="f">x</param></tool_use> think</thinking>\nVisible'
-        result = strip_tool_xml(text)
-        assert "<thinking>" in result
-        assert "<tool_use" in result  # tool_use INSIDE thinking is preserved
-        assert "Visible" in result
-
-    def test_tool_outside_thinking_stripped(self):
-        text = '<thinking>plan</thinking>\n<tool_use name="R" id="1"><param name="f">x</param></tool_use>\nDone'
-        result = strip_tool_xml(text)
-        assert "<thinking>plan</thinking>" in result
-        assert "<tool_use" not in result
-        assert "Done" in result

@@ -12,10 +12,13 @@ import json
 
 import pytest
 
-from bouzecode.web_v2.runtime import runner
+from bouzecode.web_v2.runtime.runner import agent_fiche
 from bouzecode.web_v2.services.sessions import store
 from bouzecode.web_v2.services.work import _persistence, fleet, projects, wake
+from bouzecode.web_v2.services.work import constats
 from bouzecode.web_v2.services.work import tickets as tickets_svc
+from bouzecode.web_v2.services.work.fsm import etats
+from bouzecode.web_v2.tests.aides_tickets import maintenant, run, semer
 
 SLUG = "projet-du-watchdog"
 
@@ -31,7 +34,7 @@ def _own_store(tmp_path, monkeypatch):
 def disk_reads(monkeypatch):
     """Compte les lectures de fichiers agent / de sessions, puis délègue au vrai code."""
     reads: list[str] = []
-    real_load_agent, real_load_session = runner.load_agent, store.load_session_json
+    real_load_agent, real_load_session = agent_fiche.load_agent, store.load_session_json
 
     def counting_load_agent(agent_id):
         reads.append(f"agent:{agent_id}")
@@ -41,7 +44,7 @@ def disk_reads(monkeypatch):
         reads.append(f"session:{path}")
         return real_load_session(path)
 
-    monkeypatch.setattr(runner, "load_agent", counting_load_agent)
+    monkeypatch.setattr(agent_fiche, "load_agent", counting_load_agent)
     monkeypatch.setattr(store, "load_session_json", counting_load_session)
     return reads
 
@@ -61,17 +64,22 @@ def warm_pool_sweeps(monkeypatch):
 
 
 def _open_ticket(title: str) -> dict:
-    return tickets_svc.create_ticket(SLUG, title, "fais le travail")
+    """Un ticket lancé dont le run est rattaché (`running`), par le vrai chemin."""
+    ticket = tickets_svc.create_ticket(SLUG, title, "fais le travail")
+    tickets_svc.set_launching(SLUG, ticket)
+    return ticket
+
+
+def _ticket_merge_et_fauche(ident: str, agent_id: str) -> dict:
+    """Un ticket intégré (`closed{integre}`) dont le worktree a été retiré."""
+    return semer(SLUG, ident, etats.CLOSED, "integre",
+                 worktree={"worktree": "/wt", "retire_at": maintenant()},
+                 runs=[run(agent_id, completed=True)])
 
 
 def test_a_merged_project_no_longer_reopens_any_agent_session_on_a_tick(disk_reads):
     """Un projet dont le seul ticket est mergé et fauché ne fait plus rouvrir la moindre session."""
-    ticket = _open_ticket("livré et mergé")
-    tickets_svc.add_run(SLUG, ticket, "coder-1", "work", "opus")
-    tickets_svc.mark_run_completed(SLUG, ticket, "coder-1")
-    ticket["worktree"] = {"state": "integrated", "worktree": "/wt"}
-    ticket["reaped"] = True
-    tickets_svc.update_ticket(SLUG, ticket)
+    _ticket_merge_et_fauche("t1", "coder-1")
 
     wake.tick()
 
@@ -80,12 +88,7 @@ def test_a_merged_project_no_longer_reopens_any_agent_session_on_a_tick(disk_rea
 
 def test_the_warm_pool_is_swept_even_when_nothing_is_left_to_reconcile(warm_pool_sweeps):
     """Le warm-pool est balayé à chaque tick, même quand plus aucun ticket ne bouge."""
-    ticket = _open_ticket("livré et mergé")
-    tickets_svc.add_run(SLUG, ticket, "coder-3", "work", "opus")
-    tickets_svc.mark_run_completed(SLUG, ticket, "coder-3")
-    ticket["worktree"] = {"state": "integrated", "worktree": "/wt"}
-    ticket["reaped"] = True
-    tickets_svc.update_ticket(SLUG, ticket)
+    _ticket_merge_et_fauche("t3", "coder-3")
 
     wake.tick()
 
@@ -93,7 +96,7 @@ def test_the_warm_pool_is_swept_even_when_nothing_is_left_to_reconcile(warm_pool
 
 
 def test_a_ticket_whose_agent_is_still_open_is_still_inspected_on_a_tick(disk_reads):
-    """Un ticket dont le run n'a pas clos sa comptabilité reste inspecté à chaque tick."""
+    """Un ticket dont le run est en vol reste inspecté à chaque tick."""
     ticket = _open_ticket("travail en cours")
     tickets_svc.add_run(SLUG, ticket, "coder-2", "work", "opus")
 
@@ -105,7 +108,7 @@ def test_a_ticket_whose_agent_is_still_open_is_still_inspected_on_a_tick(disk_re
 def test_a_crashed_agent_is_still_reported_as_planted_by_the_watchdog(disk_reads, monkeypatch,
                                                                      tmp_path):
     """Un agent lancé puis mort sans jamais clore son tour finit signalé « planté »."""
-    monkeypatch.setattr(runner, "AGENTS_DIR", tmp_path)
+    monkeypatch.setattr(agent_fiche, "AGENTS_DIR", tmp_path)
     ticket = _open_ticket("agent qui plante")
     tickets_svc.add_run(SLUG, ticket, "coder-mort", "work", "opus")
     # L'agent a bien été lancé (son fichier existe) mais son process a disparu : ni
@@ -117,9 +120,9 @@ def test_a_crashed_agent_is_still_reported_as_planted_by_the_watchdog(disk_reads
     }), encoding="utf-8")
     (tmp_path / "coder-mort.session.json").write_text('{"messages": []}', encoding="utf-8")
 
-    for _ in range(wake._CRASH_DEAD_TICKS):
+    for _ in range(constats.MORTS_AVANT_CRASH):
         wake.tick()
 
     reloaded = tickets_svc.get_ticket(SLUG, ticket["id"])
-    assert reloaded["crashed"] is True
+    assert reloaded["state"] == etats.STOPPED
     assert tickets_svc.derive_status(reloaded) == "planté"

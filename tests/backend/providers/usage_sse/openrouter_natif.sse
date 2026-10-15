@@ -1,0 +1,12 @@
+data: {"id": "gen-1", "object": "chat.completion.chunk", "created": 1790286032, "model": "deepseek/deepseek-v4-flash", "provider": "DeepSeek", "choices": [{"index": 0, "delta": {"role": "assistant", "content": "Je note."}, "finish_reason": null}]}
+
+data: {"id": "gen-1", "object": "chat.completion.chunk", "created": 1790286032, "model": "deepseek/deepseek-v4-flash", "provider": "DeepSeek", "choices": [{"index": 0, "delta": {"tool_calls": [{"index": 0, "id": "call_1", "type": "function", "function": {"name": "Methodology", "arguments": ""}}]}, "finish_reason": null}]}
+
+data: {"id": "gen-1", "object": "chat.completion.chunk", "created": 1790286032, "model": "deepseek/deepseek-v4-flash", "provider": "DeepSeek", "choices": [{"index": 0, "delta": {"tool_calls": [{"index": 0, "function": {"arguments": "{\"content\": \"ok\"}"}}]}, "finish_reason": null}]}
+
+data: {"id": "gen-1", "object": "chat.completion.chunk", "created": 1790286032, "model": "deepseek/deepseek-v4-flash", "provider": "DeepSeek", "choices": [{"index": 0, "delta": {}, "finish_reason": "tool_calls"}]}
+
+data: {"id": "gen-1", "object": "chat.completion.chunk", "created": 1790286032, "model": "deepseek/deepseek-v4-flash", "provider": "DeepSeek", "choices": [], "usage": {"prompt_tokens": 7000, "completion_tokens": 140, "total_tokens": 7140, "prompt_tokens_details": {"cached_tokens": 6000}}}
+
+data: [DONE]
+

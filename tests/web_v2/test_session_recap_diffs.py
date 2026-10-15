@@ -62,7 +62,7 @@ def _session_without_recap() -> dict:
 
 def _write_session(tmp_path, monkeypatch, data: dict, name: str) -> str:
     from bouzecode.web_v2.services.sessions import store
-    from bouzecode.web_v2.services.sessions.store import runner as _runner
+    from bouzecode.web_v2.runtime.runner import agent_registre
 
     daily_dir = tmp_path / "daily"
     day_dir = daily_dir / "2026-06-13"
@@ -73,7 +73,7 @@ def _write_session(tmp_path, monkeypatch, data: dict, name: str) -> str:
 
     monkeypatch.setattr(store, "DAILY_DIR", daily_dir)
     monkeypatch.setattr(store, "CACHE_PATH", tmp_path / "cache.json")
-    monkeypatch.setattr(_runner, "list_agents", lambda: [])
+    monkeypatch.setattr(agent_registre, "list_agents", lambda: [])
 
     return f"daily/2026-06-13/{name}"
 

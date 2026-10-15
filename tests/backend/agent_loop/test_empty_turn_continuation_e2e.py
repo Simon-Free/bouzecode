@@ -73,10 +73,16 @@ def test_no_continuation_message_when_methodology_emitted():
 def test_empty_reply_without_recorded_methodology_closes():
     mock = MockLLM([
         '<tool_use name="Bash" id="b1"><param name="command">echo hi</param></tool_use>',
-        "",                # empty reply, NO Methodology recorded → clôture directe
+        "",                # empty reply, NO Methodology recorded → 1 seule relance
+        "",                # still empty → clôture empty_completion
     ])
     result = bouzecode(["fais le travail"], mock_llm=mock)
     users = _user_contents(result)
     assert not any("ENFORCEMENT" in c for c in users), users  # pas de bounce
-    assert not any("réponse vide reçue" in c for c in users), users  # nudge réservé au cas Methodology déjà enregistrée
-    assert mock.call_count == 2
+    # Depuis e1d640fe (2026-09-28) : 1 relance même sans Methodology, et le nudge
+    # ne prétend pas qu'une Methodology est enregistrée.
+    nudges = [c for c in users if "réponse vide reçue" in c]
+    assert len(nudges) == 1, users
+    assert "Methodology" not in nudges[0], nudges[0]
+    assert result.state.close_reason == "empty_completion"
+    assert mock.call_count == 3

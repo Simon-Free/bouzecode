@@ -1,4 +1,4 @@
-# [desc] Tests inline tool display ordering and ToolCallParsed/ToolStart event deduplication during streaming [/desc]
+# [desc] Tests inline tool display ordering and ToolCallParsed/ToolStart deduplication during streaming [/desc]
 """Test inline tool display ordering — ToolCallParsed events during streaming."""
 
 

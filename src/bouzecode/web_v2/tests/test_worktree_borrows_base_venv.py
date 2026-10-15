@@ -91,13 +91,13 @@ def test_un_venv_de_base_absent_ou_casse_ne_pollue_rien(tmp_path):
 def test_le_venv_emprunte_est_rejoue_a_chaque_respawn(tmp_path):
     """L'emprunt est porté par la FICHE de l'agent, donc rejoué au respawn/continue — sinon un
     agent repris repartait sans environnement et uv recréait un venv dans le worktree."""
-    from bouzecode.web_v2.runtime import runner
+    from bouzecode.web_v2.runtime.runner import agent_commande, agent_fiche
 
     venv = _make_venv(tmp_path)
-    agent = runner.Agent(agent_id="a1", prompt="p", model="m", cwd=str(tmp_path),
+    agent = agent_fiche.Agent(agent_id="a1", prompt="p", model="m", cwd=str(tmp_path),
                          pid=0, started_at="2026-07-30T10:00:00Z", base_venv=str(venv))
 
-    env = runner._ticket_env(agent)
+    env = agent_commande._ticket_env(agent)
 
     assert env["VIRTUAL_ENV"] == str(venv)
     assert env["UV_PROJECT_ENVIRONMENT"] == str(venv)

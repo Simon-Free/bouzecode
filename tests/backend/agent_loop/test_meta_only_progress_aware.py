@@ -1,7 +1,7 @@
 # [desc] Feature tests: consecutive meta-only turns close the session only when they stop bringing anything new. [/desc]
 """The anti-loop cap must fire on a STUCK model, not on a working one.
 
-Observed in production (2026-07-30): an agent read 7 slide images, then
+Observed in production (Focus, 2026-07-30): an agent read 7 slide images, then
 spent two bookkeeping turns discarding stale snippets and writing its execution
 plan. Three consecutive meta-only turns tripped the cap, the session closed with
 `meta_only_cap` and no FinalAnswer, and the user got an empty answer — while the

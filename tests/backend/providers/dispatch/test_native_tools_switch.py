@@ -32,7 +32,7 @@ def _clean_switch(monkeypatch):
 
 
 def test_anthropic_uses_xml_by_default():
-    """Sans rien regler, le chemin Anthropic reste sur le protocole XML."""
+    """Sans rien regler, le gateway reste sur le protocole XML."""
     assert model_uses_native_tools("claude-opus-4-8", {}) is False
 
 
@@ -42,7 +42,7 @@ def test_the_escape_hatch_turns_native_on(monkeypatch):
 
 
 def test_the_escape_hatch_can_force_xml_back(monkeypatch):
-    """Repli sans redeploiement si la passerelle regressait."""
+    """Repli sans redeploiement si le gateway regressait."""
     monkeypatch.setenv("BOUZECODE_ANTHROPIC_NATIVE_TOOLS", "0")
     assert model_uses_native_tools("claude-opus-4-8", {}) is False
 
@@ -100,6 +100,7 @@ def test_openrouter_keeps_native_whatever_the_anthropic_switch_says(monkeypatch)
 # `base_url` is taken by the pytest-base-url plugin (session-scoped): naming the
 # parameter `endpoint` avoids a ScopeMismatch at setup.
 @pytest.mark.parametrize("endpoint,eligible", [
+    ("https://llm-gateway.example.com", True),
     ("https://api.anthropic.com", True),
     (None, True),
     ("https://un-proxy-inconnu.example", False),

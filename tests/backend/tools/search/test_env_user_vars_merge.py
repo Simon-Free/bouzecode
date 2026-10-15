@@ -26,8 +26,12 @@ def test_registry_path_never_creates_a_case_conflicting_key():
 
 
 def test_genuinely_new_registry_path_entries_are_appended():
-    merged = _merge_user_env({"PATH": r"C:\a;C:\b"}, [("Path", r"C:\b;C:\new")])
-    assert merged["PATH"] == r"C:\a;C:\b;C:\new"  # C:\new appended once, C:\b not duplicated
+    # Séparateur et forme de chemin de la plateforme : sous Linux, « C:\b » contient le
+    # séparateur « : » et le test mesurerait un découpage absurde au lieu de la fusion.
+    a, b, new = ((r"C:\a", r"C:\b", r"C:\new") if os.name == "nt" else ("/a", "/b", "/new"))
+    join = os.pathsep.join
+    merged = _merge_user_env({"PATH": join([a, b])}, [("Path", join([b, new]))])
+    assert merged["PATH"] == join([a, b, new])  # new appended once, b not duplicated
 
 
 def test_existing_var_is_not_overwritten_by_registry():

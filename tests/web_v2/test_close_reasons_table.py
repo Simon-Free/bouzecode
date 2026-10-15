@@ -17,8 +17,8 @@ import pytest
 
 from bouzecode.backend.agent import loop as loop_mod
 from bouzecode.web_v2 import close_reasons
-from bouzecode.web_v2.runtime import runner
-from bouzecode.web_v2.services.work import liveness, wake
+from bouzecode.web_v2.runtime.runner import agent_etat
+from bouzecode.web_v2.services.work import liveness
 
 AGENT_DIR = Path(loop_mod.__file__).parent
 
@@ -47,7 +47,9 @@ def _raisons_produites() -> set[str]:
     raisons: set[str] = set()
     for module in sorted(AGENT_DIR.glob("*.py")):
         raisons |= _literaux_de_cloture(module)
-    return raisons
+    #  "" n'est pas une raison : c'est l'effacement du motif du tour précédent quand un
+    #  nouveau message ouvre un tour (loop.run) — « pas (encore) clos », la valeur neuve.
+    return raisons - {""}
 
 
 def test_toute_raison_assignee_par_la_boucle_est_classee():
@@ -91,7 +93,6 @@ def test_close_over_failed_tool_livre_et_avance():
     ticket. La dégrader en crash serait une régression — c'est au validateur de juger une
     livraison dont un outil a manqué, pas au classifieur de geler le ticket."""
     assert close_reasons.proves_delivery("final_answer_over_failed_tool")
-    assert close_reasons.advances_ticket("final_answer_over_failed_tool")
     assert close_reasons.is_controlled("final_answer_over_failed_tool")
 
 
@@ -99,7 +100,6 @@ def test_une_raison_inconnue_ne_prouve_rien():
     """Repli pessimiste : une clôture qu'on ne sait pas nommer ne valide ni rc 0 ni
     avancement de ticket."""
     assert not close_reasons.proves_delivery("raison_jamais_vue")
-    assert not close_reasons.advances_ticket("raison_jamais_vue")
     assert not close_reasons.is_controlled("")
 
 
@@ -111,10 +111,9 @@ def test_les_morts_en_vol_restent_des_crashs(raison):
 
 def test_les_trois_surfaces_lisent_la_meme_table():
     """Aucune des trois ne garde son propre ensemble : c'est la divergence qui a créé le bug."""
-    assert wake.GRACEFUL_CLOSE_REASONS is close_reasons.ADVANCING_CLOSE_REASONS
     assert liveness.CLEAN_CLOSE_REASONS is close_reasons.CONTROLLED_CLOSE_REASONS
     assert liveness.CRASH_CLOSE_REASONS is close_reasons.CRASH_CLOSE_REASONS
-    assert runner._DELIVERY_CLOSE_REASONS is close_reasons.DELIVERY_CLOSE_REASONS
+    assert agent_etat._DELIVERY_CLOSE_REASONS is close_reasons.DELIVERY_CLOSE_REASONS
 
 
 def test_aucune_classification_existante_n_a_bouge():
@@ -124,9 +123,20 @@ def test_aucune_classification_existante_n_a_bouge():
     assert not close_reasons.proves_delivery("text_no_tools"), \
         "text_no_tools ne prouve PAS une livraison (rc≠0) — un validateur clos sur prose " \
         "ne doit pas basculer de KO à OK"
-    assert close_reasons.advances_ticket("text_no_tools"), \
-        "text_no_tools fait avancer le ticket (le verdict d'un validateur est dans sa prose)"
+    assert close_reasons.issue_de_fin("text_no_tools")[0] == "idle_no_delivery", \
+        "seul FinalAnswer livre : une fin sur prose est une fin maîtrisée SANS livraison"
     for forcee in ("final_answer_nudge_exhausted", "final_answer_never_called",
                    "meta_only_cap", "meta_only_text_close"):
         assert close_reasons.is_controlled(forcee), forcee
-        assert not close_reasons.advances_ticket(forcee), forcee
+        assert not close_reasons.proves_delivery(forcee), forcee
+
+
+def test_la_fin_d_un_run_se_lit_dans_la_meme_table():
+    """Lot L2 : `issue_de_fin` (seule table livré / non livré / arrêté du ticket) ne
+    contredit aucun des trois ensembles."""
+    for raison in close_reasons.DELIVERY_CLOSE_REASONS:
+        assert close_reasons.issue_de_fin(raison)[0] == "delivered"
+    for raison in close_reasons.CONTROLLED_CLOSE_REASONS - close_reasons.DELIVERY_CLOSE_REASONS:
+        assert close_reasons.issue_de_fin(raison)[0] == "idle_no_delivery"
+    for raison in close_reasons.CRASH_CLOSE_REASONS:
+        assert close_reasons.issue_de_fin(raison)[0] == "stopped"

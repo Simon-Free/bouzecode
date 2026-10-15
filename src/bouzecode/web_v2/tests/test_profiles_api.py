@@ -165,7 +165,7 @@ def test_skill_with_unclosed_frontmatter_is_refused(client, tmp_path):
                                             "content": _SKILL_WITH_TABLE_UNCLOSED})
 
     assert resp.status_code == 400
-    assert "---" in resp.get_json()["error"]
+    assert "---" in resp.get_json()["error"]["message"]
     assert not (tmp_path / "skills" / "tabled.md").exists()
 
 
@@ -175,7 +175,7 @@ def test_skill_without_description_is_refused(client, tmp_path):
         "name": "muette", "content": "---\nname: muette\ndescription:\n---\ncorps."})
 
     assert resp.status_code == 400
-    assert "description" in resp.get_json()["error"]
+    assert "description" in resp.get_json()["error"]["message"]
     assert not (tmp_path / "skills" / "muette.md").exists()
 
 
@@ -184,7 +184,7 @@ def test_skill_without_frontmatter_at_all_is_refused(client):
     resp = client.post("/api/skills", json={"name": "nue", "content": "# nue\njuste du texte"})
 
     assert resp.status_code == 400
-    assert "frontmatter" in resp.get_json()["error"]
+    assert "frontmatter" in resp.get_json()["error"]["message"]
 
 
 def test_profile_with_unknown_tool_skill_or_hook_is_refused(client, tmp_path):
@@ -196,7 +196,7 @@ def test_profile_with_unknown_tool_skill_or_hook_is_refused(client, tmp_path):
     ]:
         resp = client.post("/api/profiles", json=payload)
         assert resp.status_code == 400
-        assert expected in resp.get_json()["error"]
+        assert expected in resp.get_json()["error"]["message"]
         assert not (tmp_path / "profiles" / f"{payload['name']}.yaml").exists()
 
 
@@ -205,7 +205,7 @@ def test_agent_import_with_broken_yaml_is_refused(client):
     resp = client.post("/api/agents/import", json={"yaml": "name: [oups\n  - pas: du yaml"})
 
     assert resp.status_code == 400
-    assert "YAML" in resp.get_json()["error"]
+    assert "YAML" in resp.get_json()["error"]["message"]
 
 
 def test_builder_agents_lists_profiles_and_system_agents(client):

@@ -1,8 +1,8 @@
 """Le parcours d'un ticket de code, du branchement au merge sur develop.
 
 Quand un manager confie du code à faire, le système équipe l'agent en codeur et,
-si le manager l'a demandé, lui branche un worktree sur develop. Le reste — lancer un
-validateur, intégrer — est déclenché explicitement, plus jamais tout seul.
+si le manager l'a demandé, lui branche un worktree sur develop. Le reste — faire relire,
+intégrer — est déclenché explicitement, plus jamais tout seul.
 
 Rien n'est simulé : vrai git sur des dépôts temporaires, et des fonctions de décision
 pures pour le reste.
@@ -50,28 +50,29 @@ def develop_repo(tmp_path: Path) -> Path:
 
 
 def test_coder_profile_resolves() -> None:
-    """Le codeur est équipé pour écrire du code et lancer les tests, mais pas pour déléguer."""
+    """Le codeur est équipé pour écrire du code, lancer les tests ET déléguer (décision
+    documentée dans coder.yaml : la typologie la plus dispatchée doit pouvoir décomposer)."""
     from bouzecode.backend.profiles import resolve_agent_profile
 
     profile = resolve_agent_profile("coder")
     assert profile is not None
-    assert "python-coding" in profile.skills
-    # Coder equipment: edits code + runs tests, but does NOT spawn sub-agents.
-    for tool in ("Read", "Write", "Edit", "Bash", "RunPythonTest", "FinalAnswer"):
+    assert "demo-coding" in profile.skills
+    # Délégation : lancer un enfant ET récupérer son résultat (wait=false) vont ensemble.
+    for tool in ("Read", "Write", "Edit", "Bash", "RunPythonTest", "FinalAnswer",
+                 "Agent", "ListAgentTasks", "CheckAgentResult"):
         assert tool in profile.tools, f"{tool} missing from coder tools"
-    assert "Agent" not in profile.tools
 
 
-def test_project_coding_skill_registered_and_injectable() -> None:
+def test_demo_coding_skill_registered_and_injectable() -> None:
     """Le codeur reçoit les conventions du projet, dont l'obligation de signaler ses correctifs hors scope."""
     from bouzecode.backend.tools.skill.loader import load_skills
     from bouzecode.backend.core.context import render_profile_skills
 
     names = {s.name for s in load_skills()}
-    assert "python-coding" in names
+    assert "demo-coding" in names
     # Profile-skill preload path (render_profile_skills) surfaces its content.
-    rendered = render_profile_skills(["python-coding"])
-    assert "python-coding" in rendered
+    rendered = render_profile_skills(["demo-coding"])
+    assert "demo-coding" in rendered
     assert "uv" in rendered and "unittest.mock" in rendered
     # FIX #4: the coder may fix pre-existing broken tests/files but MUST list each
     # out-of-scope fix in its FinalAnswer.
@@ -128,29 +129,6 @@ def test_provision_base_develop(develop_repo: Path) -> None:
     agent = _git(develop_repo, "rev-parse", "agent/t-123")
     assert dev == agent
     worktrees.cleanup(meta)
-
-
-def test_build_validator_prompt() -> None:
-    """Le validateur reçoit la demande d'origine, le diff à juger, et le format de verdict attendu."""
-    ticket = {"title": "T", "prompt": "implémente X"}
-    p = tickets.build_validator_prompt(ticket, "diff --git a/f b/f\n+code")
-    assert "implémente X" in p
-    assert "DIFF À VALIDER" in p
-    assert "diff --git" in p
-    assert "VERDICT: OK" in p and "VERDICT: KO" in p
-    # FIX #4: the validator is told not to KO reasonable, reported out-of-scope fixes.
-    assert "hors du scope" in p and "NE mets PAS KO" in p
-
-
-def test_build_validator_prompt_includes_report() -> None:
-    """Le validateur reçoit aussi le rapport du codeur — et rien de tel si le codeur n'en a pas laissé."""
-    # The validator must be fed the coder's FinalAnswer, not just the diff (spec).
-    ticket = {"title": "T", "prompt": "implémente X"}
-    p = tickets.build_validator_prompt(ticket, "diff", report="RAPPORT: fait X en 3 fichiers")
-    assert "RAPPORT DU CODEUR" in p
-    assert "RAPPORT: fait X en 3 fichiers" in p
-    # Empty report → no report section.
-    assert "RAPPORT DU CODEUR" not in tickets.build_validator_prompt(ticket, "diff")
 
 
 def test_extract_final_answer() -> None:

@@ -6,7 +6,7 @@ ERREUR d'outil — jamais en compte rendu neutre, qu'un manager relisait comme u
 avant d'annoncer « ticket dispatché » alors qu'aucun enfant n'existait.
 """
 from bouzecode.backend.core.tool_registry import get_tool
-from bouzecode.backend.multi_agent import tools
+from bouzecode.backend.multi_agent import lancement_web
 
 
 def _config(monkeypatch, response):
@@ -24,7 +24,7 @@ def _config(monkeypatch, response):
     return {"_web_dispatch": fake_dispatch, "_web_wait_verdict": fake_wait}, sent
 
 
-_ROUTED = {"routed": True, "ticket_id": "t1", "project_name": "demo_app",
+_ROUTED = {"routed": True, "ticket_id": "t1", "project_name": "demo_application",
            "typology": "coder"}
 
 
@@ -32,7 +32,7 @@ def test_a_dispatch_leaves_the_project_to_be_inherited_by_default(monkeypatch):
     """Sans projet nommé, le corps porte un project_slug VIDE : le serveur l'hérite du parent."""
     config, sent = _config(monkeypatch, _ROUTED)
 
-    tools._spawn_web_ticket_agent({"prompt": "répare la boucle", "background": True}, config)
+    lancement_web._spawn_web_ticket_agent({"prompt": "répare la boucle", "background": True}, config)
 
     assert sent[0]["project_slug"] == ""
     assert sent[0]["parent"] == "9d0789f2fdca"
@@ -42,7 +42,7 @@ def test_an_explicit_project_slug_is_forwarded_to_the_server(monkeypatch):
     """Le projet nommé par le manager part tel quel dans le corps du dispatch."""
     config, sent = _config(monkeypatch, _ROUTED)
 
-    tools._spawn_web_ticket_agent(
+    lancement_web._spawn_web_ticket_agent(
         {"prompt": "ingère", "project_slug": "demo-ingestion", "background": True}, config)
 
     assert sent[0]["project_slug"] == "demo-ingestion"
@@ -51,14 +51,14 @@ def test_an_explicit_project_slug_is_forwarded_to_the_server(monkeypatch):
 def test_a_dispatch_refused_for_lack_of_project_is_an_error(monkeypatch):
     """Un dispatch refusé faute de projet revient en ERREUR, et liste les projets valides."""
     config, _ = _config(monkeypatch, {
-        "needs_project": True, "routed": False,
-        "suggestions": [{"slug": "demo-app", "name": "demo_app"}],
+        "routed": False, "code": "projet_requis", "parent_unknown": False,
+        "projets_ouverts": ["demo-application"],
     })
 
-    out = tools._spawn_web_ticket_agent({"prompt": "x", "background": True}, config)
+    out = lancement_web._spawn_web_ticket_agent({"prompt": "x", "background": True}, config)
 
     assert out.startswith("Error:")
-    assert "demo-app" in out
+    assert "demo-application" in out
     assert config.get("_bg_agent_launched") is not True
 
 
@@ -66,7 +66,7 @@ def test_a_dispatch_that_did_not_route_is_an_error(monkeypatch):
     """Un dispatch qui n'a routé nulle part revient en ERREUR, pas en compte rendu neutre."""
     config, _ = _config(monkeypatch, {"routed": False, "error": "provider absent"})
 
-    out = tools._spawn_web_ticket_agent({"prompt": "x", "background": True}, config)
+    out = lancement_web._spawn_web_ticket_agent({"prompt": "x", "background": True}, config)
 
     assert out.startswith("Error:")
     assert "provider absent" in out
@@ -77,7 +77,7 @@ def test_a_successful_dispatch_is_not_reported_as_an_error(monkeypatch):
     """Le succès reste un compte rendu lisible et arme le drapeau d'enfant en vol."""
     config, _ = _config(monkeypatch, _ROUTED)
 
-    out = tools._spawn_web_ticket_agent({"prompt": "x", "background": True}, config)
+    out = lancement_web._spawn_web_ticket_agent({"prompt": "x", "background": True}, config)
 
     assert not out.startswith("Error:")
     assert "t1" in out

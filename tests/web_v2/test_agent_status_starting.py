@@ -8,6 +8,7 @@ prématuré sur worktree vide (no_diff verrouillé). Il doit être vu 'starting'
 from pathlib import Path
 
 from bouzecode.web_v2.services.sessions import store
+from bouzecode.web_v2.runtime.runner import agent_etat, agent_vivacite
 
 
 class _FakeAgent:
@@ -29,9 +30,9 @@ class _FakeAgent:
 
 
 def _wire(monkeypatch, *, running, ipc=None):
-    monkeypatch.setattr(store.runner, "refresh_agent_status", lambda a: a)
-    monkeypatch.setattr(store.runner, "get_ipc_state", lambda a: ipc or {})
-    monkeypatch.setattr(store.runner, "is_running", lambda a: running)
+    monkeypatch.setattr(agent_etat, "refresh_agent_status", lambda a: a)
+    monkeypatch.setattr(agent_etat, "get_ipc_state", lambda a: ipc or {})
+    monkeypatch.setattr(agent_vivacite, "is_running", lambda a: running)
     # neutraliser le cache mémoire pour un test déterministe
     store._status_cache.clear()
 

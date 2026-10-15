@@ -12,7 +12,7 @@ import pytest
 from bouzecode.web_v2.services.work import tickets as tickets_svc
 from bouzecode.web_v2.services.work import dispatch
 from bouzecode.web_v2.services.work import _persistence
-from bouzecode.web_v2.routes.work import tickets as tickets_routes
+from bouzecode.web_v2.services.work.fsm import etats
 
 
 @pytest.fixture()
@@ -20,18 +20,16 @@ def wired(monkeypatch, tmp_path):
     """Store tickets réel sur temp + projet factice + pas d'isolation ni typology réseau."""
     monkeypatch.setattr(_persistence, "TICKETS_DIR", tmp_path / "tickets")
     monkeypatch.setattr(tickets_svc, "TICKETS_DIR", tmp_path / "tickets")
-    project = {"slug": "p", "name": "Projet", "path": str(tmp_path)}
-    monkeypatch.setattr(
-        tickets_routes, "_project_or_404",
-        lambda slug: (project, None) if slug == "p" else (None, ({"error": "nf"}, 404)),
-    )
+    from bouzecode.web_v2.tests.aides_tickets import projet
+    projet(tmp_path, monkeypatch, "p")  # dossier non git : isolation `shared` par défaut
+    #  Créer un ticket LANCÉ passe la garde d'environnement (API joignable) : neutralisée ici.
+    from bouzecode.web_v2 import api_sanity
+    monkeypatch.setattr(api_sanity, "require_api_sanity", lambda: None)
     monkeypatch.setattr(
         "bouzecode.web_v2.services.typologies.get_typology",
         lambda name, path: {"profile": "", "default_model": ""},
     )
-    monkeypatch.setattr(dispatch, "resolve_isolation",
-                        lambda path, requested, needs_worktree=False: ("shared", "test", ""))
-    return project
+    return {"slug": "p", "name": "p", "path": str(tmp_path)}
 
 
 @pytest.fixture()
@@ -51,7 +49,7 @@ def _launched_recorder(monkeypatch):
     def fake_launch(slug, ticket, project_path, profile, model, isolation="shared",
                     parent="", resume_branch="", work_branch=""):
         seen.append(ticket["id"])
-        # Simule le vrai _launch : enregistre un run (retire l'état launching).
+        # Simule le vrai _launch : enregistre un run (provisioning → running).
         tickets_svc.add_run(slug, ticket, "agent-" + ticket["id"], "work", model,
                             typology=ticket.get("typology", ""))
         launched.set()
@@ -66,12 +64,12 @@ def test_post_repond_vite_avec_launching_puis_run_en_fond(client, monkeypatch):
     resp = client.post("/api/projects/p/tickets",
                        json={"title": "T", "prompt": "fais un truc", "typology": "default"})
 
-    assert resp.status_code == 200
+    assert resp.status_code == 201
     body = resp.get_json()
     tid = body["id"]
-    # Réponse immédiate : le ticket est créé et marqué 'launching' AVANT tout run.
+    # Réponse immédiate : le ticket est créé et en préparation (`provisioning`) AVANT tout run.
     assert tid
-    assert body.get("launching") is True
+    assert body["state"] == etats.PROVISIONING
 
     # Le lancement lourd part bien en fond, sur CE ticket.
     assert launched.wait(3)
@@ -85,7 +83,7 @@ def test_trois_post_en_rafale_trois_tickets_trois_runs(client, monkeypatch):
     for i in range(3):
         r = client.post("/api/projects/p/tickets",
                         json={"title": f"T{i}", "prompt": f"tache {i}", "typology": "default"})
-        assert r.status_code == 200
+        assert r.status_code == 201
         ids.append(r.get_json()["id"])
 
     assert len(set(ids)) == 3
@@ -106,7 +104,7 @@ def test_trois_post_en_rafale_trois_tickets_trois_runs(client, monkeypatch):
     for tid in ids:
         t = tickets_svc.get_ticket("p", tid)
         assert t["runs"], f"ticket {tid} sans run"
-        assert not t.get("launching"), f"ticket {tid} encore launching"
+        assert t["state"] == etats.RUNNING, f"ticket {tid} encore en préparation"
 
 
 def test_defer_false_chemin_synchrone_run_present_dans_reponse(client, monkeypatch):
@@ -116,11 +114,11 @@ def test_defer_false_chemin_synchrone_run_present_dans_reponse(client, monkeypat
                        json={"title": "T", "prompt": "sync", "typology": "default",
                              "defer": False})
 
-    assert resp.status_code == 200
+    assert resp.status_code == 201
     body = resp.get_json()
-    # Synchrone : le run est déjà là dans la réponse, pas d'état launching résiduel.
+    # Synchrone : le run est déjà là dans la réponse, plus en préparation.
     assert body["runs"], "run absent en mode synchrone"
-    assert not body.get("launching")
+    assert body["state"] == etats.RUNNING
 
 
 def test_echec_lancement_en_fond_laisse_une_trace_visible(client, monkeypatch):
@@ -136,27 +134,27 @@ def test_echec_lancement_en_fond_laisse_une_trace_visible(client, monkeypatch):
 
     resp = client.post("/api/projects/p/tickets",
                        json={"title": "T", "prompt": "va planter", "typology": "default"})
-    assert resp.status_code == 200
+    assert resp.status_code == 201
     tid = resp.get_json()["id"]
 
     assert boom_done.wait(3)
-    # Laisse le thread finir sa gestion d'erreur (pop launching + add_comment).
+    # Laisse le thread finir sa gestion d'erreur (launch_failed + add_comment).
     for _ in range(30):
         t = tickets_svc.get_ticket("p", tid)
-        if t.get("comments") and not t.get("launching"):
+        if t.get("comments") and t["state"] != etats.PROVISIONING:
             break
         threading.Event().wait(0.1)
     t = tickets_svc.get_ticket("p", tid)
-    assert not t.get("launching"), "launching pas retiré après échec"
+    assert t["state"] == etats.LAUNCH_FAILED, "préparation pas close après échec"
     assert t.get("comments"), "aucun commentaire d'échec visible"
     assert any("chou" in c["text"].lower() or "échou" in c["text"].lower()
                or "⚠" in c["text"] for c in t["comments"])
 
 
-def test_derive_status_launching_est_en_cours(monkeypatch, tmp_path):
+def test_derive_status_launching_est_en_preparation(monkeypatch, tmp_path):
     t = tickets_svc.create_ticket("p", "T", "prompt")
     tickets_svc.set_launching("p", t)
     fresh = tickets_svc.get_ticket("p", t["id"])
-    assert fresh.get("launching") is True
-    assert tickets_svc.derive_status(fresh) == "en cours"
-    assert tickets_svc.ticket_summary(fresh).get("launching") is True
+    assert fresh["state"] == etats.PROVISIONING
+    assert tickets_svc.derive_status(fresh) == "préparation"
+    assert tickets_svc.ticket_summary(fresh)["state"] == etats.PROVISIONING

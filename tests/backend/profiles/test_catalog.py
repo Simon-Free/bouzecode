@@ -1,4 +1,4 @@
-"""Tests for the remote agent catalog backend."""
+"""Tests for the remote agent catalog backend (demo_agents)."""
 from __future__ import annotations
 
 import subprocess
@@ -107,29 +107,24 @@ def test_refresh_idempotent_pull(catalog_env):
     assert set(profiles) == {"installed_agent", "free_agent"}
 
 
-def _config(monkeypatch, **values):
-    monkeypatch.setattr(
-        "bouzecode.backend.core.config.load_config", lambda: values, raising=False,
-    )
-
-
 def test_url_resolution_errors_when_unset(monkeypatch):
-    """Nothing is hardcoded: with no explicit URL and no git base, it must fail loud."""
     monkeypatch.delenv(catalog._ENV_URL, raising=False)
-    monkeypatch.delenv(catalog._ENV_CATALOG_PATH, raising=False)
-    _config(monkeypatch)
+    monkeypatch.delenv(catalog._ENV_GITLAB, raising=False)
+
+    def _no_settings():
+        raise RuntimeError("no settings")
+
+    monkeypatch.setattr(catalog, "_catalog_url", catalog._catalog_url)
+    monkeypatch.setattr(
+        "bouzecode.backend.core.config.get_settings", _no_settings,
+        raising=False,
+    )
     with pytest.raises(RuntimeError):
         catalog._catalog_url()
 
 
-def test_explicit_url_wins(monkeypatch):
-    monkeypatch.setenv(catalog._ENV_URL, "https://git.example.com/me/agents.git")
-    _config(monkeypatch, gitlab_url="https://other.example.com")
-    assert catalog._catalog_url() == "https://git.example.com/me/agents.git"
-
-
-def test_url_derived_from_configured_git_base(monkeypatch):
+def test_url_derived_from_gitlab_base(monkeypatch):
     monkeypatch.delenv(catalog._ENV_URL, raising=False)
-    monkeypatch.setenv(catalog._ENV_CATALOG_PATH, "/myorg/agents.git")
-    _config(monkeypatch, gitlab_url="https://gitlab.example.com/")
-    assert catalog._catalog_url() == "https://gitlab.example.com/myorg/agents.git"
+    monkeypatch.setenv(catalog._ENV_GITLAB, "https://gitlab.example.com/")
+    url = catalog._catalog_url()
+    assert url == "https://gitlab.example.com/demo_plugins/demo_agents.git"

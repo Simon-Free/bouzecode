@@ -29,7 +29,7 @@ def test_sanitize_tool_name_unicode():
 
 def test_messages_to_anthropic_serializes_tool_call_as_xml():
     """A historical assistant message with a tool_call gets re-serialized as
-    XML text (a gateway proxy can't mangle plain text)."""
+    XML text (the internal LLM gateway proxy can't mangle plain text)."""
     from bouzecode.backend.agent.providers import messages_to_anthropic
     history = [
         {"role": "user", "content": "hello"},

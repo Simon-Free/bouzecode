@@ -6,7 +6,7 @@ les tickets ni les commentaires : le seul canal qui l'atteint est le `tool_resul
 appel `Agent`. Un avertissement qui n'y figure pas n'existe pas pour lui — c'est
 exactement le trou qui existait pour le relèvement d'isolation.
 """
-from bouzecode.backend.multi_agent import tools
+from bouzecode.backend.multi_agent import lancement_web
 
 DOUBLON = ("PÉRIMÈTRE EN DOUBLON — ce ticket recouvre le périmètre de : bed63826, a51cefa0. "
            "UN SEUL ticket d'implémentation par livrable.")
@@ -30,7 +30,7 @@ def _config(monkeypatch, warnings):
 def test_le_doublon_de_perimetre_est_rendu_au_manager(monkeypatch):
     config = _config(monkeypatch, [DOUBLON])
 
-    sortie = tools._spawn_web_ticket_agent({"prompt": "x", "background": True}, config)
+    sortie = lancement_web._spawn_web_ticket_agent({"prompt": "x", "background": True}, config)
 
     assert "DOUBLON" in sortie
     assert "bed63826" in sortie  # le frère est NOMMÉ : sans son id, rien n'est actionnable
@@ -39,7 +39,7 @@ def test_le_doublon_de_perimetre_est_rendu_au_manager(monkeypatch):
 def test_le_mandat_read_only_non_tenu_est_rendu_au_manager(monkeypatch):
     config = _config(monkeypatch, [READ_ONLY])
 
-    sortie = tools._spawn_web_ticket_agent({"prompt": "x", "background": True}, config)
+    sortie = lancement_web._spawn_web_ticket_agent({"prompt": "x", "background": True}, config)
 
     assert "READ-ONLY" in sortie and "Write" in sortie
 
@@ -47,7 +47,7 @@ def test_le_mandat_read_only_non_tenu_est_rendu_au_manager(monkeypatch):
 def test_les_deux_avertissements_coexistent(monkeypatch):
     config = _config(monkeypatch, [DOUBLON, READ_ONLY])
 
-    sortie = tools._spawn_web_ticket_agent({"prompt": "x", "background": True}, config)
+    sortie = lancement_web._spawn_web_ticket_agent({"prompt": "x", "background": True}, config)
 
     assert "DOUBLON" in sortie and "READ-ONLY" in sortie
 
@@ -56,7 +56,7 @@ def test_un_dispatch_sain_ne_gagne_aucun_avertissement(monkeypatch):
     """Le cas courant ne doit pas s'alourdir : pas d'anomalie, pas de bruit."""
     config = _config(monkeypatch, [])
 
-    sortie = tools._spawn_web_ticket_agent({"prompt": "x", "background": True}, config)
+    sortie = lancement_web._spawn_web_ticket_agent({"prompt": "x", "background": True}, config)
 
     assert "⚠️" not in sortie
     assert "29e03369 dispatché" in sortie
@@ -67,7 +67,7 @@ def test_lavertissement_ne_transforme_pas_le_dispatch_en_echec(monkeypatch):
     Un manager qui croirait à un échec redispatcherait — donc un doublon de plus."""
     config = _config(monkeypatch, [DOUBLON])
 
-    sortie = tools._spawn_web_ticket_agent({"prompt": "x", "background": True}, config)
+    sortie = lancement_web._spawn_web_ticket_agent({"prompt": "x", "background": True}, config)
 
     assert not sortie.startswith("Error:")
     assert config["_bg_agent_launched"] is True

@@ -1,7 +1,7 @@
 """Tests that snippet recovery side-call receives FULL context (no truncation).
 
 Verifies the mission requirement: the side-call decides with full knowledge —
-user prompt, methodology note, thinking, and complete tool_result contents.
+user prompt, methodology note and complete tool_result contents (never the thinking).
 """
 from __future__ import annotations
 
@@ -75,8 +75,8 @@ class TestSnippetRecoveryFullContext:
 
         assert meth_note in captured["msg"]
 
-    def test_context_includes_thinking(self, monkeypatch):
-        """This turn's thinking is included."""
+    def test_context_excludes_thinking(self, monkeypatch):
+        """This turn's thinking is NOT copied as text (trips claude-opus-5's refusal classifier)."""
         captured = {}
 
         def spy(tool_name, system, msg, config, **kw):
@@ -92,7 +92,8 @@ class TestSnippetRecoveryFullContext:
 
         recover_snippets(snip_results, ctx, config, state=state)
 
-        assert "je vais figer les lignes 10-20 de utils.py" in captured["msg"]
+        assert "je vais figer les lignes 10-20 de utils.py" not in captured["msg"]
+        assert "code" in captured["msg"]
 
     def test_no_truncation_large_content(self, monkeypatch):
         """Content >6000 chars is passed in full (no [:6000] truncation)."""

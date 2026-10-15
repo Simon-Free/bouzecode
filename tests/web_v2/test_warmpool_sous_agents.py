@@ -41,6 +41,22 @@ def test_l_agent_racine_garde_bien_son_quart_d_heure():
     assert warmpool.decide_evictions(noeuds, MAINTENANT, max_pool=10) == []
 
 
+def test_une_conversation_lancee_a_la_main_garde_son_quart_d_heure():
+    """Le VRAI `parent` d'une conversation lancée depuis l'écran n'est pas vide : c'est le
+    sentinelle `dispatcher:manual` (`runner.MANUAL_PARENT`, posé par un lancement depuis l.UI). Le
+    test précédent écrivait `parent=""`, que le serveur n'écrit jamais : la règle 0 évinçait
+    donc TOUTE conversation de l'utilisateur au balayage suivant son tour (mesuré dans le bac à
+    sable : process tué ~5 s après `idle`, rc=-15) et chaque message repartait à froid."""
+    from bouzecode.web_v2.runtime.runner import agent_commande
+
+    noeuds = [_noeud("conversation", parent=agent_commande.MANUAL_PARENT, state="idle")]
+    assert warmpool.decide_evictions(noeuds, MAINTENANT, max_pool=10) == []
+    #  La TTL reste la règle pour elle, comme pour toute racine.
+    vieux = _noeud("conversation", parent=agent_commande.MANUAL_PARENT, state="idle",
+                   activite="2026-07-30T11:44:00+00:00")
+    assert warmpool.decide_evictions([vieux], MAINTENANT, max_pool=10) == ["conversation"]
+
+
 def test_un_sous_agent_qui_TRAVAILLE_n_est_pas_tue():
     """On ne récupère que ce qui a fini. Tuer un sous-agent en plein tour perdrait son travail."""
     noeuds = [_noeud("manager0001"),
@@ -91,14 +107,14 @@ def test_le_process_d_un_sous_agent_ne_reste_pas_resident(monkeypatch):
 def test_la_parente_est_bien_transmise_au_sous_process():
     """Le maillon qui rend la règle applicable. S'il saute, `_web_keep_warm` ne voit plus
     aucune parenté et TOUS les sous-agents redeviennent résidents — en silence."""
-    from bouzecode.web_v2.runtime import runner
+    from bouzecode.web_v2.runtime.runner import agent_commande, agent_fiche
 
-    enfant = runner.Agent(agent_id="a" * 12, prompt="p", model="", cwd="", pid=0,
+    enfant = agent_fiche.Agent(agent_id="a" * 12, prompt="p", model="", cwd="", pid=0,
                           started_at="", parent="manager0001")
-    racine = runner.Agent(agent_id="b" * 12, prompt="p", model="", cwd="", pid=0,
+    racine = agent_fiche.Agent(agent_id="b" * 12, prompt="p", model="", cwd="", pid=0,
                           started_at="", parent="")
-    assert runner._ticket_env(enfant).get("BOUZECODE_PARENT") == "manager0001"
-    assert "BOUZECODE_PARENT" not in runner._ticket_env(racine)
+    assert agent_commande._ticket_env(enfant).get("BOUZECODE_PARENT") == "manager0001"
+    assert "BOUZECODE_PARENT" not in agent_commande._ticket_env(racine)
 
 
 @pytest.mark.parametrize("parent", ["", "manager0001"])

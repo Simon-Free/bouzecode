@@ -37,16 +37,11 @@ def _tool_result(name: str, content: str) -> dict:
 # --- Rendu d'un message isolé -------------------------------------------------
 
 def test_an_accepted_closure_is_shown_as_the_final_answer():
-    """Une clôture acceptée s'affiche dans un bloc « Réponse finale » qui reprend le texte.
-
-    L'interface est bilingue : le libellé rendu est celui de la langue par défaut (anglais) et
-    porte sa CLÉ de traduction. C'est la clé qu'on vérifie — elle, et non les mots, est ce qui
-    fait que le bloc s'annonce comme une réponse finale dans les deux langues."""
+    """Une clôture acceptée s'affiche dans un bloc « Réponse finale » qui reprend le texte."""
     html = message_view.render_message(_tool_result("FinalAnswer", ACCEPTED))
 
     assert 'class="block final-answer"' in html
-    assert 'data-i18n="block.final_answer"' in html
-    assert "Final answer" in html
+    assert "Réponse finale" in html
     assert "tests passent" in html
 
 
@@ -55,8 +50,7 @@ def test_a_refused_closure_is_shown_with_the_missing_work():
     html = message_view.render_message(_tool_result("FinalAnswer", REFUSED))
 
     assert 'class="block final-answer-refused"' in html
-    assert 'data-i18n="block.closure_refused"' in html
-    assert "Closure refused" in html
+    assert "Clôture refusée" in html
     assert "tests non lancés" in html
 
 
@@ -66,8 +60,7 @@ def test_an_ordinary_tool_result_keeps_its_usual_panel():
 
     # le panneau porte la classe 'tr' (seule OU combinée, ex 'tr pui-tool-panel')
     assert 'class="tr"' in html or 'class="tr ' in html
-    assert 'data-i18n="block.tool_result"' in html
-    assert 'data-i18n-arg-name="Write"' in html
+    assert "résultat Write" in html
     assert "final-answer" not in html
 
 
@@ -140,4 +133,4 @@ def test_the_rendered_session_shows_both_closure_blocks(client):
 
     assert "final-answer-refused" in blocks[CLOSURE_REFUSED]["html"]
     assert "final-answer" in blocks[CLOSURE_ACCEPTED]["html"]
-    assert 'data-i18n="block.final_answer"' in blocks[CLOSURE_ACCEPTED]["html"]
+    assert "Réponse finale" in blocks[CLOSURE_ACCEPTED]["html"]

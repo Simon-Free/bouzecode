@@ -117,7 +117,9 @@ def test_un_echec_deterministe_nest_pas_rejoue(depot_jetable, monkeypatch):
 
     assert meta["ok"] is False
     assert len(essais) == 1
-    assert "invalid reference" in meta["error"]
+    # Le motif nomme la référence fautive ; le texte de git dépend de la locale (« invalid
+    # reference » / « référence invalide »), on ne s'y attache donc pas.
+    assert "branche-inexistante" in meta["error"]
 
 
 def test_la_reprise_nettoie_avant_de_rejouer(depot_jetable, monkeypatch):

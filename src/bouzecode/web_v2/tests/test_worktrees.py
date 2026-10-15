@@ -3,6 +3,8 @@ import subprocess
 from pathlib import Path
 
 from bouzecode.web_v2.services.work import integration, tickets, worktrees
+from bouzecode.web_v2.services.work.fsm import etats
+from bouzecode.web_v2.tests.aides_tickets import livre, run, semer
 
 
 def _git(cwd, *args):
@@ -96,7 +98,9 @@ def test_integrate_refuses_branch_with_conflict_markers(tmp_path):
     meta = worktrees.provision(str(repo), "tkcm", base_branch=base, with_venv=False)
     (Path(meta["worktree"]) / "app.py").write_text(
         "def main():\n<<<<<<< HEAD\n    return 1\n=======\n    return 2\n>>>>>>> develop\n")
-    assert worktrees.harvest(meta, "resolution ratee")["committed"]
+    # Commit à la main : `harvest` refuserait de figer ces marqueurs (fichier non suivi sale).
+    _git(meta["worktree"], "add", "app.py")
+    _git(meta["worktree"], "commit", "-m", "resolution ratee")
 
     result = worktrees.integrate(meta)
     assert result["ok"] is False and result["state"] == "needs_attention"
@@ -214,14 +218,13 @@ def test_integrate_is_idempotent(tmp_path):
     """CAS 6 : re-intégrer un ticket déjà mergé = no-op (pas de nouveau merge)."""
     worktrees.WORKTREES_DIR = tmp_path / "c6"
     repo, base = _make_repo(tmp_path)
-    ticket = tickets.create_ticket("proj", "ajoute d", "fais le")
+    ticket = livre("proj", "agent-d", title="ajoute d")  # seul un ticket LIVRÉ s'intègre
     meta = worktrees.provision(str(repo), ticket["id"], base_branch=base, with_venv=False)
     (Path(meta["worktree"]) / "d.txt").write_text("contenu\n")
-    ticket["worktree"] = meta
-    tickets.update_ticket("proj", ticket)
+    tickets.poser("proj", ticket, worktree=meta)
 
     first = integration.integrate_ticket("proj", ticket)
-    assert first["ok"] and first["state"] == "integrated"
+    assert first["ok"] and first["state"] == etats.CLOSED
     head_after_first = _head(repo, base)
 
     second = integration.integrate_ticket("proj", ticket)              # rejoué
@@ -250,17 +253,18 @@ def test_integrate_ticket_merges_and_cleans(tmp_path):
     worktrees.WORKTREES_DIR = tmp_path / "wts3"
     repo, base = _make_repo(tmp_path)
 
-    ticket = tickets.create_ticket("proj", "ajoute c", "fais le")
+    ticket = livre("proj", "agent-c", title="ajoute c")  # seul un ticket LIVRÉ s'intègre
     meta = worktrees.provision(str(repo), ticket["id"], base_branch=base, with_venv=False)
     (Path(meta["worktree"]) / "c.txt").write_text("contenu\n")
-    ticket["worktree"] = meta
-    tickets.update_ticket("proj", ticket)
+    tickets.poser("proj", ticket, worktree=meta)
 
     result = integration.integrate_ticket("proj", ticket)
-    assert result["ok"] and result["state"] == "integrated"
+    assert result["ok"] and result["state"] == etats.CLOSED
     assert (repo / "c.txt").exists()                       # mergé dans la base
     assert not Path(meta["worktree"]).exists()             # worktree nettoyé
-    assert tickets.get_ticket("proj", ticket["id"])["worktree"]["state"] == "cleaned"
+    fresh = tickets.get_ticket("proj", ticket["id"])
+    assert fresh["worktree"]["retire_at"] and fresh["integration"]["merged_at"]
+    assert fresh["state_reason"]["code"] == "integre"
 
 
 def test_current_branch_is_the_live_checkout_not_develop(tmp_path):
@@ -299,15 +303,6 @@ def test_discard_stale_allows_reprovision_after_reap(tmp_path):
     assert meta2["ok"] and Path(meta2["worktree"]).is_dir()          # re-provision réussie
 
 
-def test_build_validator_prompt_caps_huge_diff():
-    """WinError 206 : le prompt du validateur part en ARGV (limite Windows ~32K). Un gros diff
-    est tronqué pour que le spawn ne casse pas ; la note renvoie l'agent vers `git diff`."""
-    ticket = {"title": "T", "prompt": "fais le"}
-    prompt = tickets.build_validator_prompt(ticket, "x" * 50000, report="y" * 20000)
-    assert len(prompt) < 30000                      # sous la limite argv Windows
-    assert "tronqué" in prompt and "git diff" in prompt
-
-
 def test_harvest_handles_utf8_diff(tmp_path):
     """Régression Windows : un diff avec du non-ASCII (accents FR, emoji) ne crashe PAS le
     harvest. git émet de l'UTF-8 ; `text=True` seul décode en cp1252 → UnicodeDecodeError →
@@ -323,18 +318,16 @@ def test_harvest_handles_utf8_diff(tmp_path):
 
 
 def test_add_run_clears_stale_terminal_flags(tmp_path):
-    """Un nouveau run RÉ-ACTIVE le ticket : add_run purge crashed/reaped d'un cycle précédent
-    (sur la version disque ET l'objet appelant) — sinon le ticket relancé reste condamné."""
-    t = tickets.create_ticket("proj", "T", "do")
-    t["crashed"] = True
-    t["reaped"] = True
-    tickets.update_ticket("proj", t)
+    """Un nouveau run RÉ-ACTIVE le ticket : la relance d'un ticket planté repart `running`
+    sans la raison du cycle précédent (C9 : purge par construction, plus de drapeaux)."""
+    t = semer("proj", "t1", etats.STOPPED, "crashed", runs=[run("agent1")])
 
     tickets.add_run("proj", t, "agent2", "work", "")
 
     fresh = tickets.get_ticket("proj", t["id"])
-    assert not fresh.get("crashed") and not fresh.get("reaped")      # persisté
-    assert t.get("crashed") is None and t.get("reaped") is None      # objet appelant
+    assert (fresh["state"], fresh.get("state_reason")) == (etats.RUNNING, None)  # persisté
+    assert t["state"] == etats.RUNNING                                         # objet appelant
+    assert "crashed" not in fresh and "reaped" not in fresh
 
 
 def test_current_branch_detached_head_falls_back(tmp_path):
@@ -344,3 +337,60 @@ def test_current_branch_detached_head_falls_back(tmp_path):
                          capture_output=True, text=True).stdout.strip()
     _git(repo, "checkout", "-q", sha)                      # HEAD détaché
     assert worktrees.current_branch(str(repo)) == worktrees.default_branch(str(repo))
+
+
+def _repo_on_branch(tmp: Path, branch: str) -> Path:
+    """Depot git jetable dont la branche courante est `branch`, avec un commit."""
+    repo = tmp / f"repo_{branch}"
+    repo.mkdir()
+    subprocess.run(["git", "init"], cwd=repo, check=True, capture_output=True)
+    subprocess.run(["git", "config", "user.email", "t@t.t"], cwd=repo, check=True)
+    subprocess.run(["git", "config", "user.name", "t"], cwd=repo, check=True)
+    (repo / "a.txt").write_text("a", encoding="utf-8")
+    subprocess.run(["git", "add", "a.txt"], cwd=repo, check=True)
+    subprocess.run(["git", "commit", "-m", "init"], cwd=repo, check=True, capture_output=True)
+    subprocess.run(["git", "branch", "-M", branch], cwd=repo, check=True)
+    return repo
+
+
+def _set_origin_head(repo: Path, branch: str) -> None:
+    """Simule origin/HEAD sans remote reel : symbolic-ref se lit sans que la cible existe."""
+    subprocess.run(
+        ["git", "symbolic-ref", "refs/remotes/origin/HEAD", f"refs/remotes/origin/{branch}"],
+        cwd=repo,
+        check=True,
+    )
+
+
+def test_default_branch_prefers_local_develop_over_origin_head(tmp_path):
+    repo = _repo_on_branch(tmp_path, "develop")
+    _set_origin_head(repo, "master")
+    assert worktrees.default_branch(str(repo)) == "develop"
+
+
+def test_default_branch_falls_back_to_origin_head_without_develop(tmp_path):
+    repo = _repo_on_branch(tmp_path, "trunk")
+    _set_origin_head(repo, "master")
+    # La branche annoncée par origin/HEAD doit EXISTER localement : `git worktree add <base>`
+    # ne fait aucun DWIM remote, une base seulement distante donnerait
+    # `fatal: invalid reference: master`. Le cas « origin/HEAD non local » est couvert par
+    # test_worktrees_default_branch.py (on retombe alors sur la branche sortie).
+    subprocess.run(["git", "branch", "master"], cwd=repo, check=True)
+    assert worktrees.default_branch(str(repo)) == "master"
+
+
+def test_default_branch_prefers_master_over_main(tmp_path):
+    """`master` passe avant `main` : les dépôts de ce parc travaillent sur `master`."""
+    repo = _repo_on_branch(tmp_path, "master")
+    subprocess.run(["git", "branch", "main"], cwd=repo, check=True)
+    assert worktrees.default_branch(str(repo)) == "master"
+
+
+def test_current_branch_detached_head_uses_new_order(tmp_path):
+    repo = _repo_on_branch(tmp_path, "develop")
+    _set_origin_head(repo, "master")
+    sha = subprocess.run(
+        ["git", "rev-parse", "HEAD"], cwd=repo, check=True, capture_output=True, text=True
+    ).stdout.strip()
+    subprocess.run(["git", "checkout", sha], cwd=repo, check=True, capture_output=True)
+    assert worktrees.current_branch(str(repo)) == "develop"

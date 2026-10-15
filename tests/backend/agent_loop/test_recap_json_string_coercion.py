@@ -41,7 +41,10 @@ def test_final_answer_persists_recap_passed_as_json_string():
     cfg = {"require_recap": True, "recap_expects_object": True, "close_validation": True,
            "_depth": 0, "model": "", "_state": state}
 
-    out = _final_answer("rapport complet", cfg, recap=json.dumps(_RECAP))
+    #  Les listes de clôture sont passées en CHAÎNES, comme le fait un modèle qui
+    #  sérialise ses paramètres : `_coerce_liste` doit les reparser.
+    out = _final_answer("rapport complet", cfg, recap=json.dumps(_RECAP),
+                        taches_terminees="[]", taches_restantes="[]")
 
     assert "Session closing" in out          # accepté du premier coup (récap complet)
     assert isinstance(state.recap, dict)      # persisté en DICT malgré l'entrée chaîne
@@ -55,7 +58,8 @@ def test_final_answer_does_not_persist_recap_for_validator_run(monkeypatch):
     monkeypatch.setenv("BOUZECODE_RUN_KIND", "validate")
     state = FakeState()
     cfg = {"close_validation": True, "_depth": 0, "model": "", "_state": state}
-    out = _final_answer("VERDICT: OK", cfg, recap=_RECAP)
+    out = _final_answer("VERDICT: OK", cfg, recap=_RECAP,
+                        taches_terminees=[], taches_restantes=[])
     assert "Session closing" in out          # clôture acceptée…
     assert state.recap is None                # …mais AUCUN récap persisté pour un validateur
 

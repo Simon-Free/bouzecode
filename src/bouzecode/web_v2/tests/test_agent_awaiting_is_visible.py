@@ -1,6 +1,6 @@
 """Un agent qui attend une réponse humaine est IMPOSSIBLE à rater.
 
-Cas vécu (manager 0123456789ab) : l'agent pose une question, le process quitte, et 900 s
+Cas vécu (manager 9d0789f2fdca) : l'agent pose une question, le process quitte, et 900 s
 plus tard `repl._resume_paused_warm` écrase l'état IPC `awaiting_input` par un `finished`
 nu. Passé ce quart d'heure l'agent était indistinguable d'un agent terminé — plus d'état
 d'attente, plus de question, plus d'options — et un archivage suffisait à le faire
@@ -54,7 +54,7 @@ def _write_agent(agents_dir, agent_id, *, ipc_status="finished", running=False,
         }, ensure_ascii=False), encoding="utf-8")
 
 
-BLOQUE = "0123456789ab"   # le manager du cas vécu
+BLOQUE = "9d0789f2fdca"   # le manager du cas vécu
 FINI = "abcdef123456"
 QUESTION = "Le canal de dispatch est bloqué : je relance ou j'abandonne ?"
 OPTIONS = [{"label": "Relancer", "description": "3e tentative"},
@@ -63,22 +63,22 @@ OPTIONS = [{"label": "Relancer", "description": "3e tentative"},
 
 @pytest.fixture()
 def agents_dir(tmp_path, monkeypatch):
-    from bouzecode.web_v2.runtime import runner
+    from bouzecode.web_v2.runtime.runner import agent_etat, agent_fiche
     from bouzecode.web_v2.services.sessions import purge, store
 
     d = tmp_path / "web_agents"
     d.mkdir()
-    monkeypatch.setattr(runner, "AGENTS_DIR", d)
+    monkeypatch.setattr(agent_fiche, "AGENTS_DIR", d)
     monkeypatch.setattr(purge, "TRASH_DIR", d / "_trash")
     monkeypatch.setattr(purge, "DELETED_PATH", tmp_path / "deleted_sessions.json")
     monkeypatch.setattr(store, "_status_cache", {})
-    runner._list_agents_cache.clear()
-    runner._ipc_state_cache.clear()
+    agent_fiche._list_agents_cache.clear()
+    agent_etat._ipc_state_cache.clear()
 
     _write_agent(d, BLOQUE, question=QUESTION, options=OPTIONS, allow_freetext=False,
                  prompt="Intégration de la stratégie initiale")
     _write_agent(d, FINI)  # a livré, n'attend personne
-    runner._list_agents_cache.clear()
+    agent_fiche._list_agents_cache.clear()
     return d
 
 
@@ -94,7 +94,7 @@ def client(agents_dir):
 
 def test_the_question_outlives_the_erased_ipc_state(client):
     """L'IPC dit « finished », et pourtant l'agent est annoncé en attente, question comprise."""
-    resp = client.get("/api/agents/awaiting")
+    resp = client.get("/api/agents?state=awaiting_input")
     assert resp.status_code == 200
     agents = {a["agent_id"]: a for a in resp.get_json()["agents"]}
 
@@ -106,7 +106,7 @@ def test_the_question_outlives_the_erased_ipc_state(client):
 
 def test_an_agent_with_no_question_announces_none(client):
     """Un agent qui a livré n'apparaît pas dans la liste des attentes."""
-    agents = client.get("/api/agents/awaiting").get_json()["agents"]
+    agents = client.get("/api/agents?state=awaiting_input").get_json()["agents"]
 
     assert FINI not in [a["agent_id"] for a in agents]
     blocs = client.get(f"/api/sessions/agent/{FINI}/blocks").get_json()
@@ -117,37 +117,52 @@ def test_an_agent_with_no_question_announces_none(client):
 
 def test_allow_freetext_reports_the_real_constraint(client):
     """`allow_freetext` dit ce que la question autorise vraiment, il ne vaut pas True partout."""
-    agents = {a["agent_id"]: a for a in client.get("/api/agents/awaiting").get_json()["agents"]}
+    agents = {a["agent_id"]: a for a in client.get("/api/agents?state=awaiting_input").get_json()["agents"]}
 
     assert agents[BLOQUE]["allow_freetext"] is False
 
 
 def test_an_awaiting_agent_is_not_labelled_running(client):
     """La vivacité distingue « attend une réponse » de « travaille » : deux gestes différents."""
-    from bouzecode.web_v2.runtime import runner
+    from bouzecode.web_v2.runtime.runner import agent_fiche
     from bouzecode.web_v2.services.sessions import store
     from bouzecode.web_v2.services.work import liveness
 
-    agent = runner.load_agent(BLOQUE)
+    agent = agent_fiche.load_agent(BLOQUE)
     etat = store.agent_status(agent)["state"]
 
-    assert liveness.classify_agent(agent, etat) == "awaiting_input"
-    assert liveness.classify_agent(runner.load_agent(FINI), "finished") == "delivered"
+    assert liveness.classify_agent(agent) == "awaiting_input"
+    assert liveness.classify_agent(agent_fiche.load_agent(FINI)) == "delivered"
 
 
-def test_archiving_never_hides_an_agent_that_is_still_waiting(client, agents_dir):
-    """Archivé mais toujours en attente : il reste listé — un drapeau ne fait pas taire une question."""
+VIVANT = "5eeded0a11ve"   # attend une réponse ET son process tourne encore
+
+
+def _ajouter_un_agent_vivant_qui_attend(agents_dir):
+    from bouzecode.web_v2.runtime.runner import agent_fiche
+
+    _write_agent(agents_dir, VIVANT, ipc_status="awaiting_input", running=True,
+                 question=QUESTION, options=OPTIONS)
+    agent_fiche._list_agents_cache.clear()
+
+
+def test_archiving_never_hides_a_living_agent_that_is_still_waiting(client, agents_dir):
+    """Archivé mais vivant et en attente : il reste listé — un drapeau ne fait pas taire une
+    question. Un orphelin (process mort, question restée sur disque) archivé, lui, est rangé :
+    personne ne le relancera tel quel (demande utilisateur, cf. visibility.hidden_by_archive)."""
     from bouzecode.web_v2.services.sessions import purge
 
-    purge.mark_deleted("agent/" + BLOQUE, reason="archived")
-    purge.mark_deleted("agent/" + FINI, reason="archived")
+    _ajouter_un_agent_vivant_qui_attend(agents_dir)
+    for agent_id in (VIVANT, BLOQUE, FINI):
+        purge.mark_deleted("agent/" + agent_id, reason="archived")
 
     listing = client.get("/api/sessions").get_json()["agents"]
     par_cle = {row["key"]: row for row in listing}
 
-    assert "agent/" + BLOQUE in par_cle, "un agent en attente a disparu de la liste"
-    assert par_cle["agent/" + BLOQUE]["archived"] is True
-    assert par_cle["agent/" + BLOQUE]["need_input"] is True
+    assert "agent/" + VIVANT in par_cle, "un agent vivant en attente a disparu de la liste"
+    assert par_cle["agent/" + VIVANT]["archived"] is True
+    assert par_cle["agent/" + VIVANT]["need_input"] is True
+    assert "agent/" + BLOQUE not in par_cle  # orphelin archivé : rangé
     assert "agent/" + FINI not in par_cle  # terminé ET archivé : rangé pour de bon
 
 
@@ -157,14 +172,14 @@ def _caches_neufs():
     la liste d'agents (3 s). Un test qui les remplit sert sa photo au test suivant, dont
     les agents sont ailleurs. On les vide AVANT (voir la photo de maintenant) et APRÈS
     (ne pas laisser sa photo aux voisins)."""
-    from bouzecode.web_v2.runtime import runner
+    from bouzecode.web_v2.runtime.runner import agent_fiche
     from bouzecode.web_v2.services.work import fleet
 
     fleet.clear_tree_cache()
-    runner._list_agents_cache.clear()
+    agent_fiche._list_agents_cache.clear()
     yield
     fleet.clear_tree_cache()
-    runner._list_agents_cache.clear()
+    agent_fiche._list_agents_cache.clear()
 
 
 def _tree(client):
@@ -194,13 +209,15 @@ def test_a_node_without_a_question_carries_no_answer_constraint(client):
     assert "allow_freetext" not in noeuds[FINI], "champ constant : du bruit qui ressemble à un signal"
 
 
-def test_the_tree_keeps_an_archived_agent_that_is_still_waiting(client):
-    """Archiver ne fait pas disparaître de l'arbre un agent à qui l'on doit une réponse."""
+def test_the_tree_keeps_an_archived_agent_that_is_still_waiting(client, agents_dir):
+    """Archiver ne fait pas disparaître de l'arbre un agent VIVANT à qui l'on doit une réponse."""
     from bouzecode.web_v2.services.sessions import purge
 
-    purge.mark_deleted("agent/" + BLOQUE, reason="archived")
-    purge.mark_deleted("agent/" + FINI, reason="archived")
+    _ajouter_un_agent_vivant_qui_attend(agents_dir)
+    for agent_id in (VIVANT, BLOQUE, FINI):
+        purge.mark_deleted("agent/" + agent_id, reason="archived")
     noeuds = _tree(client)
 
-    assert BLOQUE in noeuds, "un agent en attente a disparu de l'arbre de flotte"
+    assert VIVANT in noeuds, "un agent vivant en attente a disparu de l'arbre de flotte"
+    assert BLOQUE not in noeuds  # orphelin archivé : rangé
     assert FINI not in noeuds  # terminé ET archivé : rangé pour de bon

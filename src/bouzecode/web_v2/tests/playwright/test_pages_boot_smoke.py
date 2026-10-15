@@ -17,7 +17,8 @@ import pytest
 # atteint et flake en timeout. On attend un repère du DOM rendu à la place.
 PAGES = [
     pytest.param("/conversations", "#conv-list", id="conversations"),
-    pytest.param("/agent-builder", "#b-prompt", id="agent-builder"),
+    pytest.param("/agent-builder", "#pf-prompt", id="agent-builder"),
+    pytest.param("/", "#lignes-liste", id="bureau"),
 ]
 
 

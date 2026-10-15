@@ -2,8 +2,8 @@
 """Une compétence déclarée doit être chargeable — ou échouer BRUYAMMENT.
 
 Le 2026-07-27, quatre skills de `~/.bouzecode/skills/` étaient jetées en silence par
-le loader (deux sans champ `name:`, deux sans frontmatter du tout).
-L'une d'elles était crue vivante
+le loader (`commit` et `pptx-template` sans champ `name:`, `demodb-sql-macros` et
+`skills-powerbi-refacto` sans frontmatter du tout). L'une d'elles était crue vivante
 et utilisée comme telle. `_parse_skill_file` renvoie `None` et la skill n'existe
 simplement plus : aucune erreur, aucune trace.
 
@@ -13,7 +13,7 @@ loader. Déclarent une skill, et elles seules :
   - `<store>/<nom>/skill.md`    (disposition imbriquée, convention Claude Code)
 
 Les autres `.md` d'un dossier de skill (`connectors/azure.md`,
-`database/tables.md`, …) sont des PAGES COMPAGNONS : de la documentation de
+`demodb-database/tables.md`, …) sont des PAGES COMPAGNONS : de la documentation de
 référence, sans frontmatter par construction. `_iter_skill_files` les remonte quand
 même, et `_parse_skill_file` renvoie `None` pour elles — c'est CORRECT. Les traiter
 comme des déclarations ferait 20 faux positifs sur cette machine seule.
@@ -87,15 +87,8 @@ def shadowed_builtins(stores: list[Path]) -> dict[str, str]:
 
 
 def test_the_repo_owned_stores_declare_skills_to_check():
-    """Garde-fou : un inventaire vide rendrait les assertions suivantes creuses.
-
-    Le dépôt public ne versionne aucun store de skills (`.bouzecode/` et `.claude/`
-    ne sont pas publiés) : il n'y a alors rien à échantillonner, et le garde-fou
-    n'a plus d'objet — on le saute au lieu d'échouer.
-    """
+    """Garde-fou : un inventaire vide rendrait les assertions suivantes creuses."""
     total = sum(len(declarations(store)) for store in REPO_STORES)
-    if total == 0:
-        pytest.skip("aucun store de skills versionné dans ce dépôt")
     assert total > 5, f"seulement {total} skills déclarées dans le dépôt — non représentatif"
 
 
@@ -106,7 +99,7 @@ def test_every_skill_declared_in_the_repository_loads(store):
     assert not broken, (
         f"Skills déclarées mais jetées en silence par le loader : "
         f"{[str(p) for p in broken]}. Cause habituelle : pas de champ `name:` ou pas de "
-        "frontmatter `---` du tout. Elles sont absentes de SkillList() sans un mot."
+        "frontmatter `---` du tout. Elles sont introuvables par SkillResearch() sans un mot."
     )
 
 
@@ -133,7 +126,8 @@ def test_broken_skills_in_a_personal_store_are_reported_not_hidden():
 def test_no_skill_file_shadows_a_builtin():
     """Un builtin qui marche remplacé par un fichier périmé : personne ne le remarque.
 
-    Les builtins équipent des profils livrés : en masquer un casse le profil en silence.
+    Les builtins équipent des profils livrés (`demo-coding` pour `coder`,
+    `azure-deploy` pour `azure-deployer`) : en masquer un casse le profil en silence.
     Un remplacement VOULU s'écrit dans INTENTIONAL_BUILTIN_OVERRIDES, daté.
     """
     shadows = {name: where for name, where in shadowed_builtins(REPO_STORES + PERSONAL_STORES).items()
@@ -148,8 +142,8 @@ def test_a_declaration_without_a_name_field_is_caught(tmp_path):
     """Preuve que le test mord : on rejoue la panne de l'audit — un `skill.md` dont le
     frontmatter n'a pas de `name:` — et il doit ressortir par son chemin."""
     store = tmp_path / "skills"
-    (store / "slide-template").mkdir(parents=True)
-    culprit = store / "slide-template" / "skill.md"
+    (store / "pptx-template").mkdir(parents=True)
+    culprit = store / "pptx-template" / "skill.md"
     culprit.write_text("---\ndescription: gabarit de slides\n---\n\nCorps.\n", encoding="utf-8")
     (store / "sain.md").write_text("---\nname: sain\n---\n\nCorps.\n", encoding="utf-8")
 
@@ -160,8 +154,8 @@ def test_a_declaration_without_any_frontmatter_is_caught(tmp_path):
     """L'autre moitié de la panne : aucun frontmatter du tout."""
     store = tmp_path / "skills"
     store.mkdir()
-    culprit = store / "sql-macros.md"
-    culprit.write_text("# Macros SQL\n\nDu texte, pas de frontmatter.\n", encoding="utf-8")
+    culprit = store / "demodb-sql-macros.md"
+    culprit.write_text("# Macros SQL DEMODB\n\nDu texte, pas de frontmatter.\n", encoding="utf-8")
 
     assert unloadable(store) == [culprit]
 

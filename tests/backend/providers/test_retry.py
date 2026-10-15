@@ -82,9 +82,56 @@ def test_retries_until_success():
 
     assert result is sentinel
     assert client.messages.call_count == 4
-    assert sleeps == [3.0, 3.0, 3.0]
+    # Progressive (exponential) backoff on 429: 3s, 6s, 12s.
+    assert sleeps == [3.0, 6.0, 12.0]
     assert len(warnings) == 3
     assert "Rate limited" in warnings[0]
+
+
+def test_backoff_is_capped_at_max_delay():
+    sentinel = object()
+    client = _FakeClient(raise_times=6, outcome=sentinel)
+    now, sleep, sleeps = _instrumented_clock()
+
+    _create_anthropic_stream_with_retry(
+        client, {"model": "x"},
+        interval_s=3.0, budget_s=1000.0,
+        sleep=sleep, now=now, warn=lambda _m: None,
+    )
+
+    assert sleeps == [3.0, 6.0, 12.0, 24.0, 30.0, 30.0]
+
+
+def test_honors_retry_after_header():
+    class _Resp:
+        headers = {"retry-after": "7"}
+
+    class _RateLimitWithHeader(anthropic.RateLimitError):
+        def __init__(self):
+            Exception.__init__(self, "rate limit with retry-after")
+            self.response = _Resp()
+
+    class _Msgs:
+        call_count = 0
+
+        def create(self, **_kwargs):
+            self.call_count += 1
+            if self.call_count == 1:
+                raise _RateLimitWithHeader()
+            return "ok"
+
+    class _Client:
+        messages = _Msgs()
+
+    now, sleep, sleeps = _instrumented_clock()
+    result = _create_anthropic_stream_with_retry(
+        _Client(), {"model": "x"},
+        interval_s=3.0, budget_s=300.0,
+        sleep=sleep, now=now, warn=lambda _m: None,
+    )
+
+    assert result == "ok"
+    assert sleeps == [7.0]
 
 
 def test_raises_after_budget_exceeded():
@@ -98,8 +145,9 @@ def test_raises_after_budget_exceeded():
             sleep=sleep, now=now, warn=lambda _m: None,
         )
 
-    # 3 retries (elapsed 3, 6) succeed, 4th attempt sees elapsed=9 and re-raises.
-    assert client.messages.call_count == 4
+    # Backoff 3s then 6s (capped to remaining budget); 3rd attempt sees elapsed=9 and re-raises.
+    assert client.messages.call_count == 3
+    assert _sleeps == [3.0, 6.0]
 
 
 def test_other_exceptions_not_retried():

@@ -21,14 +21,18 @@ from tests.fake_llm import MockLLM
 METH = '<tool_use name="Methodology" id="m1"><param name="content">ok</param></tool_use>'
 ANSWER = "Tout est vérifié, 3 tests verts."
 FINAL = ('<tool_use name="FinalAnswer" id="f1">'
-         f'<param name="answer">{ANSWER}</param></tool_use>')
+         f'<param name="answer">{ANSWER}</param>'
+         '<param name="taches_terminees">[]</param>'
+         '<param name="taches_restantes">[]</param></tool_use>')
 # An unknown tool: the registry refuses it with "Error: ..." without executing it.
 GHOST = '<tool_use name="NoSuchTool" id="g1"><param name="x">1</param></tool_use>'
 BASH_OK = '<tool_use name="Bash" id="b1"><param name="command">echo ok</param></tool_use>'
 
 
 def _users(result):
-    return [str(m.get("content", "")) for m in result.messages if m.get("role") == "user"]
+    """Ce que le harnais a dit au modèle : message user, ou avis accroché au lot."""
+    return [str(m.get("content", "")) for m in result.messages
+            if m.get("role") in ("user", "tool")]
 
 
 def _refusal_notices(result):
@@ -38,8 +42,9 @@ def _refusal_notices(result):
 def test_final_answer_beside_a_refused_tool_does_not_close():
     """The session keeps running and the model is told WHICH tool failed and why."""
     mock = MockLLM([
-        f"{METH}\n{GHOST}\n{FINAL}",    # answers while a tool was refused
-        f"{METH}\n{BASH_OK}\n{FINAL}",  # retries with a tool that works, then closes
+        f"{METH}\n{GHOST}\n{FINAL}",  # answers while a tool was refused
+        f"{METH}\n{BASH_OK}",         # retries with a tool that works…
+        f"{METH}\n{FINAL}",           # …reads its result, then closes
     ])
     result = bouzecode(["fais le travail"], mock_llm=mock)
 
@@ -52,10 +57,17 @@ def test_final_answer_beside_a_refused_tool_does_not_close():
     assert result.state.final_answer == ANSWER
 
 
-def test_final_answer_beside_a_successful_tool_closes_immediately():
-    """A tool that did its job never blocks the close."""
+def test_a_tool_that_did_its_job_never_blocks_the_close():
+    """The close act itself is clean the moment the result has been READ.
+
+    The tool runs in its own turn, so its result is on the wire when the model
+    answers. Batching the run WITH the close is a different situation, and it is
+    `test_close_over_unread_results_e2e` that owns it: the answer would then cite
+    an output the model could not have seen.
+    """
     mock = MockLLM([
-        f"{METH}\n{BASH_OK}\n{FINAL}",
+        f"{METH}\n{BASH_OK}",
+        f"{METH}\n{FINAL}",
         "JAMAIS CONSOMMÉ",
     ])
     result = bouzecode(["fais le travail"], mock_llm=mock)
@@ -63,7 +75,7 @@ def test_final_answer_beside_a_successful_tool_closes_immediately():
     assert not _refusal_notices(result)
     assert result.state.close_reason == "final_answer"
     assert result.state.final_answer == ANSWER
-    assert mock.call_count == 1
+    assert mock.call_count == 2
 
 
 def test_failing_tests_reported_by_a_tool_that_ran_still_close():
@@ -74,9 +86,12 @@ def test_failing_tests_reported_by_a_tool_that_ran_still_close():
            f'<param name="command">echo "{verdict}"</param></tool_use>')
     answer = "2 tests échouent : expected 4, got 5."
     final = ('<tool_use name="FinalAnswer" id="f1">'
-             f'<param name="answer">{answer}</param></tool_use>')
+             f'<param name="answer">{answer}</param>'
+             '<param name="taches_terminees">[]</param>'
+             '<param name="taches_restantes">[]</param></tool_use>')
     mock = MockLLM([
-        f"{METH}\n{run}\n{final}",
+        f"{METH}\n{run}",
+        f"{METH}\n{final}",
         "JAMAIS CONSOMMÉ",
     ])
     result = bouzecode(["lance les tests"], mock_llm=mock)

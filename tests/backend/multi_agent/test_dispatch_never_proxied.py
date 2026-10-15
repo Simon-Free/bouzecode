@@ -17,17 +17,18 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 import pytest
 
 from bouzecode.backend.core.local_http import LocalServerError, local_json
-from bouzecode.backend.multi_agent import tools
+from bouzecode.backend.multi_agent import lancement_web
 
 DISPATCHED = {"routed": True, "ticket_id": "t-42", "project_slug": "p", "typology": "coder"}
+CREATION = "/api/projects/p/tickets"
 
 
 class _BouzecodeServer(BaseHTTPRequestHandler):
-    """Le serveur bouzecode : route /api/dispatch, 404 (avec motif) sur le reste."""
+    """Le serveur bouzecode : route de création de ticket, 404 (avec motif) sur le reste."""
 
     def do_POST(self):
         self.rfile.read(int(self.headers.get("Content-Length") or 0))
-        self._reply(200, DISPATCHED) if self.path == "/api/dispatch" \
+        self._reply(201, DISPATCHED) if self.path == CREATION \
             else self._reply(404, {"error": "route inconnue"})
 
     def do_GET(self):
@@ -115,17 +116,17 @@ def test_le_dispatch_atteint_le_serveur_local_malgre_le_proxy(
         monkeypatch, bouzecode_server, proxy, no_proxy):
     """Le manager dispatche : la requête va au serveur, jamais au proxy."""
     _pose_un_proxy(monkeypatch, proxy, no_proxy)
-    monkeypatch.setattr(tools, "_DISPATCH_URL", f"{bouzecode_server}/api/dispatch")
+    monkeypatch.setenv("BOUZECODE_WEB_BASE_URL", bouzecode_server)
 
     # Témoin : dans CE même environnement, un client urllib ordinaire (ce que faisait le
     # dispatch avant le correctif) part dans le proxy et se fait 407 — la panne, rejouée.
     with pytest.raises(urllib.error.HTTPError) as ordinaire:
-        urllib.request.build_opener().open(f"{bouzecode_server}/api/dispatch", b"{}")
+        urllib.request.build_opener().open(f"{bouzecode_server}{CREATION}", b"{}")
     assert ordinaire.value.code == 407
-    assert _Proxy407.seen == [f"{bouzecode_server}/api/dispatch"]
+    assert _Proxy407.seen == [f"{bouzecode_server}{CREATION}"]
     _Proxy407.seen.clear()   # on repart d'un proxy vierge pour observer le VRAI dispatch
 
-    assert tools._default_web_dispatch({"prompt": "construis X"}) == DISPATCHED
+    assert lancement_web._default_web_dispatch({"prompt": "construis X", "project_slug": "p"})         == DISPATCHED
     assert _Proxy407.seen == []   # le proxy n'a RIEN vu passer du dispatch
 
 
@@ -158,7 +159,7 @@ def test_un_serveur_local_eteint_ne_ressemble_pas_a_un_refus(monkeypatch, proxy)
     server.server_close()
 
     with pytest.raises(LocalServerError) as injoignable:
-        local_json("GET", f"{url}/api/dispatch", timeout=5)
+        local_json("GET", f"{url}/api/projects", timeout=5)
     assert "INJOIGNABLE" in str(injoignable.value)
     assert _Proxy407.seen == []
 
@@ -170,12 +171,12 @@ def test_un_agent_efface_du_serveur_le_lit_en_clair(monkeypatch):
     a fait chercher une erreur de configuration pendant des heures le 2026-07-28."""
     monkeypatch.setenv("BOUZECODE_WEB_IPC_DIR", "/agents/mgr.ipc")
     config = {"_web_dispatch": lambda body: {
-        "needs_project": True, "parent_unknown": True,
-        "suggestions": [{"slug": "demo-app", "name": "Demo App"}]}}
+        "routed": False, "code": "projet_requis", "parent_unknown": True,
+        "projets_ouverts": ["demo"]}}
 
-    out = tools._spawn_web_ticket_agent({"prompt": "construis X"}, config)
+    out = lancement_web._spawn_web_ticket_agent({"prompt": "construis X"}, config)
 
     assert "NE TE CONNAÎT PLUS" in out
     assert "NI un proxy" in out
-    assert "demo-app" in out                    # la sortie de secours est nommée
+    assert "demo" in out                    # la sortie de secours est nommée
     assert config.get("_bg_agent_launched") is not True   # aucun enfant en vol

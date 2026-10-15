@@ -18,30 +18,43 @@ from bouzecode.backend.tools.ops.test_runner import run_python_test
 from tests.e2e_harness import bouzecode
 from tests.cache_conversation_helpers import require_api_key
 
+# Chemins ABSOLUS : le conftest du répertoire place chaque test dans son tmp_path (cwd), pour
+# que le pytest imbriqué y reste. RunPythonTest remonte de la cible au pyproject du dépôt.
+REPO = Path(__file__).resolve().parents[4]
+TRIVIAL = (REPO / "tests" / "test_trivial_runner.py").as_posix()
+TRIVIAL_SLOW = (REPO / "tests" / "test_trivial_runner_slow.py").as_posix()
+ABSENT = (REPO / "tests" / "does_not_exist_xyz.py").as_posix()
+
 
 class TestRunPythonTestDirect:
     """Direct calls to run_python_test() function."""
 
     def test_single_file_passes(self):
-        """Run a trivial test file and verify output contains PASSED."""
+        """Run a trivial test file; show=['passed'] lists the tests that passed."""
         result = run_python_test(
-            targets=["tests/test_trivial_runner.py"],
+            targets=[TRIVIAL],
             parallel="off",
             timeout=60,
             no_sync=True,
+            show=["passed"],
         )
         assert "[RunPythonTest]" in result
         assert "passed" in result.lower()
         assert "test_always_passes" in result
 
-    def test_no_targets_runs_all(self):
-        """Run with no targets — should run project tests (at least some pass)."""
+    def test_no_targets_with_full_runs_all(self, monkeypatch):
+        """No targets + full=True: the whole project suite is collected."""
+        # Le sujet EST la suite du dépôt : le cwd y revient (basetemp et cache restent
+        # détournés par le conftest).
+        monkeypatch.chdir(REPO)
+        monkeypatch.setenv("BZ_NIGHTLY", "1")  # full=true : réservé au build nightly
         result = run_python_test(
             targets=None,
             parallel="off",
             timeout=120,
             extra_args=["--co", "-q"],  # collect-only, just list tests
             no_sync=True,
+            full=True,
         )
         assert "[RunPythonTest]" in result
         assert "test" in result.lower()
@@ -49,29 +62,31 @@ class TestRunPythonTestDirect:
     def test_keyword_filter(self):
         """Keyword filter selects specific tests."""
         result = run_python_test(
-            targets=["tests/test_trivial_runner.py"],
+            targets=[TRIVIAL],
             parallel="off",
             keyword="always_passes",
             timeout=60,
             no_sync=True,
+            show=["passed"],
         )
         assert "passed" in result.lower()
         assert "test_always_passes" in result
 
-    def test_parallel_auto(self):
-        """Parallel=auto adds -n auto to command."""
+    def test_parallel_numeric(self):
+        """Parallel='2' adds -n 2 to the command and the run passes."""
         result = run_python_test(
-            targets=["tests/test_trivial_runner.py"],
-            parallel="auto",
+            targets=[TRIVIAL],
+            parallel="2",
             timeout=60,
             no_sync=True,
         )
+        assert "-n 2" in result
         assert "passed" in result.lower()
 
     def test_nonexistent_file(self):
         """Nonexistent target produces error in output."""
         result = run_python_test(
-            targets=["tests/does_not_exist_xyz.py"],
+            targets=[ABSENT],
             parallel="off",
             timeout=30,
             no_sync=True,
@@ -81,7 +96,7 @@ class TestRunPythonTestDirect:
     def test_marker_filter(self):
         """Marker filter selects only tests with that marker."""
         result = run_python_test(
-            targets=["tests/test_trivial_runner_slow.py"],
+            targets=[TRIVIAL_SLOW],
             parallel="off",
             marker="slow",
             timeout=5,
@@ -94,7 +109,7 @@ class TestRunPythonTestDirect:
     def test_timeout_kills_process(self):
         """Timeout produces error message and kills the process."""
         result = run_python_test(
-            targets=["tests/test_trivial_runner_slow.py"],
+            targets=[TRIVIAL_SLOW],
             parallel="off",
             marker="slow",
             timeout=3,
@@ -106,7 +121,7 @@ class TestRunPythonTestDirect:
     def test_extra_args_passed(self):
         """Extra args are forwarded to pytest."""
         result = run_python_test(
-            targets=["tests/test_trivial_runner.py"],
+            targets=[TRIVIAL],
             parallel="off",
             extra_args=["--tb=line"],
             timeout=60,
@@ -118,7 +133,7 @@ class TestRunPythonTestDirect:
     def test_output_format_header(self):
         """Output starts with [RunPythonTest] header, cwd, and command."""
         result = run_python_test(
-            targets=["tests/test_trivial_runner.py"],
+            targets=[TRIVIAL],
             parallel="off",
             timeout=60,
             no_sync=True,
@@ -146,7 +161,7 @@ class TestRunPythonTestMockPipeline:
             # Turn 1: model calls Methodology (enforcement) + RunPythonTest
             '<tool_use name="Methodology" id="m1"><param name="content">Running tests</param></tool_use>'
             '<tool_use name="RunPythonTest" id="rpt1">'
-            '<param name="targets">["tests/test_trivial_runner.py"]</param>'
+            f'<param name="targets">["{TRIVIAL}"]</param>'
             '<param name="parallel">off</param>'
             '<param name="no_sync">true</param>'
             '</tool_use>',
@@ -199,7 +214,7 @@ class TestRunPythonTestPipeline:
         """Real LLM receives prompt, calls RunPythonTest, confirms tests passed."""
         require_api_key()
         result = bouzecode(messages=[
-            "Use the RunPythonTest tool to run tests/test_trivial_runner.py with parallel='off' and no_sync=true. "
+            f"Use the RunPythonTest tool to run {TRIVIAL} with parallel='off' and no_sync=true. "
             "Report whether the tests passed or failed."
         ])
         # The LLM should have used RunPythonTest and reported success

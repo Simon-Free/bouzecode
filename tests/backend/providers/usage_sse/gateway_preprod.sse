@@ -1,0 +1,10 @@
+data: {"id": "gen-1", "object": "chat.completion.chunk", "created": 1790286032, "model": "gpt-5.5", "choices": [{"index": 0, "delta": {"role": "assistant", "content": "Je note."}, "finish_reason": null}]}
+
+data: {"id": "gen-1", "object": "chat.completion.chunk", "created": 1790286032, "model": "gpt-5.5", "choices": [{"index": 0, "delta": {"tool_calls": [{"index": 0, "id": "call_1", "type": "function", "function": {"name": "Methodology", "arguments": "{\"content\": \"ok\"}"}}]}, "finish_reason": null}]}
+
+data: {"id": "gen-1", "object": "chat.completion.chunk", "created": 1790286032, "model": "gpt-5.5", "choices": [{"index": 0, "delta": {}, "finish_reason": "tool_calls"}]}
+
+data: {"id": "gen-1", "object": "chat.completion.chunk", "created": 1790286032, "model": "gpt-5.5", "choices": [], "usage": {"prompt_tokens": 5200, "completion_tokens": 310, "total_tokens": 5510, "prompt_tokens_details": {"cached_tokens": 4096, "audio_tokens": null}, "completion_tokens_details": {"reasoning_tokens": 256}}}
+
+data: [DONE]
+

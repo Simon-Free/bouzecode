@@ -21,6 +21,26 @@ REASONING_ONLY_SSE = (
     'data: {"choices":[{"delta":{"reasoning":"hmm"},"finish_reason":"stop"}],'
     '"usage":{"prompt_tokens":100,"completion_tokens":3}}'
 )
+# Mesuré sur un run reel (2026-09-28) : "+2 out" avec un contenu reduit a du
+# whitespace. C'est la MEME degenerescence qu'un content vide (le tour est vide
+# cote boucle d'agent, text.strip() == ""), mais l'ancienne condition
+# `if text or ...` le prenait pour une reponse substantielle et ne retryait pas.
+WHITESPACE_SSE = (
+    'data: {"choices":[{"delta":{"content":"  ","role":"assistant"},'
+    '"finish_reason":"stop","native_finish_reason":"stop"}],'
+    '"usage":{"prompt_tokens":100,"completion_tokens":2}}'
+)
+# Refus de contenu : deterministe, rejouer la requete redonnera un refus.
+CONTENT_FILTER_SSE = (
+    'data: {"choices":[{"delta":{"content":"","role":"assistant"},'
+    '"finish_reason":"content_filter","native_finish_reason":"content_filter"}],'
+    '"usage":{"prompt_tokens":100,"completion_tokens":0}}'
+)
+REFUSAL_SSE = (
+    'data: {"choices":[{"delta":{"refusal":"I cannot help with that.",'
+    '"role":"assistant"},"finish_reason":"stop"}],'
+    '"usage":{"prompt_tokens":100,"completion_tokens":2}}'
+)
 
 
 class FakeResponse:
@@ -48,8 +68,11 @@ class FakeSession:
 
 
 @pytest.fixture
-def make_session(monkeypatch):
+def make_session(monkeypatch, tmp_path):
     monkeypatch.setenv("OPENROUTER_KEY", "sk-or-fake")
+    monkeypatch.setattr(
+        "bouzecode.backend.agent.providers.backends.completion_diagnostics.DIAGNOSTICS_DIR",
+        tmp_path / "diagnostics")
 
     def _make(responses):
         session = FakeSession(responses)
@@ -96,6 +119,39 @@ def test_substantive_response_is_not_retried(make_session):
     events = _run()
     assert session.post_count == 1
     assert _final_turn(events).text == "Hello"
+
+
+def test_whitespace_only_completion_is_retried(make_session):
+    """Un contenu reduit a du whitespace est une completion degeneree, pas une
+    reponse : la boucle d'agent la verra vide (text.strip() == ""), donc le backend
+    doit la rejouer comme un content vide."""
+    session = make_session([[WHITESPACE_SSE], [GOOD_SSE]])
+    events = _run()
+    assert session.post_count == 2
+    assert _final_turn(events).text == "Hello"
+
+
+def test_content_filter_is_not_retried_and_is_reported(make_session):
+    """Un refus content_filter n'est jamais rejoue a l'identique (deterministe, voir
+    test_gateway_content_filter), ni avec le budget des completions vides : il remonte
+    tel quel pour que la boucle le rejoue avec la note compactee puis sur la chaine
+    de repli, ou close sur 'content_refusal' au lieu du generique 'empty_completion'."""
+    session = make_session([[CONTENT_FILTER_SSE]] * 3)
+    events = _run()
+    assert session.post_count == 1
+    turn = _final_turn(events)
+    assert turn.stop_reason == "content_filter"
+    assert turn.refusal
+
+
+def test_explicit_refusal_field_is_not_retried_and_is_reported(make_session):
+    """Champ `refusal` du delta (OpenAI) : meme verdict, avec le texte du refus."""
+    session = make_session([[REFUSAL_SSE]])
+    events = _run()
+    assert session.post_count == 1
+    turn = _final_turn(events)
+    assert turn.refusal == "I cannot help with that."
+    assert turn.stop_reason == "content_filter"
 
 
 def test_reasoning_only_response_is_not_retried(make_session):

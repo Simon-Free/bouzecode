@@ -38,7 +38,7 @@ def test_real_system_prompt_builds_and_reaches_the_model():
 
     payload = str(mock.recorded_calls[0])
     # Identity rendered (proves the template was filled, no KeyError path).
-    assert "Bouzecode" in payload
+    assert "bouzecode" in payload
     # No unresolved template placeholders survived onto the wire.
     assert "{platform}" not in payload
     assert "{platform_hints}" not in payload
@@ -46,4 +46,4 @@ def test_real_system_prompt_builds_and_reaches_the_model():
     # A noyau marker reaches the wire. Code-agent guidance (Read(symbol=) / code
     # discovery) now lives in the default profile, layered at depth 0 by dispatch —
     # covered by test_symbols_*.py and TestCodeDiscoveryPrompt, not here.
-    assert "Un tour ressemble TOUJOURS" in payload
+    assert "# Un tour" in payload  # titre du noyau réécrit (audit du prompt, 2026-09-24)

@@ -1,0 +1,133 @@
+# Test selection config read by bouzecode's RunPythonTest (see skill `front-tests`).
+# Established 2026-10-14 from develop @ 1bf8818: entries marked "measured" come from one
+# targeted run `-n 4 --durations=0` (per-file sums of setup+call+teardown); the others were
+# read off the test tree. Only /ui/demoapp/* (src/demoapp/ui) is the pixel-perfect port:
+# front/<screen>/ and the htmx /ui/rules, /ui/trains pages are legacy prototypes.
+
+impacted:
+  # No test scans src/ wholesale here (no rglob/os.walk over src, no .env.example check).
+  # test_appserver.py is the one cheap cross-cutting gate: it builds the single-origin
+  # server that mounts front/, mirror/ and every /ui/demoapp/* screen. Measured 3.6 s.
+  always:
+    - tests/test_appserver.py
+
+  # What coverage cannot see: Jinja templates, CSS/JS, captured oracle DOM, vendored contracts.
+  # One entry per ported screen: templates/demoapp_<screen>*.html + static/screens/<screen>.css
+  # + oracle/<slug>/ -> tests/test_demoapp_<screen>*.py (naming convention, checked file by file).
+  map:
+    - paths: ["src/demoapp/ui/templates/demoapp_activity_monitoring*.html", "src/demoapp/ui/static/screens/activity_monitoring.css", "oracle/activity-monitoring/**"]
+      tests: ["tests/test_demoapp_activity_monitoring.py"]
+    - paths: ["src/demoapp/ui/templates/demoapp_aggregated_reference_logics*.html", "src/demoapp/ui/static/screens/aggregated_reference_logics.css", "oracle/aggregated-reference-logics/**"]
+      tests: ["tests/test_demoapp_aggregated_reference_logics.py", "tests/test_demoapp_aggregated_reference_logics_actions.py", "tests/test_demoapp_aggregated_reference_logics_forms.py", "tests/test_demoapp_aggregated_reference_logics_live.py"]
+    - paths: ["src/demoapp/ui/templates/demoapp_app*.html", "src/demoapp/ui/static/screens/app.css"]
+      tests: ["tests/test_demoapp_app.py", "tests/test_demoapp_app_journey.py", "tests/test_demoapp_app_perimeter.py", "tests/test_demoapp_app_rows.py"]
+    - paths: ["src/demoapp/ui/templates/demoapp_config_module*.html", "src/demoapp/ui/static/screens/config_module.css", "oracle/config-module/**"]
+      tests: ["tests/test_demoapp_config_module.py", "tests/test_demoapp_config_module_flow.py", "tests/test_demoapp_config_module_tabs.py"]
+    - paths: ["src/demoapp/ui/templates/demoapp_decline.html", "src/demoapp/ui/static/screens/decline.css"]
+      tests: ["tests/test_demoapp_declines.py"]
+    - paths: ["src/demoapp/ui/templates/demoapp_events*.html", "src/demoapp/ui/static/screens/events.css", "oracle/events/**"]
+      tests: ["tests/test_demoapp_events.py", "tests/test_demoapp_events_controls.py", "tests/test_demoapp_events_forms.py", "tests/test_demoapp_events_live.py", "tests/test_demoapp_events_menu.py"]
+    - paths: ["src/demoapp/ui/templates/demoapp_extractors*.html", "oracle/extractors/**"]
+      tests: ["tests/test_demoapp_extractors.py", "tests/test_demoapp_extractors_live.py"]
+    - paths: ["src/demoapp/ui/templates/demoapp_forecast_dashboard*.html", "src/demoapp/ui/static/screens/forecast_dashboard.css", "oracle/forecast-dashboard/**"]
+      tests: ["tests/test_demoapp_forecast_dashboard.py", "tests/test_demoapp_forecast_dashboard_api.py"]
+    - paths: ["src/demoapp/ui/templates/demoapp_geographical_data*.html", "src/demoapp/ui/static/screens/geographical_data.css", "oracle/geographical-data/**"]
+      tests: ["tests/test_demoapp_geographical_data.py", "tests/test_demoapp_geographical_data_export.py", "tests/test_demoapp_geographical_data_safety.py", "tests/test_demoapp_geographical_data_tabs.py", "tests/test_demoapp_geographical_data_writes.py"]
+    - paths: ["src/demoapp/ui/templates/demoapp_home*.html", "src/demoapp/ui/static/screens/home.css", "oracle/home/**"]
+      tests: ["tests/test_demoapp_home.py", "tests/test_demoapp_home_chips.py", "tests/test_demoapp_home_flow.py", "tests/test_demoapp_home_options.py"]
+    - paths: ["src/demoapp/ui/templates/demoapp_horizon*.html", "src/demoapp/ui/templates/demoapp/navbar/horizon_navbar.html", "src/demoapp/ui/static/screens/horizon.css", "oracle/horizon/**"]
+      tests: ["tests/test_demoapp_horizon.py", "tests/test_demoapp_horizon_dashboard.py", "tests/test_demoapp_horizon_perimeter.py"]
+    - paths: ["src/demoapp/ui/templates/demoapp_inventory_data*.html", "src/demoapp/ui/static/screens/inventory_data.css", "oracle/inventory-data/**"]
+      tests: ["tests/test_demoapp_inventory_data.py", "tests/test_demoapp_inventory_data_actions.py", "tests/test_demoapp_inventory_data_tabs.py", "tests/test_demoapp_inventory_data_writes.py"]
+    - paths: ["src/demoapp/ui/templates/demoapp_labels*.html", "oracle/labels/**"]
+      tests: ["tests/test_demoapp_labels.py", "tests/test_demoapp_labels_add.py", "tests/test_demoapp_labels_delete.py", "tests/test_demoapp_labels_edit.py", "tests/test_demoapp_labels_export.py", "tests/test_demoapp_labels_live.py"]
+    - paths: ["src/demoapp/ui/templates/demoapp_massive_changes*.html", "src/demoapp/ui/static/screens/massive_changes.css", "oracle/massive-changes/**"]
+      tests: ["tests/test_demoapp_massive_changes.py", "tests/test_demoapp_massive_changes_live.py"]
+    - paths: ["src/demoapp/ui/templates/demoapp_objectives*.html", "src/demoapp/ui/static/screens/objectives.css", "oracle/objectives/**"]
+      tests: ["tests/test_demoapp_objectives.py", "tests/test_demoapp_objectives_live.py"]
+    - paths: ["src/demoapp/ui/templates/demoapp_optimization*.html", "src/demoapp/ui/static/screens/optimization.css", "oracle/optimization/**"]
+      tests: ["tests/test_demoapp_optimization.py", "tests/test_demoapp_optimization_tabs.py"]
+    - paths: ["src/demoapp/ui/templates/demoapp_referentials*.html", "oracle/references/**"]
+      tests: ["tests/test_demoapp_referentials.py", "tests/test_demoapp_referentials_rows.py"]
+    - paths: ["src/demoapp/ui/templates/demoapp_reporting_live*.html", "src/demoapp/ui/static/screens/reporting_live.css", "oracle/reporting-live/**"]
+      tests: ["tests/test_demoapp_reporting_live.py", "tests/test_demoapp_reporting_live_navbar.py", "tests/test_demoapp_reporting_live_query.py"]
+    - paths: ["src/demoapp/ui/templates/demoapp_rules*.html", "src/demoapp/ui/static/screens/rules.css", "oracle/rules/**", "oracle/business-rules/**"]
+      tests: ["tests/test_demoapp_rules.py", "tests/test_demoapp_rules_controls.py", "tests/test_demoapp_rules_live.py", "tests/test_demoapp_rules_mapping.py", "tests/test_demoapp_rules_menus.py", "tests/test_demoapp_rules_perimeter.py", "tests/test_demoapp_rules_script.py", "tests/test_demoapp_rules_tabs.py"]
+    - paths: ["src/demoapp/ui/templates/demoapp_section_groupings*.html", "src/demoapp/ui/static/screens/section_groupings.css", "oracle/section-groupings/**"]
+      tests: ["tests/test_demoapp_section_groupings.py", "tests/test_demoapp_section_groupings_controls.py", "tests/test_demoapp_section_groupings_live.py", "tests/test_demoapp_section_groupings_writes.py"]
+    - paths: ["src/demoapp/ui/templates/demoapp_spectrum*.html", "src/demoapp/ui/static/screens/spectrum.css", "oracle/spectrum/**"]
+      tests: ["tests/test_demoapp_spectrum.py", "tests/test_demoapp_spectrum_flow.py", "tests/test_demoapp_spectrum_rows.py"]
+    - paths: ["src/demoapp/ui/templates/demoapp_static_uploads*.html", "src/demoapp/ui/static/screens/static_uploads.css", "oracle/static-uploads/**"]
+      tests: ["tests/test_demoapp_static_uploads.py"]
+    - paths: ["src/demoapp/ui/templates/demoapp_templates*.html", "src/demoapp/ui/static/screens/templates.css", "oracle/templates/**"]
+      tests: ["tests/test_demoapp_templates.py", "tests/test_demoapp_templates_controls.py", "tests/test_demoapp_templates_live.py", "tests/test_demoapp_templates_writes.py"]
+    - paths: ["src/demoapp/ui/templates/demoapp_user_notifications*.html", "src/demoapp/ui/static/screens/user_notifications.css", "oracle/user-notifications/**"]
+      tests: ["tests/test_demoapp_user_notifications.py", "tests/test_demoapp_user_notifications_actions.py", "tests/test_demoapp_user_notifications_flow.py", "tests/test_demoapp_user_notifications_live.py", "tests/test_demoapp_user_notifications_tabs.py"]
+
+    # Shared shell, navbar menus and perimeter panels: every screen includes them.
+    - paths: ["src/demoapp/ui/templates/demoapp/*.html", "src/demoapp/ui/templates/demoapp/navbar/*.html", "src/demoapp/ui/static/screens/nav_menu.css", "src/demoapp/ui/static/screens/notification_panel.css", "src/demoapp/ui/static/screens/search_panel.css"]
+      tests: ["tests/test_demoapp_shell.py", "tests/test_demoapp_navigation.py", "tests/test_demoapp_navbar_panels.py", "tests/test_demoapp_account_menu.py", "tests/test_demoapp_help_menu.py", "tests/test_demoapp_notification_menu.py", "tests/test_demoapp_search_menu.py", "tests/test_demoapp_card_layout.py", "tests/test_demoapp_table_layout.py", "tests/test_demoapp_geometric_tokens.py", "tests/test_demoapp_tooltips.py"]
+    - paths: ["src/demoapp/ui/templates/demoapp/perimeter/*.html", "src/demoapp/ui/templates/demoapp_route_field.html", "src/demoapp/ui/templates/demoapp_folder_editor.html", "src/demoapp/ui/static/screens/route_panel.*", "src/demoapp/ui/static/screens/select_panel.css"]
+      tests: ["tests/test_demoapp_perimeter_flows.py", "tests/test_demoapp_app_perimeter.py", "tests/test_demoapp_horizon_perimeter.py", "tests/test_demoapp_rules_perimeter.py", "tests/test_demoapp_home.py"]
+    # Ant Design layer (macros, antd.js behaviours, bridge CSS) used by all ported screens.
+    - paths: ["src/demoapp/ui/templates/antd/*.html", "src/demoapp/ui/templates/antd_*.html", "src/demoapp/ui/static/antd.js", "src/demoapp/ui/static/antd-bridge.css", "src/demoapp/ui/static/demoapp.css", "src/demoapp/ui/static/fonts/**"]
+      tests: ["tests/test_antd_macros.py", "tests/test_antd_macros_structure.py", "tests/test_antd_page.py", "tests/test_demoapp_shell.py", "tests/test_demoapp_popconfirm_triggers.py", "tests/test_demoapp_row_tooltips.py", "tests/test_interaction_rules.py", "tests/test_interaction_parity.py", "tests/test_interaction_browser.py"]
+    - paths: ["front/vendor/**"]
+      tests: ["tests/test_demoapp_card_layout.py", "tests/test_demoapp_table_layout.py", "tests/test_demoapp_shell.py"]
+    - paths: ["mirror/**"]
+      tests: ["tests/test_appserver.py", "tests/test_demoapp_inventory_data_tabs.py", "tests/test_demoapp_inventory_data_writes.py", "tests/test_demoapp_referentials.py"]
+    - paths: ["oracle/overlays/**", "oracle/screens.yaml", "oracle/perimeter-flow/**"]
+      tests: ["tests/test_demoapp_horizon.py", "tests/test_demoapp_perimeter_flows.py", "tests/test_capture_oracle.py", "tests/test_oracle_verify.py"]
+    - paths: ["contracts/**"]
+      tests: ["tests/contracts"]
+
+    # LEGACY fronts -- never build on them (skill front-tests, section 8).
+    # Old vanilla-JS prototypes served at /<screen>/ by appserver.py.
+    - paths: ["front/daily_grid/**"]
+      tests: ["tests/test_daily_grid.py"]
+    - paths: ["front/service_detail/**"]
+      tests: ["tests/test_service_detail_front.py", "tests/test_service_detail.py"]
+    - paths: ["front/bi_departure/**"]
+      tests: ["tests/test_ui_bi_departure_front.py"]
+    - paths: ["front/bi_forecast/**"]
+      tests: ["tests/test_ui_bi_forecast_screen.py"]
+    - paths: ["front/custom_kpis/**"]
+      tests: ["tests/test_ui_bi_custom_kpis.py"]
+    - paths: ["front/od_mix/**"]
+      tests: ["tests/test_od_mix_front.py"]
+    - paths: ["front/referentiels/**"]
+      tests: ["tests/test_ui_referentiels.py"]
+    - paths: ["front/supervision/**"]
+      tests: ["tests/test_ui_supervision.py"]
+    - paths: ["front/br/**"]
+      tests: ["tests/test_br_editor.py"]
+    - paths: ["front/shell/**", "front/shared/**"]
+      tests: ["tests/test_shell.py", "tests/test_appserver.py", "tests/test_daily_grid.py", "tests/test_service_detail_front.py", "tests/test_od_mix_front.py", "tests/test_ui_referentiels.py", "tests/test_ui_supervision.py"]
+    # Old htmx pages (/ui/rules, /ui/trains, /ui/bi...); static/htmx.min.js is a no-op stub.
+    - paths: ["src/demoapp/ui/templates/*.html", "src/demoapp/ui/templates/partials/*.html", "src/demoapp/ui/templates/trains/*.html", "src/demoapp/ui/static/style.css", "src/demoapp/ui/static/grid.js", "src/demoapp/ui/static/htmx.min.js"]
+      tests: ["tests/test_ui.py", "tests/test_ui_bi.py", "tests/test_ui_bi_departure.py", "tests/test_ui_bi_forecast.py", "tests/test_ui_bi_kpis.py", "tests/test_ui_breadcrumb.py", "tests/test_ui_calendar_alerts.py", "tests/test_ui_concurrence.py", "tests/test_ui_grid_select.py", "tests/test_ui_journal.py", "tests/test_ui_leg_histogram.py", "tests/test_ui_mix_tab.py", "tests/test_ui_od_tab.py", "tests/test_ui_pythie.py", "tests/test_ui_ref.py", "tests/test_ui_rules.py", "tests/test_ui_rules_advanced.py", "tests/test_ui_shell.py", "tests/test_grid.py"]
+
+  # > ~10 s per file. Measured 2026-10-14 (per-file sum, -n 4) unless noted.
+  # Each Playwright file here starts a uvicorn server AND a browser per test
+  # (function-scoped `page` around `live_app()`), hence 10-30 s of setup/teardown per test.
+  slow:
+    - tests/test_interaction_fields.py                          # not run: > 12 min (350 fields, screenshot each)
+    - tests/test_demoapp_aggregated_reference_logics_actions.py   # 141 s
+    - tests/test_demoapp_aggregated_reference_logics_forms.py     # 117 s
+    - tests/test_demoapp_user_notifications_actions.py            # 55 s
+    - tests/test_demoapp_events_forms.py                          # 43 s
+    - tests/test_no_dead_links.py                               # 42 s, walks every screen (red on develop: KeyError 'druidRatio')
+    - tests/test_demoapp_reporting_live_navbar.py                 # 39 s, launches Chrome itself (no fixture)
+    - tests/test_interaction_reach.py                           # 32 s, launches Chrome itself (no fixture)
+    - tests/test_interaction_browser.py                         # 28 s, launches Chrome itself (no fixture)
+    - tests/test_interaction_actions.py                         # 11 s
+
+# No `browser` key: the repo defines no browser marker (pyproject has no `markers`).
+# Browser tests are detectable by the `page` fixture EXCEPT test_interaction_browser.py,
+# test_interaction_reach.py and test_demoapp_reporting_live_navbar.py, which call
+# sync_playwright() directly -- they are listed under `slow` so they stay out of quick runs.
+
+# No `app_server` key: no browser test reads a base-URL env var. Each starts its own
+# uvicorn on create_app() through tests/test_interaction_browser.py::live_app(). The
+# manual server is `python -m demoapp.appserver` (build_app factory, port from $PORT,
+# health on GET /), which tests do not use; tests/contracts reads CLONE_BASE_URL.

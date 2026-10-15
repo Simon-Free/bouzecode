@@ -8,7 +8,8 @@ session tmp et un ipc_dir tmp dont le state.json est ecrit par le VRAI ipc.write
 import json
 
 from bouzecode.web_v2.runtime import ipc
-from bouzecode.web_v2.runtime.runner import Agent, _returncode_from_session
+from bouzecode.web_v2.runtime.runner.agent_etat import _returncode_from_session
+from bouzecode.web_v2.runtime.runner.agent_fiche import Agent
 
 
 def _agent(tmp_path, session_close_reason, ipc_status=None, ipc_close_reason=None):

@@ -6,11 +6,13 @@ from __future__ import annotations
 
 import json
 
-from bouzecode.web_v2.runtime import runner
+import pytest
+
+from bouzecode.web_v2.runtime.runner import agent_fiche, agent_reprise, agent_respawn
 
 
-def _agent(session_path: str, prompt: str = "Fais-moi un plan de modifications") -> runner.Agent:
-    return runner.Agent(
+def _agent(session_path: str, prompt: str = "Fais-moi un plan de modifications") -> agent_fiche.Agent:
+    return agent_fiche.Agent(
         agent_id="deadbeef0001",
         prompt=prompt,
         model="",
@@ -32,48 +34,24 @@ def _capture_respawn(monkeypatch) -> dict:
         captured["banner"] = banner
         return agent
 
-    monkeypatch.setattr(runner, "_respawn", fake_respawn)
+    monkeypatch.setattr(agent_respawn, "_respawn", fake_respawn)
     return captured
 
 
-def test_session_has_persisted_turn(tmp_path):
-    absent = tmp_path / "absent.json"
-    assert runner._session_has_persisted_turn(str(absent)) is False
-
-    empty = tmp_path / "empty.json"
-    empty.write_text("", encoding="utf-8")
-    assert runner._session_has_persisted_turn(str(empty)) is False
-
-    no_msgs = tmp_path / "no_msgs.json"
-    no_msgs.write_text(json.dumps({"messages": []}), encoding="utf-8")
-    assert runner._session_has_persisted_turn(str(no_msgs)) is False
-
-    with_turn = tmp_path / "with_turn.json"
-    with_turn.write_text(json.dumps({"messages": [{"role": "user", "content": "x"}]}),
-                         encoding="utf-8")
-    assert runner._session_has_persisted_turn(str(with_turn)) is True
-
-
-def test_continue_on_absent_session_reruns_original_prompt(monkeypatch, tmp_path):
+@pytest.mark.parametrize("contenu", [None, "", json.dumps({"messages": []})],
+                         ids=["session-absente", "fichier-vide", "aucun-message"])
+def test_continue_sans_tour_persiste_rejoue_le_prompt_d_origine(monkeypatch, tmp_path, contenu):
     captured = _capture_respawn(monkeypatch)
-    agent = _agent(str(tmp_path / "never_saved.session.json"))
+    session = tmp_path / "never_saved.session.json"
+    if contenu is not None:
+        session.write_text(contenu, encoding="utf-8")
+    agent = _agent(str(session))
 
-    runner.continue_agent(agent, "continue stp")
+    agent_reprise.continue_agent(agent, "continue stp")
 
     # Le message « continue stp » ne doit PAS clobber : on rejoue le prompt du ticket.
     assert captured["extra_args"] == ["Fais-moi un plan de modifications"]
     assert "continue stp" not in captured["banner"]
-
-
-def test_continue_on_empty_file_reruns_original_prompt(monkeypatch, tmp_path):
-    captured = _capture_respawn(monkeypatch)
-    session = tmp_path / "empty.session.json"
-    session.write_text(json.dumps({"messages": []}), encoding="utf-8")
-    agent = _agent(str(session))
-
-    runner.continue_agent(agent, "continue stp")
-
-    assert captured["extra_args"] == ["Fais-moi un plan de modifications"]
 
 
 def test_continue_on_persisted_session_uses_given_text(monkeypatch, tmp_path):
@@ -84,7 +62,7 @@ def test_continue_on_persisted_session_uses_given_text(monkeypatch, tmp_path):
                        encoding="utf-8")
     agent = _agent(str(session))
 
-    runner.continue_agent(agent, "fais plutôt X")
+    agent_reprise.continue_agent(agent, "fais plutôt X")
 
     # Session réelle → le message utilisateur est bien transmis tel quel.
     assert captured["extra_args"] == ["fais plutôt X"]
@@ -101,7 +79,7 @@ def test_continue_empty_prompt_on_persisted_uses_resume_prompt(monkeypatch, tmp_
                        encoding="utf-8")
     agent = _agent(str(session))
 
-    runner.continue_agent(agent, "")
+    agent_reprise.continue_agent(agent, "")
 
-    assert captured["extra_args"] == [runner.RESUME_PROMPT]
+    assert captured["extra_args"] == [agent_reprise.RESUME_PROMPT]
     assert captured["extra_args"][0] != ""

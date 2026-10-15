@@ -1,9 +1,10 @@
-# [desc] Reproduces context loss: methodology + user prompts must reach the wire as a system block. [/desc]
+# [desc] Reproduces context loss: methodology + user prompts must reach the wire (<working_notes>, first user message). [/desc]
 """Multi-turn reproduction of bouzecode losing its context.
 
 The methodology-centric wire (minimal_payload) DROPS every prior user message
 from the message list, on the contract that they live in the methodology
-system block instead (as ## User blocks). So the methodology block is the ONLY
+note instead (as ## User blocks) -- sent in <working_notes> at the head of the
+first user message since 2026-10-07 (it used to be a system block). So the methodology block is the ONLY
 carrier of cross-turn context. If it is not transmitted, the model sees
 nothing from earlier turns — exactly the "perd son contexte" symptom.
 
@@ -24,7 +25,7 @@ from bouzecode.backend.context_manager.methodology import (
 
 def _wire_system_text(context_state: ContextState) -> str:
     """Run dispatch.stream just far enough to capture the SystemPayload, then
-    return the concatenated text of every system block sent to the API."""
+    return the text of the first user message sent to the API (<working_notes>)."""
     config = {"anthropic_api_key": "test-key", "_context_state": context_state}
     gen = dispatch.stream(
         model="claude-sonnet-4-6",
@@ -36,7 +37,8 @@ def _wire_system_text(context_state: ContextState) -> str:
     for event in gen:
         if isinstance(event, SystemPayload):
             gen.close()  # never reach the (blocked) network call
-            return "\n".join(b.get("text", "") for b in event.system_blocks)
+            assert not any("[METHODOLOGY" in b.get("text", "") for b in event.system_blocks)
+            return "\n".join(b.get("text", "") for b in event.messages[0]["content"])
     raise AssertionError("dispatch.stream never yielded a SystemPayload")
 
 

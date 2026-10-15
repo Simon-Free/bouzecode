@@ -3,7 +3,7 @@
 On rejoue le VRAI flux : on pose sur disque des agents/tickets dans l'état où un
 arrêt serveur les aurait laissés, on lance reconcile_dead_agents() +
 build_boot_report() comme le boot réel (app.py::main), puis on interroge le
-endpoint GET /api/interrupted via le Flask test client. Pas de mock.patch :
+endpoint GET /api/agents?state=interrupted via le Flask test client. Pas de mock.patch :
 tout passe par les stores fichier réels, redirigés sur des tmpdir.
 """
 from __future__ import annotations
@@ -13,7 +13,7 @@ from datetime import datetime
 
 import pytest
 
-from bouzecode.web_v2.runtime import runner
+from bouzecode.web_v2.runtime.runner import agent_fiche, agent_registre
 from bouzecode.web_v2 import app as app_module
 from bouzecode.web_v2.services.work import interrupted_report, tickets
 from bouzecode.web_v2.services.work import _persistence
@@ -27,7 +27,7 @@ def stores(tmp_path, monkeypatch):
     tickets_dir = tmp_path / "tickets"
     tickets_dir.mkdir()
     report_path = tmp_path / "interrupted_boot_report.json"
-    monkeypatch.setattr(runner, "AGENTS_DIR", agents_dir)
+    monkeypatch.setattr(agent_fiche, "AGENTS_DIR", agents_dir)
     # `_persistence.TICKETS_DIR` = SOURCE du store SQLite (lue par `_db_path()`) ;
     # `tickets.TICKETS_DIR` n'en est qu'un ré-export.
     monkeypatch.setattr(_persistence, "TICKETS_DIR", tickets_dir)
@@ -65,7 +65,7 @@ def client():
 
 def _boot(crashed_seed=None):
     """Rejoue le boot : reconcile (stampe les morts) → build_boot_report."""
-    crashed_ids = runner.reconcile_dead_agents()
+    crashed_ids = agent_registre.reconcile_dead_agents()
     return interrupted_report.build_boot_report(crashed_ids)
 
 
@@ -75,7 +75,7 @@ def test_crashed_agent_appears_in_interrupted(stores, client):
                  ticket_slug="proj", ticket_id="T1", run_kind="work")
     _boot()
 
-    resp = client.get("/api/interrupted")
+    resp = client.get("/api/agents?state=interrupted")
     assert resp.status_code == 200
     body = resp.get_json()
     ids = {it["agent_id"] for it in body["items"]}
@@ -94,7 +94,7 @@ def test_launching_ticket_without_run_appears(stores, client):
     ])
     _boot()
 
-    body = client.get("/api/interrupted").get_json()
+    body = client.get("/api/agents?state=interrupted").get_json()
     launching = [it for it in body["items"]
                  if it["reason"] == "launching_no_run"]
     assert len(launching) == 1
@@ -113,7 +113,7 @@ def test_finished_agent_is_absent(stores, client):
     ])
     _boot()
 
-    body = client.get("/api/interrupted").get_json()
+    body = client.get("/api/agents?state=interrupted").get_json()
     ids = {it["agent_id"] for it in body["items"]}
     assert "bbbb33334444" not in ids
     assert not any(it["ticket"] == "T3" for it in body["items"])
@@ -134,22 +134,7 @@ def test_validate_subagent_absent_from_banner(stores, client):
     ])
     _boot()
 
-    body = client.get("/api/interrupted").get_json()
+    body = client.get("/api/agents?state=interrupted").get_json()
     item = next((it for it in body["items"]
                  if it["agent_id"] == "cccc55556666"), None)
     assert item is None
-
-
-def test_dismiss_persists(stores, client):
-    _write_agent(stores["agents"], "dddd77778888",
-                 ticket_slug="proj", ticket_id="T5")
-    _boot()
-
-    assert client.get("/api/interrupted").get_json()["dismissed"] is False
-    resp = client.post("/api/interrupted/dismiss")
-    assert resp.status_code == 200
-    assert resp.get_json()["ok"] is True
-    # Le rapport garde ses items mais est marqué masqué (persisté sur disque).
-    body = client.get("/api/interrupted").get_json()
-    assert body["dismissed"] is True
-    assert len(body["items"]) >= 1

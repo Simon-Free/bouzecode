@@ -18,7 +18,9 @@ from tests.fake_llm import MockLLM
 
 METH = '<tool_use name="Methodology" id="m1"><param name="content">todo</param></tool_use>'
 FINAL = ('<tool_use name="FinalAnswer" id="f1">'
-         '<param name="answer">Done.</param></tool_use>')
+         '<param name="answer">Done.</param>'
+         '<param name="taches_terminees">[]</param>'
+         '<param name="taches_restantes">[]</param></tool_use>')
 BASH = '<tool_use name="Bash" id="b1"><param name="command">echo ok</param></tool_use>'
 
 HEADLESS_CFG = {"close_requires_final_answer": True, "test_enforcement": False, "enforce_methodology": False}

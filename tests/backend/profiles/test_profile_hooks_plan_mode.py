@@ -24,8 +24,8 @@ def test_apply_profile_hooks_coder_wires_completion_chain():
     assert pipeline.get_named_hook("run_completion_chain").func in wired
 
 
-def test_apply_profile_hooks_other_completion_profiles():
-    for name in ("meta-agent", "frontend"):
+def test_apply_profile_hooks_deployers_and_meta():
+    for name in ("databricks-deployer", "azure-deployer", "meta-agent"):
         pipeline.reset()
         apply_profile_hooks(name)
         wired = pipeline.registered_events().get("on_completion", [])

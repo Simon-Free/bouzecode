@@ -7,6 +7,8 @@ import subprocess
 import threading
 from pathlib import Path
 
+import pytest
+
 from bouzecode.web_v2.services.work import _persistence
 from bouzecode.web_v2.services.work import dispatch, provisioning
 from bouzecode.web_v2.services.work import tickets as tickets_svc
@@ -100,24 +102,21 @@ def test_provision_worktree_defaults_to_live_branch(monkeypatch, tmp_path):
     assert captured["base_branch"] == "session/live"
 
 
-def test_dispatch_resume_branch_forces_isolation(monkeypatch, tmp_path):
-    """dispatch(resume_branch=...) force un worktree et propage la branche au launch.
-
-    Le booléen `do_isolate` a laissé place au mode `isolation` ('shared'/'worktree'/
-    'worktree+venv'), RÉSOLU par `resolve_isolation` : une reprise de branche exige
-    structurellement un worktree, donc le mode remis à `_launch` ne peut pas être 'shared'.
-
-    Le projet doit être un VRAI dépôt git : `resolve_isolation` teste « est-ce un dépôt ? »
-    AVANT « un worktree est-il exigé ? » et rend `shared` sur un dossier quelconque. Avec
-    l'ancien booléen passé tel quel, un `tmp_path` nu suffisait ; il ne suffit plus, et un
-    test qui ne traverse pas la vraie résolution ne prouverait plus le contrat."""
+def test_resume_branch_takes_a_worktree_and_reaches_the_launch(monkeypatch, tmp_path):
+    """Une création avec `resume_branch` part dans un worktree (défaut d'un dépôt git) et la
+    branche de départ arrive jusqu'au lancement ; `shared` + reprise est REFUSÉ (400)."""
+    from bouzecode.web_v2 import api_sanity
+    from bouzecode.web_v2.services.work import projects
+    from bouzecode.web_v2.services.work.api_tickets import creation
+    from bouzecode.web_v2.services.work.api_tickets.refus import Refus
     project = {"slug": "p", "name": "Projet", "path": str(_make_repo(tmp_path))}
     monkeypatch.setattr(_persistence, "TICKETS_DIR", tmp_path)
     monkeypatch.setattr(tickets_svc, "TICKETS_DIR", tmp_path)
-    monkeypatch.setattr(dispatch.projects, "list_projects", lambda: [project])
-    monkeypatch.setattr(dispatch.projects, "find", lambda slug: project)
+    monkeypatch.setattr(projects, "list_projects", lambda: [project])
+    monkeypatch.setattr(projects, "find", lambda slug: project)
     monkeypatch.setattr(dispatch, "get_typology",
                         lambda name, path: {"profile": "", "default_model": ""})
+    monkeypatch.setattr(api_sanity, "require_api_sanity", lambda: None)
 
     launched = threading.Event()
     captured: dict = {}
@@ -129,10 +128,13 @@ def test_dispatch_resume_branch_forces_isolation(monkeypatch, tmp_path):
         launched.set()
 
     monkeypatch.setattr(dispatch, "_launch", fake_launch)
+    demande = {"title": "reprends", "prompt": "reprends le boulot", "resume_branch": "agent/old"}
 
-    dispatch.dispatch("reprends le boulot", project_slug="p", typology="default",
-                      defer=True, resume_branch="agent/old")
+    creation.creer("p", demande)
 
     assert launched.wait(3)
     assert captured["isolation"] != dispatch.SHARED  # resume EXIGE un worktree
     assert captured["resume_branch"] == "agent/old"
+    with pytest.raises(Refus) as refus:
+        creation.creer("p", {**demande, "isolation": "shared"})
+    assert (refus.value.status, refus.value.code) == (400, "isolation_incompatible")

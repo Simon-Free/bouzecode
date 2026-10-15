@@ -46,20 +46,10 @@ EXEMPT_PROMPT_ASSETS = {
         "`get_platform_hints()`, qui n'a aucun appelant. Le fichier prescrit pourtant "
         "toujours des outils. DÉCISION : supprimer le fichier + la fonction, ou "
         "recâbler le placeholder. Propriétaire : agent en charge de core/context.py.",
-    # 2026-08-10 — réintroduits par le portage OSS. En amont les deux assets ont été
-    # SUPPRIMÉS (avec la constante `MEMORY_CONSOLIDATION_PROMPT`) parce que `/memory`
-    # n'y avait aucun handler ; le dépôt public, lui, garde `/memory` vivant via
-    # `commands/oss_shims/memory_cmd.py` → paquet à plat `memory/`. Mais ces deux
-    # FICHIERS restent morts pour autant : la consolidation utilise son propre prompt
-    # inline (`memory/consolidator.py::_SYSTEM`) et rien ne lit jamais le .txt.
-    "06_memory_consolidation.txt":
-        "TODO — mort : doublon figé de `memory/consolidator.py::_SYSTEM`, qui est la "
-        "copie réellement envoyée au modèle. DÉCISION : faire lire ce fichier par le "
-        "consolidateur, ou supprimer l'asset. Propriétaire : owner du paquet memory/.",
-    "08_compaction_summarizer.txt":
-        "TODO — mort : aucun consommateur, à aucun moment de l'historique public. La "
-        "compaction utilise `COMPACTION_SYSTEM_PROMPT`, une chaîne littérale de "
-        "`_embedded_data.py`. DÉCISION : recâbler ou supprimer l'asset.",
+    # 2026-07-28 — `06_memory_consolidation.txt` et `08_compaction_summarizer.txt` ne
+    # figurent plus ici : les deux assets ont été SUPPRIMÉS (décision de l'owner), avec
+    # la constante `MEMORY_CONSOLIDATION_PROMPT` et les deux lignes `/memory` du help
+    # CLI, qui annonçaient une commande sans le moindre handler.
 }
 
 # 2026-07-29 — `BOUZECODE_PARALYSIS_ABORT_AFTER` ne figure plus ici : la décision prise

@@ -273,17 +273,18 @@ def test_e2e_system_prompt_contains_symbol_rules():
     # Symbol-aware reading guidance lives in the default (code) agent profile,
     # layered on the noyau at depth 0 by dispatch — not in the shared base prompt.
     from pathlib import Path
-    from bouzecode.backend.profiles import load_profiles_from_dir
-    repo_root = Path(__file__).resolve().parents[4]
-    extra = load_profiles_from_dir(repo_root / ".bouzecode" / "profiles")["default"].system_prompt_extra
+    from bouzecode.backend.profiles import load_system_profiles
+    extra = load_system_profiles()["default"].system_prompt_extra
     assert "Read(symbol=" in extra
     assert "symbol=" in extra
     # L'échelle ne prescrit plus GetFolderDescription (outil non offert aux agents) :
     # elle liste les symboles avec Grep — cf. test_prompt_registry_conformity.
     assert "GetFolderDescription" not in extra
-    assert "Snippet(symbol=" in extra
     # Separation of concerns: not in the agnostic noyau.
     assert "Read(symbol=" not in build_system_prompt({})
+    # Audit du prompt (2026-09-24) : « garder du code par Snippet(symbol=) » est une règle de
+    # MÉMOIRE, valable pour tout agent : elle est dite une fois, dans le noyau.
+    assert "Snippet(symbol=" in build_system_prompt({})
 
 
 def test_e2e_schema_has_symbol_param():
@@ -297,9 +298,8 @@ def test_e2e_schema_has_symbol_param():
 def test_e2e_embedded_template_mentions_symbol():
     # The `symbol` read hint now lives in the default code profile, not the noyau template.
     from pathlib import Path
-    from bouzecode.backend.profiles import load_profiles_from_dir
-    repo_root = Path(__file__).resolve().parents[4]
-    extra = load_profiles_from_dir(repo_root / ".bouzecode" / "profiles")["default"].system_prompt_extra
+    from bouzecode.backend.profiles import load_system_profiles
+    extra = load_system_profiles()["default"].system_prompt_extra
     assert "symbol" in extra
 
 

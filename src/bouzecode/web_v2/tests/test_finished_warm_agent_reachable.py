@@ -1,6 +1,6 @@
 """Un agent CHAUD dont l'IPC dit `finished` reste joignable : le follow-up part.
 
-Cas vécu : l'agent rend une FinalAnswer. Son process warm-pool
+Cas vécu (session abea3450cd94) : l'agent rend une FinalAnswer. Son process warm-pool
 est encore VIVANT (le hook on_completion / le test-gate tourne, ou le process n'a pas
 encore rebouclé vers `idle`), et son IPC porte `finished`. L'utilisateur envoie un
 follow-up dans le panneau de conversation : clic « Envoyer » → RIEN. Pas de loader,
@@ -65,20 +65,20 @@ def _ecrire_agent(agents_dir, agent_id, *, pid, ipc_status):
 
 @pytest.fixture()
 def agents_dir(tmp_path, monkeypatch, processus_jetable):
-    from bouzecode.web_v2.runtime import runner
+    from bouzecode.web_v2.runtime.runner import agent_etat, agent_fiche
     from bouzecode.web_v2.services.sessions import purge, store
 
     d = tmp_path / "web_agents"
     d.mkdir()
-    monkeypatch.setattr(runner, "AGENTS_DIR", d)
+    monkeypatch.setattr(agent_fiche, "AGENTS_DIR", d)
     monkeypatch.setattr(purge, "TRASH_DIR", d / "_trash")
     monkeypatch.setattr(purge, "DELETED_PATH", tmp_path / "deleted_sessions.json")
     monkeypatch.setattr(store, "_status_cache", {})
-    runner._list_agents_cache.clear()
-    runner._ipc_state_cache.clear()
+    agent_fiche._list_agents_cache.clear()
+    agent_etat._ipc_state_cache.clear()
 
     _ecrire_agent(d, FINI_MAIS_VIVANT, pid=processus_jetable, ipc_status="finished")
-    runner._list_agents_cache.clear()
+    agent_fiche._list_agents_cache.clear()
     return d
 
 
@@ -94,19 +94,19 @@ def client(agents_dir):
 
 @pytest.fixture(autouse=True)
 def _caches_neufs():
-    from bouzecode.web_v2.runtime import runner
+    from bouzecode.web_v2.runtime.runner import agent_fiche
     from bouzecode.web_v2.services.work import fleet
 
     fleet.clear_tree_cache()
-    runner._list_agents_cache.clear()
+    agent_fiche._list_agents_cache.clear()
     yield
     fleet.clear_tree_cache()
-    runner._list_agents_cache.clear()
+    agent_fiche._list_agents_cache.clear()
 
 
 def test_a_message_reaches_a_finished_but_alive_warm_agent(client, agents_dir):
     """Écrire à un agent chaud dont l'IPC dit `finished` marche : le texte part vraiment."""
-    resp = client.post(f"/api/agents/{FINI_MAIS_VIVANT}/continue", json={"text": "reprends stp"})
+    resp = client.post(f"/api/agents/{FINI_MAIS_VIVANT}/messages", json={"mode": "refuse", "text": "reprends stp"})
 
     assert resp.status_code == 200, resp.get_json()
     followup = agents_dir / f"{FINI_MAIS_VIVANT}.ipc" / "followup.txt"
@@ -119,11 +119,11 @@ def test_a_message_reaches_a_finished_but_alive_warm_agent(client, agents_dir):
 
 def test_the_message_is_handed_to_the_living_process_not_a_respawn(client, agents_dir):
     """Reprise CHAUDE : le process vivant garde son pid, aucun cold-start ne le remplace."""
-    from bouzecode.web_v2.runtime import runner
+    from bouzecode.web_v2.runtime.runner import agent_fiche
 
-    pid_avant = runner.load_agent(FINI_MAIS_VIVANT).pid
-    client.post(f"/api/agents/{FINI_MAIS_VIVANT}/continue", json={"text": "suite"})
+    pid_avant = agent_fiche.load_agent(FINI_MAIS_VIVANT).pid
+    client.post(f"/api/agents/{FINI_MAIS_VIVANT}/messages", json={"mode": "refuse", "text": "suite"})
 
-    assert runner.load_agent(FINI_MAIS_VIVANT).pid == pid_avant, (
+    assert agent_fiche.load_agent(FINI_MAIS_VIVANT).pid == pid_avant, (
         "l'agent a été respawné au lieu d'être réveillé"
     )

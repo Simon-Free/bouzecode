@@ -38,13 +38,13 @@ def _write_agent(agents_dir, agent_id, prompt, *, parent=""):
 def agents_dir(tmp_path, monkeypatch):
     """Deux conversations racines : « alpha » avec un sous-agent et un petit-fils,
     « bravo » avec un sous-agent. Soit 5 agents pour 2 racines."""
-    from bouzecode.web_v2.runtime import runner
+    from bouzecode.web_v2.runtime.runner import agent_fiche
     from bouzecode.web_v2.services.sessions import purge
     from bouzecode.web_v2.services.work import fleet, warm_pool
 
     d = tmp_path / "web_agents"
     d.mkdir()
-    monkeypatch.setattr(runner, "AGENTS_DIR", d)
+    monkeypatch.setattr(agent_fiche, "AGENTS_DIR", d)
     monkeypatch.setattr(purge, "TRASH_DIR", d / "_trash")
     monkeypatch.setattr(purge, "DELETED_PATH", d / "deleted_sessions.json")
     # Le cache d'arbre est un global de module : on repart d'une ardoise propre.
@@ -56,7 +56,7 @@ def agents_dir(tmp_path, monkeypatch):
     _write_agent(d, "bravo01", "Nettoyer les worktrees orphelins",
                  parent="dispatcher:manual")
     _write_agent(d, "bravo02", "Recense les worktrees", parent="bravo01")
-    runner._list_agents_cache.clear()
+    agent_fiche._list_agents_cache.clear()
     yield d
     fleet.clear_tree_cache()
 
@@ -187,12 +187,13 @@ def test_un_arbre_perime_est_servi_sans_attendre_son_recalcul(client, monkeypatc
 def test_lire_l_arbre_ne_tue_aucun_process(client, monkeypatch):
     """Consulter la liste des conversations n'évince rien : une lecture HTTP ne
     doit jamais tuer un agent, même quand le warm-pool déborde."""
-    from bouzecode.web_v2.runtime import runner
+    from bouzecode.web_v2.runtime.runner import agent_arret, agent_chaud, agent_processus
     from bouzecode.web_v2.services.work import fleet, warm_pool
 
     tues = []
-    monkeypatch.setattr(runner, "is_warm", lambda agent: True)
-    monkeypatch.setattr(runner, "kill_agent", lambda agent: tues.append(agent.agent_id))
+    monkeypatch.setattr(agent_chaud, "is_warm", lambda agent: True)
+    monkeypatch.setattr(agent_processus, "pid_still_belongs_to", lambda agent: True)
+    monkeypatch.setattr(agent_arret, "kill_agent", lambda agent: tues.append(agent.agent_id))
     monkeypatch.setattr(warm_pool, "WARM_POOL_MAX", 1)  # 5 agents warm → le pool déborde
 
     _tree(client)
@@ -203,14 +204,15 @@ def test_lire_l_arbre_ne_tue_aucun_process(client, monkeypatch):
 def test_le_menage_du_warm_pool_reste_disponible_a_la_demande(agents_dir, monkeypatch):
     """Sorti de la lecture, le ménage du warm-pool s'appelle explicitement et
     évince bien les process idle en trop."""
-    from bouzecode.web_v2.runtime import runner
+    from bouzecode.web_v2.runtime.runner import agent_arret, agent_chaud, agent_processus
     from bouzecode.web_v2.services.work import fleet, warm_pool
     from bouzecode.web_v2.tests.production_isolation import autoriser_la_destruction
 
     tues = []
     autoriser_la_destruction(monkeypatch)  # le balayage est inerte sous pytest
-    monkeypatch.setattr(runner, "is_warm", lambda agent: True)
-    monkeypatch.setattr(runner, "kill_agent", lambda agent: tues.append(agent.agent_id))
+    monkeypatch.setattr(agent_chaud, "is_warm", lambda agent: True)
+    monkeypatch.setattr(agent_processus, "pid_still_belongs_to", lambda agent: True)
+    monkeypatch.setattr(agent_arret, "kill_agent", lambda agent: tues.append(agent.agent_id))
     monkeypatch.setattr(warm_pool, "WARM_POOL_MAX", 1)
 
     evinces = fleet.sweep_warm_pool()
@@ -230,7 +232,7 @@ def test_un_echec_d_eviction_n_empeche_pas_les_autres(agents_dir, monkeypatch):
     agent balayé, et qu'on vérifie que TOUS les suivants ont bien été tentés."""
     import psutil
 
-    from bouzecode.web_v2.runtime import runner
+    from bouzecode.web_v2.runtime.runner import agent_arret, agent_chaud, agent_processus
     from bouzecode.web_v2.services.work import fleet, warm_pool
     from bouzecode.web_v2.tests.production_isolation import autoriser_la_destruction
 
@@ -243,8 +245,9 @@ def test_un_echec_d_eviction_n_empeche_pas_les_autres(agents_dir, monkeypatch):
         tues.append(agent.agent_id)
 
     autoriser_la_destruction(monkeypatch)  # le balayage est inerte sous pytest
-    monkeypatch.setattr(runner, "is_warm", lambda agent: True)
-    monkeypatch.setattr(runner, "kill_agent", _kill)
+    monkeypatch.setattr(agent_chaud, "is_warm", lambda agent: True)
+    monkeypatch.setattr(agent_processus, "pid_still_belongs_to", lambda agent: True)
+    monkeypatch.setattr(agent_arret, "kill_agent", _kill)
     monkeypatch.setattr(warm_pool, "WARM_POOL_MAX", 0)  # tout le monde est en trop
 
     evinces = fleet.sweep_warm_pool()

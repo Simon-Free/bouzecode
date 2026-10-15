@@ -1,4 +1,4 @@
-# [desc] Slow pytest target with sleep and @slow marker for timeout/filtering tests. [/desc]
+# [desc] Slow-sleeping test target used for marker filtering and timeout validation in RunPythonTest e2e tests [/desc]
 """Test target that sleeps — used for marker filtering and timeout tests."""
 
 import time

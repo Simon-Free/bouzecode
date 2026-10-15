@@ -38,12 +38,12 @@ def _write_agent(agents_dir, agent_id, prompt, *, running=False):
 
 @pytest.fixture()
 def agents_dir(tmp_path, monkeypatch):
-    from bouzecode.web_v2.runtime import runner
+    from bouzecode.web_v2.runtime.runner import agent_fiche
 
     d = tmp_path / "web_agents"
     d.mkdir()
-    monkeypatch.setattr(runner, "AGENTS_DIR", d)
-    runner._list_agents_cache.clear()
+    monkeypatch.setattr(agent_fiche, "AGENTS_DIR", d)
+    agent_fiche._list_agents_cache.clear()
     from bouzecode.web_v2.services.sessions import purge
     monkeypatch.setattr(purge, "TRASH_DIR", d / "_trash")
 
@@ -54,7 +54,7 @@ def agents_dir(tmp_path, monkeypatch):
     _write_agent(d, "cccccc", "Corriger le bug de parsing dans parser.py")
     # test conversation MAIS en cours d'exécution (jamais touchée)
     _write_agent(d, "dddddd", "test running keep", running=True)
-    runner._list_agents_cache.clear()
+    agent_fiche._list_agents_cache.clear()
     return d
 
 
@@ -72,10 +72,10 @@ def client(agents_dir):
 
 def _visible_keys(agents_dir) -> set[str]:
     """Les conversations que la sidebar affiche encore (mêmes filtres que /api/sessions)."""
-    from bouzecode.web_v2.runtime import runner
+    from bouzecode.web_v2.runtime.runner import agent_fiche
     from bouzecode.web_v2.services.sessions import store
 
-    runner._list_agents_cache.clear()
+    agent_fiche._list_agents_cache.clear()
     return {row["key"] for row in store.list_agent_sessions(include_tests=True)}
 
 
@@ -113,17 +113,54 @@ def test_hidden_by_archive_only_protects_working_or_awaiting_states(
 ):
     """L'archivage MANUEL ne doit épargner QUE les agents qui travaillent ou attendent
     l'humain. Un warm oisif (`idle`) ou un `starting` doit pouvoir être masqué — l'user
-    veut ranger ces conversations (bug 0123456789ab/63343a4b4a4a). Régression : ne pas
+    veut ranger ces conversations (bug 9d0789f2fdca/63343a4b4a4a). Régression : ne pas
     ré-inclure `idle` dans les états protégés."""
-    from bouzecode.web_v2.runtime import runner
+    from bouzecode.web_v2.runtime.runner import agent_fiche
     from bouzecode.web_v2.services.sessions import store, visibility
 
-    agent = runner.Agent("zzzzzz", "p", "claude-sonnet", "/tmp", 999999999, "2026-06-01T10:00:00Z")
+    agent = agent_fiche.Agent("zzzzzz", "p", "claude-sonnet", "/tmp", 999999999, "2026-06-01T10:00:00Z")
     monkeypatch.setattr(store, "agent_status", lambda _a: {"state": state})
     deleted = {"agent/zzzzzz": {"reason": "archived"}}
     assert visibility.hidden_by_archive(agent, deleted) is hidden
     # Non inscrit au registre = jamais caché, quel que soit l'état.
     assert visibility.hidden_by_archive(agent, {}) is False
+
+
+@pytest.mark.parametrize(
+    "state, returncode, hidden",
+    [
+        # Agent ORPHELIN (process mort, returncode posé) qui affiche encore une
+        # question pendante : l'archivage MANUEL doit pouvoir le ranger. Bug vécu :
+        # après restart serveur, 9d0789f2fdca / 63343a4b4a4a / "Suite du ticket 3..."
+        # étaient "Nécessitant une action" (awaiting_*) mais leur process était mort,
+        # donc l'utilisateur ne pouvait pas les archiver.
+        ("awaiting_input", 0, True),
+        ("awaiting_plan_validation", 0, True),
+        ("awaiting_input", 137, True),
+        # Agent VIVANT (returncode None) qui attend l'humain : reste protégé pour ne
+        # pas reproduire l'incident 2026-07-28 (agent en cours rendu injoignable).
+        ("awaiting_input", None, False),
+        ("awaiting_plan_validation", None, False),
+        # Un agent qui TOURNE est forcément vivant : toujours protégé.
+        ("running", None, False),
+    ],
+)
+def test_hidden_by_archive_orphan_awaiting_is_archivable(
+    monkeypatch, state, returncode, hidden
+):
+    """Un agent en attente d'action dont le PROCESS EST MORT (returncode posé) doit
+    pouvoir être archivé manuellement. La protection `ARCHIVE_PROTECTED_STATES` ne vaut
+    QUE pour un agent VIVANT (returncode None) : sinon un awaiting orphelin reste
+    éternellement non-archivable après un restart serveur."""
+    from bouzecode.web_v2.runtime.runner import agent_fiche
+    from bouzecode.web_v2.services.sessions import store, visibility
+
+    agent = agent_fiche.Agent("orphan", "p", "claude-sonnet", "/tmp", 999999999, "2026-06-01T10:00:00Z")
+    monkeypatch.setattr(
+        store, "agent_status", lambda _a: {"state": state, "returncode": returncode}
+    )
+    deleted = {"agent/orphan": {"reason": "archived"}}
+    assert visibility.hidden_by_archive(agent, deleted) is hidden
 
 
 def test_archive_keeps_a_running_agent_visible(client, agents_dir):
@@ -153,7 +190,7 @@ def test_archive_tree_batch(client, agents_dir):
     SEUL appel batch POST /api/conversations/archive body {keys:[...]}. On
     prouve ici que la route batch archive bien les 3 (parent + 2 enfants) en un
     appel, en réutilisant les préfixes "agent/<id>" tels que le front les émet."""
-    from bouzecode.web_v2.runtime import runner
+    from bouzecode.web_v2.runtime.runner import agent_fiche
 
     # parent + 2 enfants (non-running → archivables). Le lien parent/enfant vit
     # côté agents (tree) ; ici on simule ce que le front a déjà résolu : la liste
@@ -161,7 +198,7 @@ def test_archive_tree_batch(client, agents_dir):
     _write_agent(agents_dir, "parent", "Corriger le bug de parsing dans parser.py")
     _write_agent(agents_dir, "child1", "sous-tâche 1 de parent")
     _write_agent(agents_dir, "child2", "sous-tâche 2 de parent")
-    runner._list_agents_cache.clear()
+    agent_fiche._list_agents_cache.clear()
 
     resp = client.post(
         "/api/conversations/archive",
@@ -202,9 +239,10 @@ def test_auto_purge_tests(client, agents_dir, monkeypatch):
     garde-fou. Le parc visé est celui, jetable, de la fixture."""
     autoriser_la_destruction(monkeypatch)
 
-    resp = client.post("/api/conversations/auto-purge-tests")
-    assert resp.status_code == 200
-    body = resp.get_json()
+    # La route `POST /api/conversations/auto-purge-tests` est retirée (R11 : plus aucune page ne
+    # la déclenche) ; le service reste, appelé directement.
+    from bouzecode.web_v2.services.sessions import purge
+    body = purge.auto_purge_test_agents()
     assert set(body["purged"]) == {"aaaaaa", "bbbbbb"}
     for aid in ("aaaaaa", "bbbbbb"):
         assert not (agents_dir / f"{aid}.json").exists()

@@ -53,14 +53,18 @@ class TestCloseTagInContent:
         # So let's test the clearer case:
         pass  # Skip ambiguous case
 
-    def test_stream_close_tag_with_trailing_text(self):
-        """Stream parser: '</thinking>' at col 0 but with trailing text on same line
-        should NOT close the thought."""
+    def test_stream_close_tag_mentioned_mid_line(self):
+        """Stream parser: a '</thinking>' mentioned MID-LINE is not a real close.
+
+        A sloppy close at col 0 followed by text DOES close (see
+        test_close_tag_trailing_text.py) — the protection kept here is the
+        one that matters: a literal mention inside a sentence.
+        """
         parser = ThinkingStreamParser()
         # Feed opening
         chunks = parser.feed("<thinking>\n")
-        # Feed content that has </thinking> with trailing text at col 0
-        chunks += parser.feed("</thinking> is a tag I use\n")
+        # Feed content that MENTIONS </thinking> mid-line (not at col 0)
+        chunks += parser.feed("I use </thinking> as a tag\n")
         # Feed real close (alone on line)
         chunks += parser.feed("</thinking>\n")
         # Feed visible text
@@ -74,9 +78,10 @@ class TestCloseTagInContent:
         visible_content = "".join(text_parts)
 
         # The thinking block should contain the mentioned tag
-        assert "</thinking> is a tag I use" in thinking_content
-        # Visible text should be "Hello world"
+        assert "I use </thinking> as a tag" in thinking_content
+        # Visible text should be "Hello world", with no tag leaking
         assert "Hello world" in visible_content
+        assert "</thinking>" not in visible_content
 
     def test_stream_close_tag_at_col0_alone(self):
         """Stream parser: '</thinking>' alone at col 0 DOES close the thought."""

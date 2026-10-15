@@ -128,13 +128,13 @@ class TestEditWriteSnippetable:
         assert is_snippetable_tool_id("Write") is False
 
     def test_large_edit_result_wrapped_by_payload(self, tmp_path):
-        """A large Edit result (>=50 lines) is wrapped with file= markers by build_minimal_payload.
+        """A large Edit result (>=50 lines) is marked file= by build_minimal_payload.
 
         Decoupled from _edit's diff truncation: we feed a synthetic >=50-line
         tool_result directly, so this exercises build_minimal_payload's wrap path
         (is_file_snippetable + file_path_index + line threshold), not file_ops.
         """
-        from bouzecode.backend.agent.snippet_wire import _SNIPPET_CLOSE
+        from bouzecode.backend.agent.snippet_wire import HARNESS_NOTE_KEY
         from bouzecode.backend.agent.minimal_payload import build_minimal_payload
 
         f = tmp_path / "big.py"
@@ -153,8 +153,10 @@ class TestEditWriteSnippetable:
         ]
         wire = build_minimal_payload(messages)
         tool_msg = next(m for m in wire if m.get("role") == "tool")
-        assert f"A SNIPPETER id: file={f}" in tool_msg["content"]
-        assert _SNIPPET_CLOSE in tool_msg["content"]
+        # Since 2026-10-07 the instruction rides apart (<harness_notes>), not in the result.
+        assert f"A SNIPPETER id: file={f}" in tool_msg[HARNESS_NOTE_KEY]
+        assert "A SNIPPETER" not in tool_msg["content"]
+        assert tool_msg["content"] == result, "Write/Edit echo keeps its real line numbers"
 
     def test_edit_write_tracked_by_enforcement(self, tmp_path):
         """get_unsnippeted_reads reports an un-snippeted large Edit result as file-keyed."""

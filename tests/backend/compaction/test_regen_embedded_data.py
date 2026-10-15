@@ -6,7 +6,10 @@ from pathlib import Path
 
 PROJECT_ROOT = Path(__file__).resolve().parents[3]
 # Compact example-first noyau: the identity line is a single dense line.
-EXPECTED_FIRST_LINE = "Tu es Bouzecode. Penser/répondre FR, code EN. Plateforme : {platform}"
+# Audit du prompt (2026-09-24) : la plateforme est passée dans le contexte de session.
+# 2026-09-29 : « Pense » retiré — le vocabulaire de réflexion déclenchait le classifieur
+# de refus de claude-opus-5 (le thinking passe désormais par le canal natif de l'API).
+EXPECTED_FIRST_LINE = "Tu es bouzecode. Réponds en français, code en anglais."
 
 
 def test_system_prompt_in_system_prompts_dir():

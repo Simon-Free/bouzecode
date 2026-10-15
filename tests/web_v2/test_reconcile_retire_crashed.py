@@ -1,46 +1,38 @@
-"""Fix 3 — _reconcile_graceful_close retire le faux flag 'crashed'.
+"""Une clôture GRACIEUSE n'est jamais lue comme un plantage.
 
-Cas réel 86c37f5a : un manager clos gracieusement (close_reason=final_answer) mais dont le
-watchdog avait posé crashed pendant la fenêtre process-mort/stamp. La réconciliation marque
-le run completed ET doit retirer ce faux crash — sinon le ticket resterait 'planté'.
+Cas réel 86c37f5a : un manager clos gracieusement (close_reason=final_answer) avait été déclaré
+planté par le watchdog pendant la fenêtre process-mort/stamp. Lot L2 : le watchdog ne conclut
+qu'après `MORTS_AVANT_CRASH` constats de mort et lit alors la clôture sur disque — même pour une
+fiche DÉCHARGÉE (agent absent du parc, session restée) : le ticket passe `delivered`.
+Le chemin BOOT (`runner.reconcile_dead_agents`) est couvert par les tests suivants.
 Fakes purs + monkeypatch des répertoires (aucun unittest.mock, aucun git, aucun LLM).
 """
 import json
-from pathlib import Path
 
-from bouzecode.web_v2.services.work import wake
+import pytest
+
+from bouzecode.web_v2.runtime.runner import agent_etat, agent_fiche, agent_registre, agent_vivacite
 from bouzecode.web_v2.services.work import tickets as tickets_svc
-from bouzecode.web_v2.services.work import _persistence
-from bouzecode.web_v2.runtime import runner
+from bouzecode.web_v2.services.work.fsm import etats
+from bouzecode.web_v2.tests.aides_tickets import constater_tout, en_cours
 
 
-def test_reconcile_gracieux_retire_le_faux_crashed(tmp_path, monkeypatch):
+def test_reconcile_gracieux_ne_plante_pas_un_agent_decharge():
     slug = "proj"
     agent_id = "gracefuldead042"
-
-    monkeypatch.setattr(runner, "AGENTS_DIR", tmp_path)
-    monkeypatch.setattr(_persistence, "TICKETS_DIR", tmp_path)
-    monkeypatch.setattr(tickets_svc, "TICKETS_DIR", tmp_path)
-    monkeypatch.setattr(runner, "load_agent", lambda aid: None)
-
-    session = tmp_path / f"{agent_id}.session.json"
-    session.write_text(
+    ticket = en_cours(slug, agent_id, typology="manager")
+    agent_fiche.AGENTS_DIR.mkdir(parents=True, exist_ok=True)
+    (agent_fiche.AGENTS_DIR / f"{agent_id}.session.json").write_text(
         json.dumps({"messages": [{"role": "assistant", "content": "VERDICT: OK"}],
-                    "close_reason": "final_answer"}),
+                    "close_reason": "final_answer", "final_answer": "VERDICT: OK"}),
         encoding="utf-8",
-    )
+    )  # fiche d'agent absente : seul le parc garde la session
 
-    # Ticket faussement 'planté' par le watchdog, run non completed / sans verdict.
-    ticket = {"id": "t1", "crashed": True, "runs": [{"agent_id": agent_id}]}
-    _persistence._save(slug, [ticket])
+    constater_tout()
 
-    wake._reconcile_graceful_close(slug, ticket)
-
-    # Le run est réconcilié ET le faux crash est retiré → plus affiché 'planté'.
-    assert ticket["runs"][0].get("completed") is True
-    assert ticket.get("crashed") in (None, False)
-    persisted = _persistence._load(slug)[0]
-    assert persisted.get("crashed") in (None, False)
+    persisted = tickets_svc.get_ticket(slug, ticket["id"])
+    assert persisted["state"] == etats.DELIVERED
+    assert persisted["runs"][0].get("completed") is True
     assert tickets_svc.derive_status(persisted) != "planté"
 
 
@@ -50,9 +42,9 @@ def _make_dead_agent(tmp_path, monkeypatch, agent_id, close_reason, ipc_state):
     reconcile_dead_agents lit AGENTS_DIR.glob('*.json') → _agent_from_dict →
     psutil.pid_exists(pid) → get_ipc_state(agent). On simule un pid mort
     (pid_exists→False) et on contrôle l'état IPC renvoyé."""
-    monkeypatch.setattr(runner, "AGENTS_DIR", tmp_path)
-    monkeypatch.setattr(runner.psutil, "pid_exists", lambda pid: False)
-    monkeypatch.setattr(runner, "get_ipc_state", lambda agent: ipc_state)
+    monkeypatch.setattr(agent_fiche, "AGENTS_DIR", tmp_path)
+    monkeypatch.setattr(agent_vivacite.psutil, "pid_exists", lambda pid: False)
+    monkeypatch.setattr(agent_etat, "get_ipc_state", lambda agent: ipc_state)
 
     session = tmp_path / f"{agent_id}.session.json"
     session.write_text(json.dumps({"close_reason": close_reason}), encoding="utf-8")
@@ -83,7 +75,7 @@ def test_reconcile_deferred_close_non_crashed(tmp_path, monkeypatch):
     path = _make_dead_agent(tmp_path, monkeypatch, agent_id,
                             close_reason="final_answer_deferred", ipc_state={})
 
-    crashed = runner.reconcile_dead_agents()
+    crashed = agent_registre.reconcile_dead_agents()
 
     assert agent_id not in crashed
     persisted = json.loads(path.read_text(encoding="utf-8"))
@@ -97,21 +89,23 @@ def test_reconcile_true_crash_reste_crashed(tmp_path, monkeypatch):
     path = _make_dead_agent(tmp_path, monkeypatch, agent_id,
                             close_reason="", ipc_state={})
 
-    crashed = runner.reconcile_dead_agents()
+    crashed = agent_registre.reconcile_dead_agents()
 
     assert agent_id in crashed
     persisted = json.loads(path.read_text(encoding="utf-8"))
     assert persisted.get("returncode") == -1
 
 
-def test_reconcile_awaiting_input_non_crashed(tmp_path, monkeypatch):
-    """Garde-fou : un agent en attente utilisateur (IPC awaiting_input) garde rc=0 et
-    reste hors crashed_ids — comportement préservé par le fix."""
+@pytest.mark.parametrize("attente", ["awaiting_input", "awaiting_plan_validation"])
+def test_reconcile_un_agent_en_attente_de_l_utilisateur_n_est_pas_plante(tmp_path, monkeypatch, attente):
+    """Un agent qui attend une réponse (question OU plan à valider) au moment où le serveur
+    redémarre garde rc=0 et reste hors crashed_ids : l'utilisateur lui doit toujours une
+    réponse, ce n'est pas un crash."""
     agent_id = "awaitingdead01"
     path = _make_dead_agent(tmp_path, monkeypatch, agent_id,
-                            close_reason="", ipc_state={"status": "awaiting_input"})
+                            close_reason="", ipc_state={"status": attente})
 
-    crashed = runner.reconcile_dead_agents()
+    crashed = agent_registre.reconcile_dead_agents()
 
     assert agent_id not in crashed
     persisted = json.loads(path.read_text(encoding="utf-8"))

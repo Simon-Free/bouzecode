@@ -36,9 +36,9 @@ def repo(tmp_path: Path) -> Path:
     root = tmp_path / "depot"
     root.mkdir()
     subprocess.run(["git", "init", "-q", "-b", "develop", str(root)], capture_output=True)
-    (root / "fichier.txt").write_text("base\n", encoding="utf-8")
+    (root / "fichier.txt").write_text("gateway\n", encoding="utf-8")
     _git(root, "add", "fichier.txt")
-    _git(root, *_IDENT, "commit", "-qm", "base")
+    _git(root, *_IDENT, "commit", "-qm", "gateway")
     _git(root, "branch", "feature/livree")
     return root
 
@@ -106,7 +106,7 @@ def test_un_travail_en_place_est_deja_integre(monkeypatch, tmp_path, repo):
     monkeypatch.setattr(worktrees, "WORKTREES_DIR", tmp_path / "worktrees")
     meta = worktrees.provision(str(repo), "t6", with_venv=False, work_branch="feature/livree")
     worktree = Path(meta["worktree"])
-    (worktree / "fichier.txt").write_text("base\ncorrection\n", encoding="utf-8")
+    (worktree / "fichier.txt").write_text("gateway\ncorrection\n", encoding="utf-8")
     _git(worktree, "add", "fichier.txt")
     _git(worktree, *_IDENT, "commit", "-qm", "correction")
 
@@ -117,6 +117,6 @@ def test_le_diff_livre_montre_ce_que_l_agent_a_ajoute(monkeypatch, tmp_path, rep
     """La récolte d'un travail EN PLACE n'est pas vide : le validateur voit bien la livraison."""
     monkeypatch.setattr(worktrees, "WORKTREES_DIR", tmp_path / "worktrees")
     meta = worktrees.provision(str(repo), "t7", with_venv=False, work_branch="feature/livree")
-    (Path(meta["worktree"]) / "fichier.txt").write_text("base\ncorrection\n", encoding="utf-8")
+    (Path(meta["worktree"]) / "fichier.txt").write_text("gateway\ncorrection\n", encoding="utf-8")
 
     assert "correction" in worktrees.harvest(meta, "la correction")["diff"]

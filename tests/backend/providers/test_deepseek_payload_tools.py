@@ -47,14 +47,14 @@ class TestDeepSeekReceivesMethodologyAndSnippet:
         payload = _get_system_payload("deepseek-v4-flash", deepseek_config, TOOL_SCHEMAS)
         meth_tool = next(t for t in payload.tools if t["function"]["name"] == "Methodology")
         desc = meth_tool["function"]["description"]
-        assert "WORKING MEMORY" in desc or "working memory" in desc.lower()
+        assert "note de travail" in desc and "delta" in desc  # description FR (audit 2026-09-24)
         assert "content" in meth_tool["function"]["parameters"]["properties"]
 
     def test_snippet_description_is_detailed(self, deepseek_config):
         payload = _get_system_payload("deepseek-v4-flash", deepseek_config, TOOL_SCHEMAS)
         snip_tool = next(t for t in payload.tools if t["function"]["name"] == "Snippet")
         desc = snip_tool["function"]["description"]
-        assert "freeze" in desc.lower() or "labeled line range" in desc.lower()
+        assert "fige" in desc.lower() and "A SNIPPETER" in desc  # description FR (audit 2026-09-24)
         params = snip_tool["function"]["parameters"]["properties"]
         assert "file_path" in params
         assert "ranges" in params

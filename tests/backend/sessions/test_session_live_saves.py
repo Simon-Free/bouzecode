@@ -1,7 +1,7 @@
 # [desc] Tests that session file reflects each ToolEnd and TurnDone during agent loop execution. [/desc]
 """Verify that consumers observing ToolEnd / TurnDone can save a session file
 that reflects the up-to-date `state.messages` at that moment. Covers the
-invariant that powers live-updating the BouzequI Session tab."""
+invariant that powers live-updating the Bouzeui Session tab."""
 from __future__ import annotations
 
 import json

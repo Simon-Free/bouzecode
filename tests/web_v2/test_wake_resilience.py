@@ -1,11 +1,11 @@
-# [desc] Robustesse du hook de complétion : prédicats ne throw pas sur tickets legacy
-# malformés ; _run_chain / tick / _children_by_parent continuent malgré un throw. [/desc]
+# [desc] Robustesse du watchdog : prédicats ne throw pas sur tickets legacy malformés ;
+# le constat par ticket, tick et _children_by_parent continuent malgré un throw. [/desc]
 """Zéro agent LLM. Prouve deux choses :
-1. les prédicats purs (reaper.is_terminal / ticket_terminal / work_delivered /
-   _is_crash) renvoient un booléen sans lever sur des tickets legacy malformés ;
-2. les drivers (_run_chain, tick, _children_by_parent) LOGguent et CONTINUENT quand un
-   ticket ou un projet lève, au lieu d'avorter tout le cycle (le bug d'origine)."""
-from bouzecode.web_v2.services.work import reaper, wake, workflow
+1. les prédicats purs (reaper.should_reap / ticket_terminal / work_delivered) renvoient un
+   booléen sans lever sur des tickets legacy malformés ;
+2. les drivers (constat par ticket, tick, _children_by_parent) LOGguent et CONTINUENT quand
+   un ticket ou un projet lève, au lieu d'avorter tout le cycle (le bug d'origine)."""
+from bouzecode.web_v2.services.work import constats, reaper, wake
 from bouzecode.web_v2.services.work import tickets as tickets_svc
 
 
@@ -23,10 +23,10 @@ LEGACY = [
 ]
 
 PREDICATES = [
-    reaper.is_terminal,        # issue terminale (ex-auto_integrate_pending) portée au faucheur
+    reaper.should_reap,
     wake.ticket_terminal,
     wake.work_delivered,
-    workflow._is_crash,
+    wake.ticket_needs_watchdog,
 ]
 
 
@@ -45,19 +45,19 @@ def test_derive_status_and_outcome_never_throw_on_legacy_tickets():
 
 # ── (b) drivers résilients : un ticket/projet cassé ne tue pas le cycle ────────
 
-def test_run_chain_continues_when_a_ticket_throws(monkeypatch):
+def test_le_constat_continue_quand_un_ticket_leve(monkeypatch):
     seen: list[str] = []
 
-    def spy_advance(slug, ticket, *args, **kwargs):
+    def espion(slug, ticket):
         seen.append(ticket["id"])
         if ticket["id"] == "boom":
             raise RuntimeError("worktree purgé : NotADirectoryError simulée")
 
-    monkeypatch.setattr(wake.workflow, "advance", spy_advance)
-    monkeypatch.setattr(wake.reaper, "reap_ticket", lambda s, t: False)
+    monkeypatch.setattr(constats, "constater", espion)
+    monkeypatch.setattr(wake.conflits, "observer_resolution", lambda s, t: False)
 
     rows = [{"id": "a"}, {"id": "boom"}, {"id": "b"}]
-    wake._run_chain("proj", rows)  # ne doit PAS lever
+    wake._constater_le_projet("proj", rows)  # ne doit PAS lever
     assert seen == ["a", "boom", "b"]  # le ticket après le crash est bien traité
 
 
@@ -97,45 +97,3 @@ def test_children_by_parent_skips_broken_project(monkeypatch):
 
     by_parent = wake._children_by_parent()  # ne doit PAS lever
     assert list(by_parent.keys()) == ["mgr123456789"]  # seul le projet sain a contribué
-
-
-# ── (c) stamp de vivacité résilient : une écriture ratée ne pollue plus les logs ──
-
-def test_stamp_liveness_swallows_write_error(monkeypatch, caplog):
-    """Régression WinError5 : la persistance best-effort de `dead_ticks` peut échouer
-    (os.replace ACCESS_DENIED sous lecteurs concurrents). Ce raté NE doit PAS remonter
-    jusqu'à _run_chain (qui logguerait la traceback ERROR « ticket ... a échoué »).
-    On exige : pas d'exception propagée, et rien en niveau ERROR."""
-    # un run sans agent vivant → dead_ticks passe 0→1 → dirty=True → update_ticket appelé
-    monkeypatch.setattr(wake.runner, "load_agent", lambda aid: None)
-    monkeypatch.setattr(wake.runner, "is_running", lambda a: False)
-
-    def boom(slug, ticket):
-        raise OSError(5, "Accès refusé")  # exactement le WinError 5 de prod
-
-    monkeypatch.setattr(wake.tickets_svc, "update_ticket", boom)
-
-    ticket = {"id": "x", "runs": [{"agent_id": "a", "dead_ticks": 0}]}
-    with caplog.at_level("DEBUG"):
-        wake._stamp_liveness("proj", ticket)  # ne doit PAS lever
-
-    assert not [r for r in caplog.records if r.levelname == "ERROR"], \
-        "un stamp de vivacité raté ne doit PAS produire de log ERROR"
-
-
-def test_run_chain_does_not_log_error_when_liveness_write_fails(monkeypatch, caplog):
-    """Bout-en-bout : même si l'écriture de liveness échoue (WinError5), _run_chain doit
-    continuer et NE PAS logguer « a échoué » pour ce ticket."""
-    monkeypatch.setattr(wake.runner, "load_agent", lambda aid: None)
-    monkeypatch.setattr(wake.runner, "is_running", lambda a: False)
-    monkeypatch.setattr(wake.tickets_svc, "update_ticket",
-                        lambda s, t: (_ for _ in ()).throw(OSError(5, "Accès refusé")))
-    monkeypatch.setattr(wake.workflow, "advance", lambda s, t, *a, **k: None)
-    monkeypatch.setattr(wake.reaper, "reap_ticket", lambda s, t: False)
-
-    rows = [{"id": "x", "runs": [{"agent_id": "a", "dead_ticks": 0}]}]
-    with caplog.at_level("DEBUG"):
-        wake._run_chain("proj", rows)  # ne doit PAS lever
-
-    assert not any("a échoué" in r.getMessage() for r in caplog.records), \
-        "l'échec best-effort du stamp ne doit pas remonter en 'ticket ... a échoué'"

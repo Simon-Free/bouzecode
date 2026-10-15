@@ -8,8 +8,8 @@ Anthropic SDK objects (pydantic-validated, so a test passes only if the SDK real
 exposes the fields the streamer reads) and the accumulator, XML parser, wire conversion
 and AssistantTurn assembly all execute for real.
 
-Event shapes are copied from real SSE dumps captured against the
-Anthropic Messages API (2026-07-27).
+Event shapes are copied from the gateway dumps in
+docs/investigations/gateway_native_tool_use_retest.md (2026-07-27).
 """
 from __future__ import annotations
 

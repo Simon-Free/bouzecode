@@ -19,7 +19,7 @@ def reset_extra_dirs():
 
 class TestExtraDirSkillsE2E:
     """Verify extra-dir skills are discoverable (prompt V2: via the skill loader
-    / SkillList, no longer listed in the system prompt)."""
+    / SkillResearch, no longer listed in the system prompt)."""
 
     def test_extra_dir_skill_appears_in_context(self, tmp_path, monkeypatch):
         """A skill in an extra dir is returned by the skill loader."""

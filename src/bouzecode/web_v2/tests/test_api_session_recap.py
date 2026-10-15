@@ -205,3 +205,30 @@ def test_recap_endpoint_uses_git_diff_when_snapshots_empty(monkeypatch, client, 
     # Chaque item porte son patch (le front rend en <pre> quand original/modified absents).
     assert "def run():" in by_file["src/pkg/service.py"]["patch"]
     assert by_file["tests/test_helper.py"]["is_new"] is True
+
+
+def test_recap_lu_une_fois_par_version_de_la_session(monkeypatch, client, tmp_path):
+    """Rouvrir l'onglet Récap ne redécode pas la session tant qu'elle n'a pas changé ; une
+    session réécrite est relue et la réponse suit."""
+    import os
+    from bouzecode.web_v2.runtime.context_viewer import builder
+    builder.oublier()
+    monkeypatch.setattr(store, "DAILY_DIR", tmp_path)
+    recap = {"symptoms": "s", "explanation": "e", "tests": "t",
+             "changes": [{"file": "src/pkg/service.py", "summary": "corrige run()"}]}
+    key = _write_daily_session(tmp_path, {"recap": recap, "file_snapshots": _SNAPSHOTS})
+    lectures = []
+    vraie = store.load_session_json
+    monkeypatch.setattr(store, "load_session_json", lambda p: lectures.append(p) or vraie(p))
+    corps = [client.get(f"/api/sessions/{key}/recap").get_json() for _ in range(3)]
+    assert corps[0] == corps[1] == corps[2] and corps[0]["recap"] == recap
+    assert len(lectures) == 1
+
+    chemin = tmp_path / "2026-07-06" / "session_test.json"
+    nouveau = {**recap, "symptoms": "autre chose"}
+    chemin.write_text(json.dumps({"recap": nouveau, "file_snapshots": _SNAPSHOTS}), encoding="utf-8")
+    st = chemin.stat()
+    os.utime(chemin, ns=(st.st_atime_ns, st.st_mtime_ns + 5 * 10**9))
+    assert client.get(f"/api/sessions/{key}/recap").get_json()["recap"] == nouveau
+    assert len(lectures) == 2
+    builder.oublier()

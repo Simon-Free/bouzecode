@@ -35,31 +35,18 @@ def _mock_config():
 EXPECTED_COMMANDS = {
     "help", "clear", "model", "config", "save", "load",
     "verbose", "thinking", "permissions", "cwd",
-    "skills", "agents", "agent", "agent-upgrade", "tasks", "task",
+    "skills", "agents", "agent", "agent-upgrade", "assistant", "tasks", "task",
     "checkpoint", "rewind", "revert", "plan",
     "compact", "init", "export", "copy", "diff",
     "doctor", "exit", "quit",
     "resume", "where", "tools",
     "history", "context", "cost", "timing",
-    # `telegram` was listed as REMOVED, but nothing had been removed: the module,
-    # its wiring in the agent loop (tools/interaction.py) and tests/test_telegram_e2e.py
-    # were all still there — only the COMMANDS entry was missing, which made the
-    # command unreachable rather than absent.
-    "telegram",
-    # Same story, same fix: `worker`, `ssj` and `image` were imported by dispatcher.py,
-    # their sentinels were already listed in `_REPL_SENTINELS` and handled by
-    # ui/repl_sentinels.py — only the COMMANDS entry was missing. Exercised end to end
-    # in tests/backend/commands/sentinels/.
-    "worker", "ssj", "image",
 }
 
-# Commands this (public) repo adds back on top of the engine: the OSS shims in
-# `commands/oss_shims/` route them to the flat top-level packages.
-OSS_SHIM_COMMANDS = {"voice", "mcp", "plugin", "memory", "video", "video-wizard"}
-
-# `img` was an alias of `/image` in the old flat dispatcher and was not brought back:
-# one name per command. `brainstorm` and `status` have no module here at all.
-REMOVED_COMMANDS = {"brainstorm", "status", "img"}
+REMOVED_COMMANDS = {
+    "brainstorm", "status", "plugin", "memory",
+    "worker", "ssj", "image", "img",
+}
 
 
 def test_commands_import():
@@ -69,7 +56,7 @@ def test_commands_import():
 
 def test_commands_expected_keys():
     from bouzecode.backend.commands.dispatcher import COMMANDS
-    assert set(COMMANDS.keys()) == EXPECTED_COMMANDS | OSS_SHIM_COMMANDS
+    assert set(COMMANDS.keys()) == EXPECTED_COMMANDS
 
 
 def test_commands_removed_keys():
@@ -113,10 +100,13 @@ def test_handle_slash_unknown():
 def test_no_removed_files_importable():
     """Removed modules should not be importable."""
     import importlib
-
-    import pytest
-
-    for mod_name in ("bouzecode.backend.commands._personas",
-                     "bouzecode.backend.commands.brainstorm"):
-        with pytest.raises(ModuleNotFoundError):
+    removed_modules = [
+        "bouzecode.backend.commands._personas",
+        "bouzecode.backend.commands.brainstorm",
+    ]
+    for mod_name in removed_modules:
+        try:
             importlib.import_module(mod_name)
+            assert False, f"{mod_name} should not be importable"
+        except (ImportError, ModuleNotFoundError):
+            pass

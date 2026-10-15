@@ -21,6 +21,9 @@ pytestmark = pytest.mark.skipif(
 )
 
 METH = '<tool_use name="Methodology" id="m1"><param name="content">ok</param></tool_use>'
+# A Methodology-only batch never closes the session (it earns a continue-nudge): a
+# script whose first reply carries only Methodology needs this plain closing reply.
+CLOSE = "C'est fait."
 
 
 def _bash_results(result):
@@ -38,6 +41,29 @@ def test_tool_use_split_across_sse_chunks_executes():
     assert _bash_results(result)
 
 
+def test_gateway_swallowed_closing_wrapper_head_does_not_leak():
+    """The gateway ate the delta holding the start of the closing wrapper tag.
+
+    Real incident (session 46cf0a617b4c): the cut marker was applied across two
+    SSE deltas, the delta carrying the first characters of the closing wrapper
+    tag was dropped server-side, and the client received the remainder alone.
+    Having never seen the tag start, the parser could not hold it back and the
+    leftovers surfaced as visible prose in 5 assistant messages.
+    """
+    LT, GT = chr(60), chr(62)
+    bash = (f'{LT}tool_use name="Bash" id="b1"{GT}'
+            f'{LT}param name="command"{GT}echo hi{LT}/param{GT}{LT}/tool_use{GT}')
+    close = f'{LT}/tool_calls{GT}'
+    batch = f'{LT}tool_calls{GT}{METH}\n{bash}{close}'
+    head, orphan = batch[:-len(close)], close[3:]
+    result = bouzecode(["run"], mock_api=[{"chunks": [*_chunks(head), orphan]}, "C'est fait."])
+    assert _bash_results(result)
+    said = "".join(m.get("content") or "" for m in result.messages if m.get("role") == "assistant")
+    # The transcript keeps the model's real wrapper tags; only an orphan TAIL may not survive.
+    leftover = said.replace(f"{LT}tool_calls{GT}", "").replace(close, "")
+    assert "ool_calls" not in leftover
+
+
 def test_cdata_special_chars_split_across_chunks_round_trips(tmp_path):
     """A CDATA param value with <, &, > split across chunks reaches the tool input intact."""
     f = tmp_path / "temp_cdata.py"
@@ -53,7 +79,7 @@ def test_tool_use_inside_fenced_code_block_is_not_executed():
     text = ("Example:\n```\n"
             '<tool_use name="Bash" id="b1"><param name="command">echo SHOULD_NOT_RUN</param></tool_use>\n'
             f"```\nThat was an example.\n{METH}")
-    result = bouzecode(["explain"], mock_api=[text])
+    result = bouzecode(["explain"], mock_api=[text, CLOSE])
     assert not _bash_results(result)
 
 
@@ -62,7 +88,7 @@ def test_thinking_block_shields_inner_tool_use():
     text = ("<thinking>\n"
             '<tool_use name="Bash" id="b1"><param name="command">echo SHOULD_NOT_RUN</param></tool_use>\n'
             f"</thinking>\nDone reasoning.\n{METH}")
-    result = bouzecode(["think"], mock_api=[text])
+    result = bouzecode(["think"], mock_api=[text, CLOSE])
     assert not _bash_results(result)
 
 

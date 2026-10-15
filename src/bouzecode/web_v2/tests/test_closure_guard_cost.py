@@ -11,10 +11,11 @@ from __future__ import annotations
 
 import pytest
 
-from bouzecode.web_v2.runtime import runner
+from bouzecode.web_v2.runtime.runner import agent_fiche
 from bouzecode.web_v2.services.sessions import store
-from bouzecode.web_v2.services.work import _persistence, closure_guard, wake
-from bouzecode.web_v2.services.work import tickets as tickets_svc
+from bouzecode.web_v2.services.work import _ligne_ticket, _persistence, closure_guard, wake
+from bouzecode.web_v2.services.work.fsm import etats
+from bouzecode.web_v2.tests.aides_tickets import amener, en_cours, livre
 
 SLUG = "projet-du-cout"
 MANAGER_AGENT = "mgr-cout"
@@ -29,8 +30,8 @@ class _ParentAgent:
 def agent_reads(monkeypatch) -> list[str]:
     """Compte les lectures de fichiers agent / de sessions, puis délègue au vrai code."""
     reads: list[str] = []
-    real_load_agent, real_load_session = runner.load_agent, store.load_session_json
-    monkeypatch.setattr(runner, "load_agent",
+    real_load_agent, real_load_session = agent_fiche.load_agent, store.load_session_json
+    monkeypatch.setattr(agent_fiche, "load_agent",
                         lambda agent_id: reads.append(f"agent:{agent_id}") or real_load_agent(agent_id))
     monkeypatch.setattr(store, "load_session_json",
                         lambda path: reads.append(f"session:{path}") or real_load_session(path))
@@ -39,28 +40,21 @@ def agent_reads(monkeypatch) -> list[str]:
 
 @pytest.fixture()
 def store_writes(monkeypatch) -> list[str]:
-    """Compte les écritures de lignes de tickets, puis délègue au vrai code."""
+    """Compte les écritures de lignes de tickets (toutes passent par `_ligne_ticket.ecrire`),
+    puis délègue au vrai code."""
     writes: list[str] = []
-    real_upsert = _persistence._upsert_one
-    monkeypatch.setattr(_persistence, "_upsert_one",
-                        lambda conn, slug, ticket: writes.append(ticket["id"]) or real_upsert(conn, slug, ticket))
+    real_ecrire = _ligne_ticket.ecrire
+    monkeypatch.setattr(_ligne_ticket, "ecrire", lambda conn, slug, ticket, *a, **k:
+                        writes.append(ticket["id"]) or real_ecrire(conn, slug, ticket, *a, **k))
     return writes
 
 
 @pytest.fixture()
 def blocked_manager() -> tuple[dict, list[dict]]:
     """Un manager fini dont l'unique enfant a planté sans rien livrer."""
-    manager = tickets_svc.create_ticket(SLUG, "pilotage", "orchestre")
-    manager["typology"] = "manager"
-    tickets_svc.update_ticket(SLUG, manager)
-    tickets_svc.add_run(SLUG, manager, MANAGER_AGENT, "work", "opus", typology="manager")
-
-    child = tickets_svc.create_ticket(SLUG, "stockage azure", "adapte le stockage")
-    child["parent"] = MANAGER_AGENT
-    tickets_svc.update_ticket(SLUG, child)
-    tickets_svc.add_run(SLUG, child, "coder-mort", "work", "opus", typology="coder")
-    child["crashed"] = True
-    tickets_svc.update_ticket(SLUG, child)
+    manager = livre(SLUG, MANAGER_AGENT, titre="pilotage", typology="manager")
+    child = en_cours(SLUG, "coder-mort", "stockage azure", parent=MANAGER_AGENT)
+    amener(SLUG, child, etats.CRASHED)
     return manager, [child]
 
 

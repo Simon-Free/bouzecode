@@ -241,9 +241,11 @@ def test_snippet_ambiguous_basename_errors(tmp_path, _clean_read_files):
     assert str(fa) in note or os.path.normpath(str(fa)) in note
 
 
-def test_snippet_unknown_path_preserves_file_not_found(_clean_read_files):
+def test_snippet_unknown_path_preserves_file_not_found(tmp_path, _clean_read_files):
     """Un chemin inconnu d'aucune lecture garde l'erreur d'origine, sans rattrapage silencieux."""
-    note, _ = _run('<param name="file_path">C:/totally/imaginary/nowhere.py</param>'
+    # Chemin ABSOLU de la plateforme (un « C:/… » n'est pas absolu hors Windows).
+    missing = tmp_path / "totally" / "imaginary" / "nowhere.py"
+    note, _ = _run(f'<param name="file_path">{missing}</param>'
                    '<param name="ranges">[[1, 1]]</param>')
     assert "file not found" in note
     assert "auto-resolved" not in note

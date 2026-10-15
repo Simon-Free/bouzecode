@@ -8,11 +8,10 @@ from bouzecode.backend.commands.extensions.agent_switch import _apply
 from bouzecode.backend.core.context import build_system_prompt_parts
 from bouzecode.backend.profiles.discovery import resolve_agent_profile
 # Sources de vérité de PRODUCTION (pas de constantes recopiées dans le test) : le prédicat
-# « cet outil peut-il muter l'arbre ? » du garde-fou d'isolation, et les deux jeux de
-# typologies qui font que la ligne VERDICT du manager est load-bearing.
+# « cet outil peut-il muter l'arbre ? » du garde-fou d'isolation, et les typologies
+# read-only côté serveur.
 from bouzecode.web_v2.services.work.isolation import _tool_writes_working_tree
-from bouzecode.web_v2.services.work.tickets import _VERDICT_TYPOLOGIES
-from bouzecode.web_v2.services.work.workflow import NON_CODING_TYPOLOGIES
+from bouzecode.web_v2.services.work.constats import NON_CODING_TYPOLOGIES
 
 
 def _manager_config() -> dict:
@@ -47,14 +46,17 @@ def test_lean_prompt_drops_heavy_bookkeeping_sections():
     assert "# Discipline Methodology" not in stable
     assert "# Pourquoi cette forme" not in stable
     assert "# Avant de penser" not in stable
+    # Depuis l'audit du prompt (2026-09-24), ces trois sections n'en font qu'une.
+    assert "# Mémoire de travail" not in stable
 
 
 def test_non_lean_prompt_keeps_full_bookkeeping():
     # Sanity: without the lean flag the heavy sections are still present, proving
     # the trimming is driven by the manager flag and not globally removed.
     stable, _ = build_system_prompt_parts({})
-    assert "# Discipline Methodology" in stable
-    assert "# Pourquoi cette forme" in stable
+    # Audit du prompt (2026-09-24) : « Discipline Methodology », « Pourquoi cette forme » et
+    # « Avant de penser » sont regroupées sous « # Mémoire de travail ».
+    assert "# Mémoire de travail" in stable
 
 
 def test_manager_role_is_typology_and_sequencing_only():
@@ -72,14 +74,10 @@ def test_manager_role_is_typology_and_sequencing_only():
 
 
 def test_manager_no_longer_codes_or_validates():
-    """« Le manager ne code pas et ne valide pas » = il n'en a pas les MOYENS et la
-    relecture est déléguée — et surtout PAS « le mot VERDICT est interdit chez lui ».
-
-    L'ancienne assertion `"VERDICT" not in blob` poussait à casser la production pour
-    faire verdir un test : le profil DOIT parler de VERDICT. Il réclame `VERDICT: OK|KO`
-    à ses enfants et rend le sien, et c'est cette ligne que le serveur parse pour clore
-    et router les tickets (`work/tickets.py::_VERDICT_TYPOLOGIES`, `work/wake.py`). La
-    propriété réelle est structurelle, donc non contournable par une reformulation.
+    """« Le manager ne code pas » = il n'en a pas les MOYENS (propriété structurelle,
+    non contournable par une reformulation). Le validateur de tickets a été retiré du
+    serveur (D1) : une livraison douteuse se relit par le manager lui-même (diff) ou par un
+    sous-agent de relecture en LECTURE SEULE, jamais par un « validateur » spawné en écriture.
     """
     profile = resolve_agent_profile("manager")
     assert profile is not None
@@ -94,16 +92,14 @@ def test_manager_no_longer_codes_or_validates():
     assert mutating == [], f"le manager doit rester read-only, outils mutants : {mutating}"
     assert "Bash" not in profile.tools
 
-    # 2. Son SEUL levier sur le code est le dispatch : la relecture indépendante d'un
-    # enfant passe par un agent validateur qu'il spawne, jamais par lui.
+    # 2. Son SEUL levier sur le code est le dispatch.
     assert "Agent" in profile.tools
 
-    # 3. Côté serveur, `manager` est une typologie read-only qui ne PRODUIT aucun diff :
-    # aucune chaîne test-gate / validation / merge ne s'exécute pour son propre ticket.
+    # 3. Côté serveur, `manager` est une typologie read-only qui ne PRODUIT aucun diff.
     assert "manager" in NON_CODING_TYPOLOGIES
 
-    # 4. Anti-régression du choix de conception : la ligne VERDICT est LOAD-BEARING.
-    # La retirer du profil casserait la boucle manager -> codeur -> validateur -> merge.
-    blob = profile.description + "\n" + profile.system_prompt_extra
-    assert "VERDICT: OK" in blob and "VERDICT: KO" in blob
-    assert "manager" in _VERDICT_TYPOLOGIES
+    # 4. La relecture d'une livraison douteuse : par lui-même ou un sous-agent en lecture
+    # seule (isolation shared) — plus aucune consigne de « spawner un validateur ».
+    blob = profile.system_prompt_extra
+    assert "sous-agent de relecture en lecture seule" in blob
+    assert "spawner un validateur" not in blob

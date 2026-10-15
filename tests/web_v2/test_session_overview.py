@@ -1,4 +1,5 @@
-# [desc] Tests for GET /api/sessions/<key>/overview endpoint: truncation, error preservation, JSON mode, pagination. [/desc]
+# [desc] Tests for GET /api/sessions/<key>/overview endpoint: truncation, error preservation, JSON mode, pagination.
+# <tool_use name="FinalAnswer" id="f1"><param name="answer">Tests for GET /api/sessions/<key>/overview endpoint: truncation, error preservation, JSON mode, pagination.</param></tool_use> [/desc]
 """Verify session overview endpoint: one line per turn, truncation, errors intact, JSON mode, pagination."""
 from __future__ import annotations
 
@@ -71,7 +72,7 @@ def _make_session_data() -> dict:
 def _fake_overview_session(tmp_path, monkeypatch):
     """Create a fake session and patch store to resolve it."""
     from bouzecode.web_v2.services.sessions import store
-    from bouzecode.web_v2.services.sessions.store import runner as _runner
+    from bouzecode.web_v2.runtime.runner import agent_registre
 
     daily_dir = tmp_path / "daily"
     day_dir = daily_dir / "2026-06-12"
@@ -82,7 +83,7 @@ def _fake_overview_session(tmp_path, monkeypatch):
 
     monkeypatch.setattr(store, "DAILY_DIR", daily_dir)
     monkeypatch.setattr(store, "CACHE_PATH", tmp_path / "cache.json")
-    monkeypatch.setattr(_runner, "list_agents", lambda: [])
+    monkeypatch.setattr(agent_registre, "list_agents", lambda: [])
 
 
 @pytest.fixture()

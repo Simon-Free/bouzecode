@@ -79,14 +79,14 @@ def test_un_ticket_termine_rend_son_environnement(sandbox_root):
 def test_un_agent_vivant_rend_son_bac_a_sable_intouchable(sandbox_root, tmp_path, monkeypatch):
     """La garde essentielle : un agent qui TOURNE se sert de son venv à l'instant même, quel
     que soit l'état de son ticket."""
-    from bouzecode.web_v2.runtime import runner
+    from bouzecode.web_v2.runtime.runner import agent_fiche
 
     ticket = tickets.create_ticket(SLUG, "fini sur le papier", "…")
     tickets.archive_ticket(SLUG, ticket["id"])
     _sandbox(sandbox_root, ticket["id"])
     agents = tmp_path / "web_agents"
     agents.mkdir()
-    monkeypatch.setattr(runner, "AGENTS_DIR", agents)
+    monkeypatch.setattr(agent_fiche, "AGENTS_DIR", agents)
     (agents / "abcdef123456.json").write_text(json.dumps({
         "agent_id": "abcdef123456", "prompt": "je travaille", "model": "m",
         "cwd": str(sandbox_root / ticket["id"]), "pid": os.getpid(), "returncode": None,
@@ -94,16 +94,16 @@ def test_un_agent_vivant_rend_son_bac_a_sable_intouchable(sandbox_root, tmp_path
         "session_path": str(agents / "abcdef123456.session.json"), "ipc_dir": "",
     }), encoding="utf-8")
     (agents / "abcdef123456.session.json").write_text('{"messages": []}', encoding="utf-8")
-    runner._list_agents_cache.clear()
+    agent_fiche._list_agents_cache.clear()
 
     assert worktree_disk.reclaim_venvs()["venvs"] == 0
-    runner._list_agents_cache.clear()
+    agent_fiche._list_agents_cache.clear()
 
 
 def test_une_jonction_vers_un_vrai_depot_n_est_jamais_touchee(sandbox_root, monkeypatch):
     """LE BUG DU 2026-07-30, verrouillé ici : `worktree_sources.link_editable_sources` crée
-    dans cet arbre des JONCTIONS vers les vrais dépôts (`worktrees/demo_app/
-    bouzecode` → `dev/demo_monorepo/bouzecode`). Prises pour des bacs à sable, elles ont
+    dans cet arbre des JONCTIONS vers les vrais dépôts (`worktrees/demo_application/
+    bouzecode` → `PycharmProjects/demo/bouzecode`). Prises pour des bacs à sable, elles ont
     fait suivre le lien à `shutil.rmtree`, qui a effacé le `.venv` du dépôt principal — celui
     qui lance le serveur et les tests.
 

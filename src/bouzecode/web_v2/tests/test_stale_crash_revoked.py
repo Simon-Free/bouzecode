@@ -1,10 +1,12 @@
 # [desc] Un ticket « planté » dont l'agent est reparti perd son drapeau ; un agent vraiment mort le garde. [/desc]
-"""Le drapeau `crashed` est RÉVOCABLE.
+"""« Planté » est RÉVOCABLE (lot L2 : c'est un ÉTAT, `stopped{crashed}`, plus un drapeau).
 
-Histoire vécue : le watchdog déclare un manager planté, l'utilisateur le
+Histoire vécue (ticket 642e1a3f) : le watchdog déclare un manager planté, l'utilisateur le
 reprend, l'agent repart, livre, puis redispatche — et le board continue d'afficher « planté »,
 parce que seul `add_run` retirait le drapeau et qu'un manager repris ne crée AUCUN run sur SON
-ticket. On joue donc la mort, puis la résurrection, et on vérifie enfin qu'un mort reste mort.
+ticket. Depuis L2, la reprise (`runner` → `runs_ticket.signaler(..., "message")`) est une
+transition explicite `message_sent` → `running`. On joue donc la mort, puis la résurrection,
+et on vérifie enfin qu'un mort reste mort.
 Aucun mock : la vivacité vient de vrais PID (celui du process de test pour un agent vivant)."""
 from __future__ import annotations
 
@@ -13,10 +15,11 @@ import os
 
 import pytest
 
-from bouzecode.web_v2.runtime import runner
+from bouzecode.web_v2.runtime.runner import agent_fiche
 from bouzecode.web_v2.services.sessions import store
-from bouzecode.web_v2.services.work import _persistence, fleet, projects, wake
+from bouzecode.web_v2.services.work import _persistence, constats, fleet, projects, runs_ticket, wake
 from bouzecode.web_v2.services.work import tickets as tickets_svc
+from bouzecode.web_v2.services.work.fsm import etats
 
 SLUG = "projet-du-revenant"
 PID_INEXISTANT = 4_000_000
@@ -32,7 +35,7 @@ def _own_store(tmp_path, monkeypatch):
 
 @pytest.fixture()
 def agents_dir(tmp_path, monkeypatch):
-    monkeypatch.setattr(runner, "AGENTS_DIR", tmp_path / "agents")
+    monkeypatch.setattr(agent_fiche, "AGENTS_DIR", tmp_path / "agents")
     (tmp_path / "agents").mkdir()
     return tmp_path / "agents"
 
@@ -53,42 +56,47 @@ def _planted_ticket(agents_dir, agent_id: str, typology: str = "") -> dict:
     """Un ticket dont l'agent est lancé puis meurt sans clore : le watchdog le déclare planté."""
     ticket = tickets_svc.create_ticket(SLUG, "mission", "fais le travail")
     if typology:
-        ticket["typology"] = typology
-        tickets_svc.update_ticket(SLUG, ticket)
+        tickets_svc.poser(SLUG, ticket, typology=typology)
+    tickets_svc.set_launching(SLUG, ticket)
     tickets_svc.add_run(SLUG, ticket, agent_id, "work", "opus", typology=typology)
     _write_agent(agents_dir, agent_id, PID_INEXISTANT)
-    for _ in range(wake._CRASH_DEAD_TICKS):
+    for _ in range(constats.MORTS_AVANT_CRASH):
         wake.tick()
     planted = tickets_svc.get_ticket(SLUG, ticket["id"])
-    assert planted["crashed"] is True and tickets_svc.derive_status(planted) == "planté"
+    assert planted["state"] == etats.STOPPED and tickets_svc.derive_status(planted) == "planté"
     return planted
+
+
+def _reprendre(agents_dir, planted: dict, agent_id: str) -> dict:
+    """Ce que fait le runtime à la reprise : un process vit de nouveau, le ticket le sait."""
+    _write_agent(agents_dir, agent_id, os.getpid())
+    runs_ticket.signaler(SLUG, planted["id"], agent_id, "message")
+    return tickets_svc.get_ticket(SLUG, planted["id"])
 
 
 def test_a_resumed_agent_loses_the_planted_flag(agents_dir):
     """L'utilisateur reprend un agent déclaré planté : le ticket cesse d'afficher « planté »."""
     planted = _planted_ticket(agents_dir, "coder-repris")
+    _reprendre(agents_dir, planted, "coder-repris")
 
-    _write_agent(agents_dir, "coder-repris", os.getpid())  # reprise : un process vit de nouveau
-
-    wake.tick()
+    wake.tick()  # l'agent vit : le watchdog ne le re-déclare pas mort
 
     revenu = tickets_svc.get_ticket(SLUG, planted["id"])
-    assert "crashed" not in revenu
+    assert revenu["state"] == etats.RUNNING
     assert tickets_svc.derive_status(revenu) == "en cours"
 
 
 def test_a_manager_that_delivered_since_loses_the_planted_flag(agents_dir):
-    """Cas beefcafe : le manager déclaré planté a repris, livré son verdict, puis reclos son
-    tour. Le verdict PROUVE qu'il n'a pas planté — le ticket redevient lisible."""
+    """Cas 642e1a3f : le manager déclaré planté a repris, livré, puis reclos son tour. Sa
+    clôture gracieuse PROUVE qu'il n'a pas planté — le ticket redevient lisible."""
     planted = _planted_ticket(agents_dir, "manager-repris", typology="manager")
-    planted["runs"][0]["verdict"] = "OK"  # verdict livré depuis, parsé par refresh_verdicts
-    tickets_svc.update_ticket(SLUG, planted)
+    _reprendre(agents_dir, planted, "manager-repris")
 
-    wake.tick()
+    constats.fin_de_run(SLUG, planted["id"], "manager-repris", "final_answer", final_answer=True)
 
     revenu = tickets_svc.get_ticket(SLUG, planted["id"])
-    assert "crashed" not in revenu
-    assert tickets_svc.derive_status(revenu, parents_with_children=set()) == "à relire"
+    assert revenu["state"] == etats.DELIVERED
+    assert tickets_svc.derive_status(revenu) == "à relire"
 
 
 def test_a_genuinely_dead_agent_keeps_the_planted_flag(agents_dir):
@@ -99,14 +107,15 @@ def test_a_genuinely_dead_agent_keeps_the_planted_flag(agents_dir):
         wake.tick()
 
     toujours_mort = tickets_svc.get_ticket(SLUG, planted["id"])
-    assert toujours_mort["crashed"] is True
+    assert toujours_mort["state"] == etats.STOPPED
+    assert toujours_mort["version"] == planted["version"]  # aucune écriture de plus
     assert tickets_svc.derive_status(toujours_mort) == "planté"
 
 
-def test_the_watchdog_keeps_watching_a_planted_ticket_that_has_delivered(agents_dir):
-    """Un ticket planté dont le run porte un verdict reste inspecté : sans ça il sortait du
-    filtre du watchdog exactement quand la preuve de son non-crash apparaissait."""
+def test_a_resumed_planted_ticket_is_watched_again(agents_dir):
+    """Un ticket planté n'est plus inspecté (rien à constater) ; repris, il l'est de nouveau :
+    sa prochaine mort ou sa livraison sera constatée."""
     planted = _planted_ticket(agents_dir, "coder-verdict")
-    planted["runs"][0]["verdict"] = "OK"
+    assert wake.ticket_needs_watchdog(planted) is False
 
-    assert wake.ticket_needs_watchdog(planted) is True
+    assert wake.ticket_needs_watchdog(_reprendre(agents_dir, planted, "coder-verdict")) is True

@@ -54,7 +54,7 @@ def test_agent_providers_importable():
 
 
 def test_only_anthropic_models():
-    """The model registry holds only supported models (Claude + DeepSeek)."""
+    """The model registry holds only supported gateway models (Claude + DeepSeek)."""
     from bouzecode.backend.agent.providers import MODELS
     assert all(m.startswith(("claude-", "deepseek-")) for m in MODELS)
 

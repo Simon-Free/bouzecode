@@ -36,13 +36,15 @@ def test_cache_control_breakpoint_reaches_the_wire():
 
 
 def test_methodology_context_is_re_sent_on_every_turn():
-    """The methodology note recorded on turn 1 is present in the wire system of later
-    turns (the cached prefix is re-sent so the model keeps the context)."""
+    """The methodology note recorded on turn 1 is present in the wire of later turns — in
+    <working_notes> at the head of the first user message since 2026-10-07 (the cached
+    prefix is re-sent so the model keeps the context)."""
     result = bouzecode(
         ["t1", "t2", "t3"],
         mock_api=[f"a.\n{_meth('PIN_THIS_CONTEXT')}", CLOSE,
                   f"b.\n{_meth('x')}", CLOSE,
                   f"c.\n{_meth('y')}", CLOSE],
     )
-    last_system = str(result.recorded_requests[-1].get("system"))
-    assert "PIN_THIS_CONTEXT" in last_system
+    last = result.recorded_requests[-1]
+    assert "PIN_THIS_CONTEXT" not in str(last.get("system"))
+    assert "PIN_THIS_CONTEXT" in str(last["messages"][0]["content"])

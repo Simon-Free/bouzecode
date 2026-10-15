@@ -18,12 +18,12 @@ def _make_repo(root: Path, sources_toml: str) -> Path:
 
 
 def test_relative_editable_source_is_linked_to_real_dep(tmp_path):
-    # Vrai layout : <workspace>/main_repo  +  <workspace>/dep_repo (le sibling réel)
-    workspace = tmp_path / "workspace"
-    dep = workspace / "dep_repo"
+    # Vrai layout : <demo>/main_repo  +  <demo>/dep_repo (le sibling réel)
+    demo = tmp_path / "demo"
+    dep = demo / "dep_repo"
     dep.mkdir(parents=True)
     (dep / "MARKER.txt").write_text("real dep", encoding="utf-8")
-    main = _make_repo(workspace / "main_repo", "dep = { path = '../dep_repo', editable = true }")
+    main = _make_repo(demo / "main_repo", "dep = { path = '../dep_repo', editable = true }")
 
     # Worktree isolé, AILLEURS : ../dep_repo y pointe vers un sibling inexistant.
     worktree = _make_repo(tmp_path / "worktrees" / "main_repo" / "tk1",
@@ -37,33 +37,33 @@ def test_relative_editable_source_is_linked_to_real_dep(tmp_path):
 
 
 def test_nested_relative_source_and_idempotent(tmp_path):
-    workspace = tmp_path / "workspace"
-    nested = workspace / "group" / "libdb"
+    demo = tmp_path / "demo"
+    nested = demo / "group" / "demodb"
     nested.mkdir(parents=True)
     (nested / "MARKER.txt").write_text("nested", encoding="utf-8")
-    main = _make_repo(workspace / "main_repo",
-                      "libdb = { path = '../group/libdb', editable = true }")
+    main = _make_repo(demo / "main_repo",
+                      "demodb = { path = '../group/demodb', editable = true }")
     worktree = _make_repo(tmp_path / "worktrees" / "main_repo" / "tk2",
-                          "libdb = { path = '../group/libdb', editable = true }")
+                          "demodb = { path = '../group/demodb', editable = true }")
 
     worktree_sources.link_editable_sources(worktree, str(main))
     worktree_sources.link_editable_sources(worktree, str(main))  # 2e passe = no-op
 
-    linked = worktree / ".." / "group" / "libdb" / "MARKER.txt"
+    linked = worktree / ".." / "group" / "demodb" / "MARKER.txt"
     assert linked.read_text(encoding="utf-8") == "nested"
 
 
 @pytest.mark.skipif(sys.platform != "win32", reason="jonctions Windows")
 def test_stale_link_to_wrong_target_is_repointed(tmp_path):
     # Un run précédent a laissé un lien vers une MAUVAISE cible (cf. jonction périmée Windows).
-    workspace = tmp_path / "workspace"
-    good = workspace / "dep_repo"
+    demo = tmp_path / "demo"
+    good = demo / "dep_repo"
     good.mkdir(parents=True)
     (good / "MARKER.txt").write_text("good", encoding="utf-8")
     wrong = tmp_path / "wrong_target"
     wrong.mkdir()
     (wrong / "MARKER.txt").write_text("wrong", encoding="utf-8")
-    main = _make_repo(workspace / "main_repo", "dep = { path = '../dep_repo', editable = true }")
+    main = _make_repo(demo / "main_repo", "dep = { path = '../dep_repo', editable = true }")
     worktree = _make_repo(tmp_path / "worktrees" / "main_repo" / "tk3",
                           "dep = { path = '../dep_repo', editable = true }")
 

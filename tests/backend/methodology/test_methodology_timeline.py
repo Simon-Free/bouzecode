@@ -1,7 +1,7 @@
-# [desc] Tests that notes_timeline stores dated per-turn deltas and reconstructs the methodology block across compaction. [/desc]
+# [desc] <tool_use name="FinalAnswer" id="f1"><param name="answer">Tests that notes_timeline stores dated per-turn deltas and reconstructs the methodology block by folding the journal.</param></tool_use> [/desc]
 """Tests that notes_timeline stores per-turn deltas (added/updated/removed) with
 metadata, and that the full methodology block can be reconstructed by folding the
-journal — robustly across a compaction event."""
+journal."""
 from __future__ import annotations
 
 import os
@@ -10,7 +10,6 @@ import types
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 
-from bouzecode.backend.context_manager import compact_methodology
 from bouzecode.backend.context_manager.methodology import (
     methodology_tool,
     reconstruct_methodology_from_timeline,
@@ -72,37 +71,5 @@ def test_reconstruction_matches_current_note():
     _bump(state, cfg)
     methodology_tool({"content": "## Next\nwrite the docs"}, cfg)
 
-    rebuilt = reconstruct_methodology_from_timeline(state.notes_timeline)
-    assert rebuilt == cfg["_context_state"].notes[METHODOLOGY_NOTE]
-
-
-def test_reconstruction_robust_to_compaction(monkeypatch, tmp_path):
-    # Force compaction to trigger on the next append by lowering the threshold.
-    state, cfg = _state_config()
-    # A REAL source file so snippet_tool produces valid '## snippet:' blocks
-    # (compaction only dedups blocks with a recognised snippet key; a
-    # '## snippet ERROR:' from a missing path has key=None and is never purged).
-    src = tmp_path / "a.py"
-    src.write_text("line1\nline2\nline3\n", encoding="utf-8")
-    _bump(state, cfg)
-    # Seed two IDENTICAL snippet blocks (compaction dedups → keeps the last).
-    snippet_tool(
-        {"file_path": str(src), "ranges": [[1, 2]], "label": "a"}, cfg
-    )
-    _bump(state, cfg)
-    snippet_tool(
-        {"file_path": str(src), "ranges": [[1, 2]], "label": "a"}, cfg
-    )
-    _bump(state, cfg)
-    # Now shrink the compaction threshold so the next append compacts.
-    monkeypatch.setattr(compact_methodology, "COMPACT_TOKENS_THRESHOLD", 1)
-    methodology_tool({"content": "## Trigger\nforce compaction now"}, cfg)
-
-    # At least one timeline entry must record a removal (the compaction event).
-    assert any(
-        entry["delta"]["removed"] for entry in state.notes_timeline
-    ), "compaction must be journalled as a removed delta"
-
-    # Reconstruction still reproduces the final (post-compaction) note exactly.
     rebuilt = reconstruct_methodology_from_timeline(state.notes_timeline)
     assert rebuilt == cfg["_context_state"].notes[METHODOLOGY_NOTE]

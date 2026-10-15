@@ -1,5 +1,5 @@
 """Un agent archivé/purgé (dans purge.load_deleted) DISPARAÎT de la fleet ; il ne doit
-donc JAMAIS ressortir « crashed » dans le bandeau des interrompus (/api/interrupted).
+donc JAMAIS ressortir « crashed » dans le bandeau des interrompus (/api/agents?state=interrupted).
 
 Régression du bug UI : agent affiché « crashed » alors qu'absent de la liste des agents.
 Le fix aligne interrupted_report sur le MÊME critère que fleet._agent_tree_uncached
@@ -13,6 +13,7 @@ from types import SimpleNamespace
 import pytest
 
 from bouzecode.web_v2.services.work import _persistence, interrupted_report
+from bouzecode.web_v2.runtime.runner import agent_fiche
 
 
 def _fake_agent(agent_id: str):
@@ -46,7 +47,7 @@ def env(tmp_path, monkeypatch):
     _persistence._save("proj", [ticket])
 
     monkeypatch.setattr(
-        interrupted_report.runner, "load_agent",
+        agent_fiche, "load_agent",
         lambda aid: _fake_agent(aid) if aid == agent_id else None)
     monkeypatch.setattr(
         interrupted_report.wake, "is_manager_parent", lambda parent: False)

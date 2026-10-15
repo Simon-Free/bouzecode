@@ -32,10 +32,10 @@ def _isolate(tmp_path, monkeypatch):
 
 @pytest.fixture
 def typology_project(tmp_path):
-    """A project dir holding .bouzecode/profiles/{analyst,refacto}.yaml."""
+    """A project dir holding .bouzecode/profiles/{focus,refacto}.yaml."""
     profiles_dir = tmp_path / "proj" / ".bouzecode" / "profiles"
     profiles_dir.mkdir(parents=True)
-    for name, desc in [("analyst", "Analyst agent"), ("refacto", "Refacto agent")]:
+    for name, desc in [("focus", "Focus agent"), ("refacto", "Refacto agent")]:
         data = {"name": name, "system_prompt_extra": desc, **_PROFILE}
         (profiles_dir / f"{name}.yaml").write_text(
             yaml.dump(data, allow_unicode=True), encoding="utf-8")
@@ -51,7 +51,7 @@ def test_list_typologies_includes_default_first(typology_project):
 def test_list_typologies_names(typology_project):
     names = [t["name"] for t in list_typologies(typology_project)]
     assert names[0] == "default"
-    assert {"analyst", "refacto"} <= set(names)   # project profiles
+    assert {"focus", "refacto"} <= set(names)   # project profiles
     assert _SYSTEM <= set(names)                # always-present system agents
 
 
@@ -61,16 +61,16 @@ def test_list_typologies_count(typology_project):
     from bouzecode.backend.profiles.discovery import load_system_profiles
 
     names = [t["name"] for t in list_typologies(typology_project)]
-    expected = {"default", "analyst", "refacto"} | set(load_system_profiles())
+    expected = {"default", "focus", "refacto"} | set(load_system_profiles())
     assert set(names) == expected
     assert len(names) == len(set(names))  # no duplicate typologies
 
 
 def test_get_typology_found(typology_project):
-    t = get_typology("analyst", typology_project)
+    t = get_typology("focus", typology_project)
     assert t is not None
-    assert t["profile"] == "analyst"
-    assert t["description"] == "Analyst agent"
+    assert t["profile"] == "focus"
+    assert t["description"] == "Focus agent"
 
 
 def test_get_typology_not_found(typology_project):

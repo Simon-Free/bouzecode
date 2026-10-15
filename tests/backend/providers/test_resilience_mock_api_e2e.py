@@ -56,7 +56,7 @@ def test_two_server_errors_then_success_recovers():
 
 
 def test_malformed_sse_event_does_not_kill_the_turn():
-    """A gateway/proxy can emit an SSE event with an empty `data:` payload, which
+    """The gateway/proxy can emit an SSE event with an empty `data:` payload, which
     makes the SDK raise JSONDecodeError mid-stream. _iter_stream_resilient must
     swallow it and keep the partial response; the conversation then continues and
     recovers on the next turn. (replaces test_resilient_iter_stops_on_json_decode_error)"""
@@ -67,9 +67,9 @@ def test_malformed_sse_event_does_not_kill_the_turn():
 
 
 def test_cut_connection_keeps_partial_and_conversation_continues():
-    """A dropped connection mid-stream (no content_block_stop / message_stop) leaves
-    a partial response. The real pipeline keeps the partial text, the loop continues,
-    and a clean follow-up response completes the conversation.
+    """A dropped connection mid-stream (no message_delta / message_stop) is a failed
+    request, not a reply: the real pipeline retries it, and the clean follow-up response
+    completes the conversation — the truncated fragment never becomes the final answer.
     (end-to-end version of the truncate/partial-stream resilience cases)"""
     full = f"partial text... {METH}"
     chunks = [full[i:i + 5] for i in range(0, len(full), 5)]
@@ -78,6 +78,7 @@ def test_cut_connection_keeps_partial_and_conversation_continues():
         mock_api=[{"chunks": chunks, "truncate_after": 2}, "completed."],
     )
     assert "completed." in result.last_reply
+    assert "partial te" not in result.last_reply
     assert len(result.recorded_requests) >= 2
 
 

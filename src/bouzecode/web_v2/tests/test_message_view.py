@@ -180,3 +180,28 @@ def test_enforcement_message_without_missing_tools_does_not_crash():
     html = message_view.render_message(message)
 
     assert "enforcement" in html
+
+
+def test_reflexion_puis_reponse_au_format_du_protocole_affichee_une_seule_fois():
+    """Le format du protocole (balises sur leur propre ligne) : la réflexion est rendue une fois,
+    la réponse une fois, et aucune balise ne fuit à l'écran. (Le double affichage vu en bac à
+    sable venait d'un faux LLM qui fermait la balise en fin de ligne, hors protocole.)"""
+    html = message_view.render_message({
+        "role": "assistant",
+        "content": "<thinking>\nJe regarde le dépôt.\n</thinking>\nJe commence par explorer le dépôt.",
+    })
+
+    assert html.count("Je commence par explorer le dépôt.") == 1
+    assert html.count("Je regarde le dépôt.") == 1
+    assert "&lt;/thinking" not in html and "&lt;thinking" not in html
+
+
+def test_les_outils_d_un_tour_tiennent_sur_une_ligne_avec_leurs_noms():
+    """Le résumé replié d'un tour dit combien d'outils et lesquels, sans répéter un même nom."""
+    html_out = message_view.render_message({
+        "role": "assistant", "content": "Je regarde.",
+        "tool_calls": [{"name": n, "input": {}} for n in ("Read", "Bash", "Read", "Edit", "Glob", "Write")],
+    })
+    assert "<summary>6 outils · Read, Bash, Edit, Glob, …</summary>" in html_out
+    un_seul = message_view.render_message({"role": "assistant", "content": "x", "tool_calls": [{"name": "Read", "input": {}}]})
+    assert "<summary>1 outil · Read</summary>" in un_seul

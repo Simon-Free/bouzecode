@@ -1,5 +1,5 @@
 # [desc] Fixtures partagées des tests navigateur : un vrai serveur werkzeug + un vrai Chromium. [/desc]
-"""Base commune des tests Playwright de web_v2.
+"""Gateway commun des tests Playwright de web_v2.
 
 Chaque fichier de ce dossier recopiait les mêmes 40 lignes (`_free_port`, fixture
 `server`, fixture `browser`). Elles vivent ici une seule fois : un fichier de test
@@ -80,6 +80,11 @@ def page(browser):
 def page_with_console_errors(page):
     """Une page neuve + la liste, vivante, de ses erreurs console et pageerror."""
     errors: list[str] = []
-    page.on("console", lambda msg: errors.append(msg.text) if msg.type == "error" else None)
+    def _console(msg):
+        # Le 404 de /favicon.ico (demandé d'office par le navigateur) n'est pas une erreur de page.
+        if msg.type == "error" and not str((msg.location or {}).get("url", "")).endswith("/favicon.ico"):
+            errors.append(msg.text)
+
+    page.on("console", _console)
     page.on("pageerror", lambda exc: errors.append(str(exc)))
     return page, errors

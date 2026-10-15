@@ -1,106 +1,89 @@
-# [desc] Un manager sans aucun enfant est « à relire », pas coincé en « en attente des enfants ». [/desc]
+# [desc] Un manager sans aucun enfant actif est « à relire » quand il rend son tour, pas coincé en « en attente des enfants ». [/desc]
 """Le limbo du manager sans enfant.
 
-`wake.process_wakes` n'itère que les parents AYANT des enfants : un manager qui n'a rien
-dispatché n'est jamais réveillé ni finalisé. Tant que son statut annonçait « en attente des
-enfants », il n'était ni actionnable ni terminal — invisible à vie sur le board (28 tickets
-dans cet état sur le store réel). Il n'attend personne : son rapport est à LIRE. On ne le
-marque NI `done` (succès inventé) NI `crashed` (échec inventé).
-
-Les statuts sont dérivés PUREMENT du ticket ; le dernier test le prouve à travers l'API HTTP,
-avec un vrai store et un vrai enfant."""
+Un manager qui n'a rien dispatché n'attend personne : quand il rend son tour, son ticket est
+LIVRÉ (« à relire »), ni `closed` (succès inventé) ni `stopped` (échec inventé). Un manager
+qui clôt son tour pendant qu'un enfant travaille reste, lui, `running{attend_enfants}` (« en
+attente des enfants ») : il sera réveillé. Lot L2 : c'est la fin du run (`constats.fin_de_run`)
+qui le décide, une fois, et toutes les surfaces lisent le même état."""
 from __future__ import annotations
-
-import json
 
 import pytest
 
+from bouzecode.web_v2.services.work import constats
 from bouzecode.web_v2.services.work import tickets as tickets_svc
+from bouzecode.web_v2.services.work.fsm import etats
 from bouzecode.web_v2.services.work.tickets import derive_status
+from bouzecode.web_v2.tests.aides_tickets import en_cours, projet
 
-MANAGER = "mgr-1"
+
+def _manager(titre: str) -> dict:
+    return en_cours("proj", f"agent-{titre}", titre=titre, typology="manager")
 
 
-def _manager_ticket(**extra) -> dict:
-    """Un manager dont le tour est fini : run de travail clos, plus rien ne tourne."""
-    return {
-        "id": "t1", "typology": "manager", "done": False,
-        "runs": [{"agent_id": MANAGER, "kind": "work", "state": "finished", "verdict": None}],
-        **extra,
-    }
+def _fin(ticket: dict) -> dict:
+    agent = ticket["runs"][0]["agent_id"]
+    constats.fin_de_run("proj", ticket["id"], agent, "final_answer")
+    return tickets_svc.get_ticket("proj", ticket["id"])
 
 
 def test_a_manager_with_no_child_is_actionable_instead_of_waiting():
-    """Un manager qui n'a dispatché personne n'attend personne : son rapport est à relire."""
-    assert derive_status(_manager_ticket(), parents_with_children=set()) == "à relire"
+    frais = _fin(_manager("seul"))
+    assert frais["state"] == etats.DELIVERED and derive_status(frais) == "à relire"
 
 
-def test_a_manager_with_a_child_still_waits_for_it():
-    """NON-RÉGRESSION : dès qu'un enfant existe, le manager reste « en attente des enfants »."""
-    assert (derive_status(_manager_ticket(), parents_with_children={MANAGER})
-            == "en attente des enfants")
+def test_a_manager_with_an_active_child_still_waits_for_it():
+    manager = _manager("parent")
+    enfant = tickets_svc.create_ticket("proj", "tâche déléguée", "code")
+    tickets_svc.poser("proj", enfant, parent=manager["runs"][0]["agent_id"])
+    tickets_svc.set_launching("proj", enfant)
+    frais = _fin(manager)
+    assert frais["state"] == etats.RUNNING
+    assert derive_status(frais) == "en attente des enfants"
+    assert frais["runs"][0]["state"] == "awaiting_children"
 
 
-def test_a_caller_that_does_not_know_the_children_changes_nothing():
-    """Un appelant qui ne s'est pas renseigné garde le comportement historique."""
-    assert derive_status(_manager_ticket()) == "en attente des enfants"
+def test_a_child_that_already_finished_does_not_hold_its_manager():
+    manager = _manager("parent2")
+    enfant = en_cours("proj", "agent-enfant", titre="fini", parent=manager["runs"][0]["agent_id"])
+    constats.fin_de_run("proj", enfant["id"], "agent-enfant", "final_answer")
+    assert _fin(manager)["state"] == etats.DELIVERED
 
 
-def test_a_childless_manager_is_never_masked_as_done_or_planted():
-    """Le statut reste HONNÊTE : ni `done` ni `crashed` ne sont posés pour sortir du limbo."""
-    ticket = _manager_ticket()
-    derive_status(ticket, parents_with_children=set())
-    assert ticket.get("done") is False and "crashed" not in ticket
+def test_a_childless_manager_is_never_masked_as_closed_or_stopped():
+    frais = _fin(_manager("honnete"))
+    assert frais["state"] not in (etats.CLOSED, etats.STOPPED)
 
 
-@pytest.mark.parametrize("ticket, attendu", [
-    ({"crashed": True, "runs": [{"agent_id": "a", "kind": "work"}]}, "planté"),
-    ({"worktree": {"state": "needs_attention"}, "runs": []}, "merge bloqué"),
-    ({"runs": [{"agent_id": "a", "kind": "work", "state": "awaiting_input"}]}, "attend réponse"),
-    ({"done": True, "runs": [{"agent_id": "a", "kind": "work"}]}, "terminé"),
+@pytest.mark.parametrize("state, code, attendu", [
+    (etats.STOPPED, "crashed", "planté"),
+    (etats.DELIVERED, "merge_bloque", "merge bloqué"),
+    (etats.AWAITING_INPUT, None, "attend réponse"),
+    (etats.CLOSED, "accepte", "terminé"),
 ])
-def test_the_other_statuses_are_unchanged(ticket, attendu):
-    """NON-RÉGRESSION des statuts voisins, avec ou sans connaissance des enfants."""
-    assert derive_status(ticket) == attendu
-    assert derive_status(ticket, parents_with_children=set()) == attendu
+def test_the_other_statuses_are_unchanged(state, code, attendu):
+    assert derive_status({"state": state, "state_reason": {"code": code} if code else None}) == attendu
 
 
 @pytest.fixture()
 def client(tmp_path, monkeypatch):
     from bouzecode.web_v2.app import create_app
-    from bouzecode.web_v2.services.work import projects
-    # Le watchdog est un THREAD qui survit au test et ticke sur le store des tests suivants
-    # (il fausse leurs compteurs d'I/O). On ne l'arme pas : ce test n'observe que la route.
-    monkeypatch.setenv("BOUZECODE_WAKE_POLLER", "0")
-    projets = tmp_path / "projects.json"
-    projets.write_text(json.dumps([{"slug": "proj", "name": "P", "path": str(tmp_path)}]),
-                       encoding="utf-8")
-    monkeypatch.setattr(projects, "PROJECTS_PATH", projets)
+    projet(tmp_path, monkeypatch, "proj")
     app = create_app()
     app.config["TESTING"] = True
     with app.test_client() as c:
         yield c
 
 
-def _launched_manager(titre: str) -> dict:
-    ticket = tickets_svc.create_ticket("proj", titre, "orchestre")
-    ticket["typology"] = "manager"
-    tickets_svc.update_ticket("proj", ticket)
-    tickets_svc.add_run("proj", ticket, f"agent-{ticket['id']}", "work", "opus",
-                        typology="manager")
-    return ticket
-
-
 def test_the_board_separates_a_childless_manager_from_a_waiting_one(client):
-    """Sur le board : le manager qui a un enfant attend, celui qui n'en a pas est à relire."""
-    avec_enfant = _launched_manager("manager qui a dispatché")
-    sans_enfant = _launched_manager("manager qui n'a rien dispatché")
+    avec_enfant = _manager("dispatche")
+    sans_enfant = _manager("rien")
     enfant = tickets_svc.create_ticket("proj", "tâche déléguée", "code")
-    enfant["parent"] = f"agent-{avec_enfant['id']}"
-    tickets_svc.update_ticket("proj", enfant)
-
+    tickets_svc.poser("proj", enfant, parent=avec_enfant["runs"][0]["agent_id"])
+    tickets_svc.set_launching("proj", enfant)
+    _fin(avec_enfant)
+    _fin(sans_enfant)
     statuts = {t["id"]: t["status"]
                for t in client.get("/api/projects/proj/tickets").get_json()["tickets"]}
-
     assert statuts[avec_enfant["id"]] == "en attente des enfants"
     assert statuts[sans_enfant["id"]] == "à relire"

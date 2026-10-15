@@ -19,7 +19,7 @@ def projects_file(tmp_path, monkeypatch):
     path = tmp_path / "projects.json"
     path.write_text(
         json.dumps(
-            [{"name": "Bouzecode", "slug": "bouzecode", "path": str(tmp_path)}],
+            [{"name": "bouzecode", "slug": "bouzecode", "path": str(tmp_path)}],
             ensure_ascii=False,
         ),
         encoding="utf-8",
@@ -64,6 +64,16 @@ def test_post_projects_accepte_description(client, tmp_path):
         "/api/projects",
         json={"name": "Demo App", "path": str(tmp_path), "description": "Desc création"},
     )
-    assert resp.status_code == 200, resp.get_data(as_text=True)
+    assert resp.status_code == 201, resp.get_data(as_text=True)
     body = resp.get_json()
     assert body["description"] == "Desc création"
+
+
+def test_un_nom_accentue_donne_un_identifiant_lisible(client, tmp_path):
+    """Ajouter le dépôt « Dépôt Été » donne l'identifiant « depot-ete », pas « d-p-t »."""
+    dossier = tmp_path / "depot"
+    dossier.mkdir()
+    resp = client.post("/api/projects", json={"name": "Dépôt Été", "path": str(dossier)})
+    assert resp.status_code in (200, 201), resp.get_json()
+    slugs = [p["slug"] for p in client.get("/api/projects").get_json()["projects"]]
+    assert "depot-ete" in slugs

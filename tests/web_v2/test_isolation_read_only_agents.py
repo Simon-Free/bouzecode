@@ -15,7 +15,7 @@ from pathlib import Path
 
 import pytest
 
-from bouzecode.web_v2.runtime import runner
+from bouzecode.web_v2.runtime.runner import agent_registre
 from bouzecode.web_v2.services.sessions import store
 from bouzecode.web_v2.services.work import isolation
 
@@ -45,7 +45,7 @@ def parc(monkeypatch):
 
     def _install(cwd: Path, *profiles: tuple[str, str]) -> None:
         agents = [_Agent(agent_id, str(cwd), profile) for agent_id, profile in profiles]
-        monkeypatch.setattr(runner, "list_agents", lambda: agents)
+        monkeypatch.setattr(agent_registre, "list_agents", lambda: agents)
         monkeypatch.setattr(store, "agent_status", lambda a: {"state": "running"})
 
     return _install
@@ -110,3 +110,14 @@ def test_an_explicit_worktree_request_never_consults_the_parc(parc, repo):
     mode, _reason, comment = isolation.resolve_isolation(str(repo), "worktree+venv")
 
     assert mode == "worktree+venv" and comment == ""
+
+
+# ── l'assistant du Bureau : ses outils écrivent au Bureau / dans Outlook, jamais au dépôt ──
+
+def test_the_bureau_assistant_leaves_the_repo_free(parc, repo):
+    """L'assistant (Taches, Chantiers, Brouillon, Reunion… mais ni Write, ni Edit, ni Bash)
+    n'occupe pas le dépôt, et un assistant qui s'ouvre n'est pas un écrivain."""
+    parc(repo, ("assistant-du-bureau", "bureau-assistant"))
+
+    assert isolation.agents_sharing_cwd(str(repo)) == []
+    assert not isolation.agent_can_write(_Agent("nouvel-assistant", str(repo), "bureau-assistant"))

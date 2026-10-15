@@ -12,14 +12,16 @@ Partagé par les deux arbres de conftest (`src/bouzecode/web_v2/tests/` et `test
 la subtilité ci-dessous ne doit pas diverger entre deux copies.
 
 SITE DE RÉSOLUTION — la leçon de la journée appliquée à cette garde elle-même :
-`runner.py` lit `AGENTS_DIR` comme global de SON module, et purge/wake/liveness/
-integration/search y accèdent par `runner.AGENTS_DIR` à l'appel. Patcher l'attribut du
-module `runner` couvre donc tout le monde… SAUF `purge.TRASH_DIR`, calculé À L'IMPORT
-(`TRASH_DIR = runner.AGENTS_DIR / "_trash"`). Repointer `runner.AGENTS_DIR` sans lui
+`runner/agent_fiche.py` porte `AGENTS_DIR` comme global de SON module, et tout le paquet
+`runner`, purge/wake/liveness/integration/search y accèdent par `agent_fiche.AGENTS_DIR` à
+l'appel. Patcher l'attribut du module `agent_fiche` couvre donc tout le monde… SAUF
+`purge.TRASH_DIR`, calculé À L'IMPORT
+(`TRASH_DIR = agent_fiche.AGENTS_DIR / "_trash"`). Repointer `AGENTS_DIR` sans lui
 laisserait la purge déplacer des artefacts dans le `_trash` RÉEL : une garde à moitié
 posée, exactement le motif qu'on chasse. Les deux sont donc redirigés.
 """
 from __future__ import annotations
+from bouzecode.paths import data_dir as bouzecode_data_dir
 
 from pathlib import Path
 
@@ -29,7 +31,7 @@ def isoler_le_parc_d_agents(tmp_path: Path, monkeypatch) -> Path:
 
     Les tests qui posent leur propre `AGENTS_DIR` l'emportent : ils tournent APRÈS
     l'autouse et réécrivent la même cible."""
-    from bouzecode.web_v2.runtime import runner
+    from bouzecode.web_v2.runtime.runner import agent_fiche, agent_registre
     from bouzecode.web_v2.services.sessions import purge
 
     # HORS de `tmp_path`, en FRÈRE : unique par test (le nom de `tmp_path` l'est), jeté avec le
@@ -43,17 +45,49 @@ def isoler_le_parc_d_agents(tmp_path: Path, monkeypatch) -> Path:
     # donc, jusqu'ici, dans le parc RÉEL) et `runner` ne crée pas le dossier à l'écriture.
     agents_dir = tmp_path.parent / f"{tmp_path.name}__parc_agents"
     agents_dir.mkdir(parents=True, exist_ok=True)
-    monkeypatch.setattr(runner, "AGENTS_DIR", agents_dir)
+    monkeypatch.setattr(agent_fiche, "AGENTS_DIR", agents_dir)
     # `_list_agents_cache` est un cache TTL de PROCESS, sans clé sur le répertoire : un
     # `list_agents()` joué pendant que `AGENTS_DIR` valait encore le parc RÉEL rend le parc
     # RÉEL pendant toute la TTL, y compris aux tests isolés qui suivent. Rediriger le
     # répertoire sans vider ce cache serait une garde à moitié posée (observé : la garde de
     # l'arbre `tests/` voyait de vrais agents dès qu'elle tournait après ceux de `src/`).
-    runner._list_agents_cache.clear()
-    monkeypatch.setattr(runner, "_agent_file_cache", {})
+    agent_fiche._list_agents_cache.clear()
+    monkeypatch.setattr(agent_registre, "_agent_file_cache", {})
     monkeypatch.setattr(purge, "TRASH_DIR", agents_dir / "_trash")
     monkeypatch.setattr(purge, "DELETED_PATH", tmp_path / "deleted_sessions.json")
     return agents_dir
+
+
+def isoler_les_fichiers_du_home(tmp_path: Path, monkeypatch) -> None:
+    """Redirige les fichiers de `~/.bouzecode` figés à l'import et écrits par des tests sans
+    chemin à eux (relevés par `pytest_home_etanche`, `BZ_HOME_RAPPORT=1`). Sans ça, ils
+    tombaient dans le HOME du worker, partagé par tous ses tests (et, avant le plugin, dans le
+    VRAI HOME). En FRÈRE de `tmp_path`, qui doit pouvoir rester vide."""
+    from bouzecode.backend.core import config
+    from bouzecode.web_v2.services.sessions import store
+    from bouzecode.web_v2.services.work import bureau_file
+
+    base = tmp_path.parent / f"{tmp_path.name}__bouzecode"
+    #  Index des sessions (réécrit à chaque listing) et fichiers du Bureau.
+    monkeypatch.setattr(store, "CACHE_PATH", base / "web_v2" / "index_cache.json")
+    monkeypatch.setattr(bureau_file, "BUREAU_DIR", base / "bureau")
+    #  Sauvegarde de session (/clear, /save) : relus sur `config` à l'appel.
+    sessions = base / "sessions"
+    sessions.mkdir(parents=True, exist_ok=True)  # lu tel quel (os.scandir) par les listings
+    monkeypatch.setattr(config, "SESSIONS_DIR", sessions)
+    monkeypatch.setattr(config, "SESSION_HIST_FILE", sessions / "history.json")
+    monkeypatch.setattr(config, "MR_SESSION_DIR", sessions / "mr_sessions")
+    #  `load_config()` crée CONFIG_DIR (`~/.bouzecode` du worker) : le premier `bouzecode()` d'un
+    #  worker neuf le créait dans le HOME partagé (test TUI de clôture, 2026-10-14).
+    monkeypatch.setattr(config, "CONFIG_DIR", base)
+    #  Fichiers Write(temp=True) : `%TEMP%/bouzecode_scratch/default` etait COMMUN a tous les
+    #  workers ; le `cleanup_scratch()` d'un test effacait la sonde d'un autre en plein vol.
+    from bouzecode.backend.tools.ops import scratch
+    monkeypatch.setattr(scratch, "RACINE", base / "scratch")
+    monkeypatch.setattr(scratch, "_scratch_dir", None)
+    monkeypatch.setattr(scratch, "_registry", {})
+    monkeypatch.setattr(scratch, "_loaded", False)
+    monkeypatch.setattr(scratch, "_session_id", None)
 
 
 def autoriser_la_destruction(monkeypatch) -> None:
@@ -64,24 +98,40 @@ def autoriser_la_destruction(monkeypatch) -> None:
     faire visiblement, par cet appel nommé, pour qu'un lecteur voie immédiatement qu'il
     est dans le seul cas où du code destructeur s'exécute. Il reste tenu par les autres
     garanties : parc isolé, et process cibles fabriqués par le test lui-même."""
-    from bouzecode.web_v2.runtime import runner
+    from bouzecode.web_v2.runtime.runner import agent_arret
+    from bouzecode.web_v2.services.work import warm_pool
 
-    monkeypatch.setattr(runner, "destruction_permitted", lambda: True)
+    monkeypatch.setattr(agent_arret, "destruction_permitted", lambda: True)
+    #  Le ménage du pool chaud n'agit en outre que dans le serveur de référence (`app.main`).
+    monkeypatch.setattr(warm_pool, "SERVEUR_PRINCIPAL", True)
 
 
-PARC_REEL = Path.home() / ".bouzecode" / "web_agents"
+PARC_REEL = bouzecode_data_dir() / "web_agents"
 
 
 def verifier_le_parc_est_isole(tmp_path: Path) -> None:
     """Assertions partagées par les gardes des DEUX arbres de tests : le répertoire réellement
     consulté est le jetable, sa corbeille suit, et aucun agent réel n'est visible."""
-    from bouzecode.web_v2.runtime import runner
+    from bouzecode.web_v2.runtime.runner import agent_fiche, agent_registre
     from bouzecode.web_v2.services.sessions import purge
 
-    assert runner.AGENTS_DIR != PARC_REEL, "les tests lisent le parc d'agents RÉEL"
-    assert runner.AGENTS_DIR.parent == tmp_path.parent, runner.AGENTS_DIR
-    assert runner.AGENTS_DIR.name.startswith(tmp_path.name), runner.AGENTS_DIR
+    assert agent_fiche.AGENTS_DIR != PARC_REEL, "les tests lisent le parc d'agents RÉEL"
+    assert agent_fiche.AGENTS_DIR.parent == tmp_path.parent, agent_fiche.AGENTS_DIR
+    assert agent_fiche.AGENTS_DIR.name.startswith(tmp_path.name), agent_fiche.AGENTS_DIR
     # `purge.TRASH_DIR` est figé À L'IMPORT depuis `runner.AGENTS_DIR` : rediriger AGENTS_DIR
     # seul le laisserait sur la corbeille RÉELLE.
-    assert purge.TRASH_DIR.parent == runner.AGENTS_DIR, purge.TRASH_DIR
-    assert runner.list_agents() == [], "un agent RÉEL est visible depuis un test"
+    assert purge.TRASH_DIR.parent == agent_fiche.AGENTS_DIR, purge.TRASH_DIR
+    assert agent_registre.list_agents() == [], "un agent RÉEL est visible depuis un test"
+
+
+#: Variables qui disent « QUI suis-je » à un outil (agent web, assistant du terminal, parent,
+#: worktree adopté). Héritées du shell qui lance pytest — un agent qui teste son dépôt les
+#: porte toutes — elles faisaient voir aux tests un parent ou un worktree qu'ils n'ont pas posé.
+VARIABLES_D_IDENTITE = ("BOUZECODE_WEB_IPC_DIR", "BOUZECODE_TUI_PARENT", "BOUZECODE_PARENT",
+                        "BOUZECODE_WORKTREE_ROOT", "BOUZECODE_AGENT_DEPTH")
+
+
+def isoler_l_identite_d_agent(monkeypatch) -> None:
+    """Chaque test démarre HORS de tout agent ; celui qui veut une identité la pose (setenv)."""
+    for nom in VARIABLES_D_IDENTITE:
+        monkeypatch.delenv(nom, raising=False)

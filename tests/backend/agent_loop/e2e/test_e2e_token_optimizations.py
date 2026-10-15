@@ -122,7 +122,7 @@ class TestGFDMaxDepth:
         """Default max_depth=2 excludes files at depth 3+."""
         # GFD describes in-depth files via its own LLM call (separate from the
         # agent-loop mock); stub it so the depth-filtering structure is exercised
-        # without reaching a live gateway.
+        # without reaching the live gateway.
         monkeypatch.setattr(
             "bouzecode.backend.tools.folder_desc.analyzer._call_llm_for_description",
             lambda *a, **k: "stub description",
@@ -183,6 +183,10 @@ class TestGFDMaxDepth:
         assert "top.py" in content
 
 
+# `type` sous Windows (Bash y passe par PowerShell), `cat` ailleurs.
+_PRINT_FILE = "type" if os.name == "nt" else "cat"
+
+
 class TestBashTruncation:
     """Bash output is truncated when too large, with full output saved to file."""
 
@@ -212,7 +216,7 @@ class TestBashTruncation:
         big_file.write_text("\n".join(lines), encoding="utf-8")
 
         mock = MockLLM([
-            f'{METH}<tool_use name="Bash" id="b1"><param name="command">type "{big_file}"</param></tool_use>',
+            f'{METH}<tool_use name="Bash" id="b1"><param name="command">{_PRINT_FILE} "{big_file}"</param></tool_use>',
             "Got truncated output.",
         ])
         result = bouzecode(["read big file"], mock_llm=mock, config_overrides=NO_TEST_ENFORCE)
@@ -240,12 +244,12 @@ class TestCodeDiscoveryPrompt:
 
     def test_code_discovery_in_default_profile(self):
         """The default profile carries the Code Discovery section; the noyau does not."""
-        from bouzecode.backend.profiles import load_profiles_from_dir
+        from bouzecode.backend.profiles.discovery import load_system_profiles
         from bouzecode.backend.core.context import build_system_prompt_parts
 
-        repo_root = Path(__file__).resolve().parents[4]
-        profiles = load_profiles_from_dir(repo_root / ".bouzecode" / "profiles")
-        extra = profiles["default"].system_prompt_extra
+        # Le profil `default` est livré avec le paquet (profiles/builtin), pas dans un
+        # `.bouzecode/profiles` propre au poste de l'utilisateur.
+        extra = load_system_profiles()["default"].system_prompt_extra
 
         assert "Découverte de code" in extra
         # GetFolderDescription a quitté l'échelle (outil non offert aux agents) :

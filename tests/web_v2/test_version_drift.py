@@ -116,7 +116,8 @@ def test_no_drift_when_boot_sha_empty(tmp_path):
 def test_fail_safe_when_git_absent(tmp_path, monkeypatch):
     # Constraint "ne pas casser le boot": if git is missing from PATH,
     # subprocess.run raises FileNotFoundError. version_state / capture_boot_state
-    # must swallow it, yield an empty current head and NEVER trip the banner.
+    # must swallow it — and, since HEAD is then read straight from .git, still
+    # report the right head without tripping the banner.
     repo, head = _make_repo(tmp_path)
 
     def _boom(*args, **kwargs):
@@ -124,7 +125,7 @@ def test_fail_safe_when_git_absent(tmp_path, monkeypatch):
 
     monkeypatch.setattr(_version.subprocess, "run", _boom)
     state = _version.version_state(head, "1.2.3", str(repo))
-    assert state["current_head_sha"] == ""
+    assert state["current_head_sha"] == head
     assert state["drift"] is False
     assert state["boot_sha"] == head
 
@@ -132,3 +133,51 @@ def test_fail_safe_when_git_absent(tmp_path, monkeypatch):
     monkeypatch.setattr(_version, "BOOT_SHA", "")
     monkeypatch.setattr(_version, "REPO_ROOT", "")
     _version.capture_boot_state()  # no exception = boot survives git-less env
+
+
+def test_drift_detected_when_git_is_not_on_the_server_path(tmp_path, monkeypatch):
+    """Windows : un serveur lancé par raccourci ou service n'a pas toujours git.exe dans
+    son PATH. `git rev-parse` échouait, current_head_sha restait vide et le bandeau ne se
+    levait JAMAIS sur un HEAD qui avance. HEAD est alors lu dans les fichiers de .git."""
+    repo, boot = _make_repo(tmp_path)
+    (repo / "a.txt").write_text("two", encoding="utf-8")
+    _git(repo, "add", "-A")
+    _git(repo, "commit", "-q", "-m", "c2")
+    new_head = _git(repo, "rev-parse", "HEAD")
+    _git(repo, "pack-refs", "--all")  # ref de branche dans packed-refs, comme après un gc
+
+    def _boom(*args, **kwargs):
+        raise FileNotFoundError("git")
+
+    monkeypatch.setattr(_version.subprocess, "run", _boom)
+    state = _version.version_state(boot, "1.2.3", str(repo))
+    assert state["current_head_sha"] == new_head
+    assert state["sha_drift"] is True and state["drift"] is True
+
+
+def test_capture_at_boot_without_git_still_knows_the_boot_sha(monkeypatch):
+    def _boom(*args, **kwargs):
+        raise FileNotFoundError("git")
+
+    monkeypatch.setattr(_version.subprocess, "run", _boom)
+    monkeypatch.setattr(_version, "BOOT_SHA", "")
+    monkeypatch.setattr(_version, "REPO_ROOT", "")
+    _version.capture_boot_state()
+    from bouzecode.backend.core.code_version import read_head_sha
+    assert _version.REPO_ROOT and _version.BOOT_SHA == read_head_sha(_version.REPO_ROOT) != ""
+
+
+def test_git_runs_without_a_console_window_on_windows(monkeypatch):
+    """Sous Windows, chaque `git` lancé par un serveur sans console (pythonw) ouvrait une
+    fenêtre furtive, toutes les 10 s au rythme du poll de /api/version."""
+    vus = []
+
+    def _run(*args, **kwargs):
+        vus.append(kwargs)
+        raise FileNotFoundError("git")
+
+    monkeypatch.setattr(_version.subprocess, "run", _run)
+    monkeypatch.setattr(_version.sys, "platform", "win32")
+    monkeypatch.setattr(_version.subprocess, "CREATE_NO_WINDOW", 0x08000000, raising=False)
+    _version._git_head("/nowhere")
+    assert vus and vus[0].get("creationflags") == 0x08000000

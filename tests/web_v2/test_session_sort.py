@@ -50,10 +50,9 @@ def test_sessions_sorted_by_saved_at(daily_dir):
     from bouzecode.web_v2.services.sessions.store import list_sessions, DAILY_DIR
 
     with patch("bouzecode.web_v2.services.sessions.store.DAILY_DIR", daily_dir), \
-         patch("bouzecode.web_v2.services.sessions.store.runner") as mock_runner, \
-         patch("bouzecode.web_v2.services.sessions.store._load_cache", return_value={}), \
+         patch("bouzecode.web_v2.services.sessions.store.agent_registre") as mock_registre, \
          patch("bouzecode.web_v2.services.sessions.store._save_cache"):
-        mock_runner.list_agents.return_value = []
+        mock_registre.list_agents.return_value = []
         result = list_sessions()
 
     days = result["days"]

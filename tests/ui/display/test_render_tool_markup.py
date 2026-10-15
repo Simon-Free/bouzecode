@@ -1,4 +1,4 @@
-# [desc] Tests that Rich Markdown tool_use markup neutralization preserves <param> tags verbatim in rendered output [/desc]
+# [desc] Tests that stray <tool_use>/<param> markup is shown verbatim, not mangled by Rich Markdown. [/desc]
 """Bug A: Rich Markdown silently strips <param …> tags, collapsing a well-formed
 tool call into an unreadable concatenated blob. _neutralize_tool_markup must
 entity-escape the markup so it renders verbatim."""

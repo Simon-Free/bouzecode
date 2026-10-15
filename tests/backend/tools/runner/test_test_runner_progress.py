@@ -56,8 +56,14 @@ class TestRunPythonTestProgress:
             parallel="off",
             timeout=60,
             no_sync=True,
+            show=["passed"],
         )
         assert "3 passed" in result
+        # Étanche : le pytest imbriqué tourne dans le tmp_path du test (cwd posé par le conftest)
+        # et l'a pour rootdir — ses node ids lui sont relatifs. Avec un rootdir parent, il
+        # parcourait %TEMP% entier à la collecte.
+        assert f"cwd={tmp_path}" in result, result
+        assert "\ntest_progress_pass.py::test_one" in result, result
 
     def test_reports_failures(self, tmp_path):
         test_file = tmp_path / "test_progress_fail.py"  # basename unique dans la suite (pytest imbriqué)

@@ -1,7 +1,7 @@
 """Garde anti-régression : tout module de route qui APPELLE json_body(...) doit AVOIR
 json_body dans ses globals (import). Sinon chaque POST 500 en NameError au runtime — vu en
 prod : le refacto fd0031c a extrait json_body dans _body.py mais n'a jamais cable l'import
-dans fleet/tickets/builder/projects/sessions -> /api/dispatch et tous les POST morts.
+dans fleet/tickets/builder/projects/sessions -> la création de ticket et tous les POST morts.
 On lit la SOURCE (json_body utilisé ?) et on verifie que le module l'a bien lie."""
 import importlib
 import pkgutil

@@ -15,7 +15,6 @@ import sys
 import tempfile
 from pathlib import Path
 
-import pytest
 
 from bouzecode.backend.multi_agent.terminal import build_terminal_command
 
@@ -42,8 +41,8 @@ class TestBuildTerminalCommand:
         rf_idx = cmd.index("--result-file")
         assert cmd[rf_idx + 1] == "/tmp/r.txt"
         assert "-p" in cmd
-        p_idx = cmd.index("-p")
-        assert cmd[p_idx + 1] == "do stuff"
+        assert "do stuff" not in cmd  # le brief voyage dans --prompt-file
+        assert "--prompt-file" in cmd
         assert "--accept-all" in cmd
 
     def test_wt_command_with_model(self):
@@ -94,15 +93,14 @@ class TestBuildTerminalCommand:
 class TestResultFileCLI:
     """E2E test: --result-file writes output on exit."""
 
-    @pytest.mark.timeout(90)
     def test_result_file_written_on_exit(self, tmp_path):
         """Run bouzecode -p with --result-file and verify output is written."""
         from tests.cache_conversation_helpers import require_api_key
-        require_api_key()  # live API test — skips when unreachable instead of hanging 90s
+        require_api_key()  # live gateway test — skips off VPN instead of hanging 90s
         result_file = tmp_path / "agent_result.txt"
         cmd = [
             sys.executable, "-m", "bouzecode",
-            "-p", "Respond with exactly this text and nothing else: RESULT_FILE_TEST_OK_789",
+            "-p", "Close with FinalAnswer, answer exactly: RESULT_FILE_TEST_OK_789",  # -p: only FinalAnswer delivers
             "--result-file", str(result_file),
             "--accept-all",
         ]
@@ -164,9 +162,9 @@ class TestSpawnRoundTrip:
 
     def test_spawn_wait_reads_result_file(self, monkeypatch):
         from bouzecode.backend.multi_agent import terminal as terminal_mod
-        from bouzecode.backend.multi_agent.tools import _spawn_terminal_agent
+        from bouzecode.backend.multi_agent.lancement_terminal import _spawn_terminal_agent
 
-        def fake_spawn(prompt, result_file, config):
+        def fake_spawn(prompt, result_file, config, env_extra=None):
             # Child writes its answer to the result file, then the launcher returns.
             Path(result_file).write_text("HELLO_RESULT_123", encoding="utf-8")
             return _DummyProc()
@@ -181,18 +179,20 @@ class TestSpawnRoundTrip:
 
     def test_spawn_no_result_file_times_out(self, monkeypatch):
         from bouzecode.backend.multi_agent import terminal as terminal_mod
-        from bouzecode.backend.multi_agent import tools as tools_mod
+        from bouzecode.backend.multi_agent import lancement_terminal
 
-        def fake_spawn_no_write(prompt, result_file, config):
+        def fake_spawn_no_write(prompt, result_file, config, env_extra=None):
             # Launcher returns immediately but the child never writes anything.
             return _DummyProc()
 
         monkeypatch.setattr(terminal_mod, "spawn_in_terminal", fake_spawn_no_write)
-        monkeypatch.setattr(tools_mod, "_TERMINAL_WAIT_TIMEOUT", 0.2)
-        monkeypatch.setattr(tools_mod, "_TERMINAL_WAIT_INTERVAL", 0.05)
+        monkeypatch.setattr(lancement_terminal, "_TERMINAL_WAIT_TIMEOUT", 5)
+        monkeypatch.setattr(lancement_terminal, "_TERMINAL_WAIT_INTERVAL", 0.05)
+        monkeypatch.setattr(lancement_terminal, "_TERMINAL_SIGNE_DE_VIE_S", 0.2)
 
-        out = tools_mod._spawn_terminal_agent(
+        out = lancement_terminal._spawn_terminal_agent(
             {"prompt": "silent", "wait": True, "name": "notimeout"},
             {"_depth": 0},
         )
-        assert "No result file produced" in out
+        # Aucun PID jamais écrit : lancement raté, constaté vite (pas au bout du délai).
+        assert "No sign of life" in out

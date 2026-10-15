@@ -1,38 +1,62 @@
-"""Les diffs de récap doivent afficher un chemin RELATIF au dépôt, pas le chemin absolu
-Windows du worktree jetable (…/worktrees/<repo>/<ticket>/…). Fonction pure → pas de mock."""
-from bouzecode.web_v2.services import recap_service
+"""Le récap d'une session affiche des chemins RELATIFS au dépôt, jamais le chemin absolu du
+worktree jetable (…/worktrees/<repo>/<ticket>/…) — ni dans la liste des fichiers, ni dans
+l'en-tête du patch. Prouvé par le vrai endpoint `GET /api/sessions/<key>/recap`."""
+from __future__ import annotations
+
+import json
+
+import pytest
+
+from bouzecode.web_v2.app import create_app
+from bouzecode.web_v2.services.sessions import store
+
+_WORKTREE = r"C:\Users\u\.bouzecode\worktrees\bouzecode\tk1"
 
 
-def test_display_path_strips_worktree_prefix():
-    p = (r"C:\Users\u\.bouzecode\worktrees\bouzecode\5c5551f3"
-         r"\src\bouzecode\web_v2\services\oxford_join.py")
-    assert recap_service._display_path(p) == "src/bouzecode/web_v2/services/oxford_join.py"
+@pytest.fixture
+def recap_de(monkeypatch, tmp_path):
+    """Écrit une session « daily » et renvoie le JSON servi par l'endpoint recap."""
+    monkeypatch.setattr(store, "DAILY_DIR", tmp_path)
+    client = create_app().test_client()
+
+    def servir(data: dict) -> dict:
+        day = tmp_path / "2026-07-06"
+        day.mkdir(parents=True, exist_ok=True)
+        (day / "s.json").write_text(json.dumps(data), encoding="utf-8")
+        resp = client.get("/api/sessions/daily/2026-07-06/s.json/recap")
+        assert resp.status_code == 200
+        return resp.get_json()
+
+    return servir
 
 
-def test_display_path_relative_unchanged_but_normalized():
-    assert recap_service._display_path("src/pkg/a.py") == "src/pkg/a.py"
-    assert recap_service._display_path(r"src\pkg\a.py") == "src/pkg/a.py"
-
-
-def test_display_path_absolute_non_worktree_left_as_relative_slashes():
-    # Hors worktree : pas de préfixe reconnu → on garde le chemin (slashes normalisés).
-    assert recap_service._display_path(r"D:\other\x.py") == "D:/other/x.py"
-
-
-def test_assemble_relativizes_and_orders_by_relative_changes():
-    wt = r"C:\Users\u\.bouzecode\worktrees\bouzecode\tk1"
-    snapshots = {
-        wt + r"\src\pkg\service.py": {"before": "a\n", "after": "b\n"},
-        wt + r"\tests\test_service.py": {"before": "", "after": "def t(): pass\n", "is_new": True},
-    }
-    recap = {"changes": [{"file": "src/pkg/service.py", "summary": "fix"}]}
-    diffs = recap_service.assemble_recap_diffs(recap, snapshots)
-    files = [(d["file"], d["section"]) for d in diffs]
-    # chemins relatifs affichés + code dans 'changes' (match exact via chemin relatif), test isolé.
-    assert files == [
+def test_un_fichier_du_worktree_s_affiche_relatif_au_depot(recap_de):
+    body = recap_de({
+        "recap": {"changes": [{"file": "src/pkg/service.py", "summary": "fix"}]},
+        "file_snapshots": {
+            _WORKTREE + r"\src\pkg\service.py": {"before": "a\n", "after": "b\n"},
+            _WORKTREE + r"\tests\test_service.py": {"before": "", "after": "x\n", "is_new": True},
+        },
+    })
+    assert [(d["file"], d["section"]) for d in body["diffs"]] == [
         ("src/pkg/service.py", "changes"),
         ("tests/test_service.py", "tests"),
     ]
-    # l'en-tête du patch porte aussi le chemin relatif, pas l'absolu worktree.
-    assert "a/src/pkg/service.py" in diffs[0]["patch"]
-    assert "worktrees" not in diffs[0]["patch"]
+    assert "a/src/pkg/service.py" in body["diffs"][0]["patch"]
+    assert "worktrees" not in body["diffs"][0]["patch"]
+
+
+def test_un_chemin_deja_relatif_n_est_que_normalise(recap_de):
+    body = recap_de({
+        "recap": {"changes": []},
+        "file_snapshots": {r"src\pkg\a.py": {"before": "", "after": "x\n"}},
+    })
+    assert [d["file"] for d in body["diffs"]] == ["src/pkg/a.py"]
+
+
+def test_un_chemin_absolu_hors_worktree_garde_son_nom_en_slashes(recap_de):
+    body = recap_de({
+        "recap": {"changes": []},
+        "file_snapshots": {r"D:\other\x.py": {"before": "", "after": "x\n"}},
+    })
+    assert [d["file"] for d in body["diffs"]] == ["D:/other/x.py"]

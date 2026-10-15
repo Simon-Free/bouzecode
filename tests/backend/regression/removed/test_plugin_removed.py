@@ -1,19 +1,9 @@
-"""Verify that the plugin module has been cleanly removed."""
-import importlib
-import pytest
+"""Verify that the OLD legacy /plugin command and its wiring are gone.
 
-
-def test_plugin_command_routes_to_the_flat_package():
-    """`/plugin` is served by the flat `plugin/` package, not by the engine's own.
-
-    This lock used to assert that `bouzecode.backend.plugin` did not exist. The
-    engine that was ported in ships its own plugin loader under that name, so the
-    absence check no longer holds; what still matters publicly is that the user
-    command keeps resolving to the flat package via the OSS shim.
-    """
-    importlib.import_module("plugin")
-    from bouzecode.backend.commands.oss_shims import plugin_cmd
-    assert callable(plugin_cmd.cmd_plugin)
+A NEW plugin system (bouzecode.backend.plugin: store/loader/types) was added
+intentionally and is unrelated to the removed legacy /plugin command — so we no
+longer assert the package is unimportable, only that the old command is gone.
+"""
 
 
 def test_registration_imports_cleanly():
@@ -23,8 +13,6 @@ def test_registration_imports_cleanly():
 
 def test_dispatcher_no_plugin_command():
     """The /plugin command must not be registered."""
-    import pytest
-    pytest.skip("OSS worktree retains /plugin command via oss_shims")
     from bouzecode.backend.commands.dispatcher import COMMANDS
     assert "plugin" not in COMMANDS
 

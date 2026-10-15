@@ -1,6 +1,6 @@
-"""Tests for compact_pytest_output in truncation module."""
+"""Tests for compact_pytest_output (pytest_compact module) on canned pytest outputs."""
 
-from bouzecode.backend.tools.ops.truncation import compact_pytest_output
+from bouzecode.backend.tools.ops.pytest_compact import compact_pytest_output
 
 
 # --- Fixtures: sample pytest outputs ---
@@ -139,28 +139,31 @@ class TestCompactPytestAllGreen:
         result = compact_pytest_output(ALL_GREEN_OUTPUT)
         assert "....." not in result
 
-    def test_lists_tests_when_verbose_and_few(self):
+    def test_green_verbose_is_the_verdict_alone(self):
         result = compact_pytest_output(ALL_GREEN_VERBOSE_OUTPUT)
-        assert "3 passed" in result
-        # Should list test names when verbose and <20 tests
-        assert "test_one" in result
-        assert "test_two" in result
-        assert "test_three" in result
+        assert result == "3 passed in 0.45s"
 
-    def test_keeps_warnings_on_green(self):
-        result = compact_pytest_output(WARNING_OUTPUT)
-        assert "DeprecationWarning" in result
+    def test_lists_passed_tests_on_demand(self):
+        result = compact_pytest_output(ALL_GREEN_VERBOSE_OUTPUT, show=("passed",))
+        assert "tests/test_a.py::test_one" in result
+        assert "tests/test_a.py::test_three" in result
+
+    def test_drops_warnings_on_green_unless_asked(self):
+        assert "DeprecationWarning" not in compact_pytest_output(WARNING_OUTPUT)
+        result = compact_pytest_output(WARNING_OUTPUT, show=("warnings",))
+        assert "DeprecationWarning: use new_func instead" in result
         assert "5 passed" in result
 
 
 class TestCompactPytestFailures:
-    """When tests fail, tracebacks must be preserved integrally."""
+    """When tests fail, the failing line and the assertion are kept, not the whole test body."""
 
-    def test_preserves_full_traceback(self):
+    def test_keeps_failing_line_and_assertion(self):
         result = compact_pytest_output(FAILURE_OUTPUT)
-        assert "def test_broken():" in result
-        assert "assert x == 2" in result
-        assert "AssertionError" in result
+        assert ">       assert x == 2" in result
+        assert "AssertionError: assert 1 == 2" in result
+        assert "tests/test_a.py:10: AssertionError" in result
+        assert "x = 1" not in result
 
     def test_preserves_summary_line(self):
         result = compact_pytest_output(FAILURE_OUTPUT)

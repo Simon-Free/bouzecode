@@ -6,7 +6,7 @@ fired but ZERO "Auto-compacted thoughts after overflow" blocks were written to
 the methodology, so the model lost its conclusions and re-derived them every
 turn (re-fetching the 90 KB BR + 74 KB doc), never reaching final_answer.
 
-Root cause: the host app runs in LOUD thinking mode — the reasoning is streamed as
+Root cause: Focus runs in LOUD thinking mode — the reasoning is streamed as
 visible TextChunk (-> ctx.text_parts), not ThinkingChunk (-> ctx.thinking_parts).
 The overflow handler summarized "".join(ctx.thinking_parts) only, which is empty
 in loud mode, so summarize_overflow saw <4000 chars and returned None.

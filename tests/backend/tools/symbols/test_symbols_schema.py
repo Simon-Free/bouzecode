@@ -19,9 +19,8 @@ def test_read_schema_has_symbol_param():
 def test_embedded_template_mentions_symbol():
     # The `symbol` read hint now lives in the default code profile, not the noyau template.
     from pathlib import Path
-    from bouzecode.backend.profiles import load_profiles_from_dir
-    repo_root = Path(__file__).resolve().parents[4]
-    extra = load_profiles_from_dir(repo_root / ".bouzecode" / "profiles")["default"].system_prompt_extra
+    from bouzecode.backend.profiles import load_system_profiles
+    extra = load_system_profiles()["default"].system_prompt_extra
     assert "symbol" in extra
 
 

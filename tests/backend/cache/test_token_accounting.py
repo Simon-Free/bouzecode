@@ -141,7 +141,9 @@ def test_efficient_cache_saves_money(mock_loop):
     _, run = mock_loop([
         {"text": "R1", "in_tokens": 10000, "out_tokens": 100,
          "cache_read_tokens": 0, "cache_creation_tokens": 9000},
-        {"text": "R2", "in_tokens": 11000, "out_tokens": 100,
+        # Prompt de 11 000 tokens : 9 000 lus en cache, 500 écrits, 1 500 frais. Convention de
+        # la chaîne : in_tokens = prompt NON lu en cache, écriture comprise = 2 000.
+        {"text": "R2", "in_tokens": 2000, "out_tokens": 100,
          "cache_read_tokens": 9000, "cache_creation_tokens": 500},
     ])
     st = AgentState()
@@ -152,7 +154,9 @@ def test_efficient_cache_saves_money(mock_loop):
     actual = calc_cost("claude-sonnet-4-6", st.total_input_tokens,
                        st.total_output_tokens, st.total_cache_read_tokens,
                        st.total_cache_creation_tokens)
-    no_cache = calc_cost("claude-sonnet-4-6", st.total_input_tokens,
+    # Sans cache, tout le prompt (frais + lu en cache) est facturé plein tarif.
+    no_cache = calc_cost("claude-sonnet-4-6",
+                         st.total_input_tokens + st.total_cache_read_tokens,
                          st.total_output_tokens, 0, 0)
     assert actual < no_cache, (
         f"Efficient caching should save money: {actual:.6f} < {no_cache:.6f}"
@@ -257,9 +261,8 @@ def test_user_msg_not_mutated_between_api_calls(mock_loop):
     # Call 1 carries the (unmutated) user message verbatim.
     u1 = next(m["content"] for m in m1 if m.get("role") == "user")
     assert u1 == "Read x.py"
-    # Under the minimal-wire design the user message is NOT re-sent on the
-    # intra-turn continuation call (it lives in the methodology system block);
-    # any user message that did appear must still be the unmutated original.
+    # The continuation call re-opens with the request, prefixed (demande_en_cours):
+    # the original text, unmutated, behind a fixed prefix.
     for m in m2:
         if m.get("role") == "user":
-            assert m["content"] == "Read x.py"
+            assert m["content"] == "[MESSAGE USER EN COURS]: Read x.py"

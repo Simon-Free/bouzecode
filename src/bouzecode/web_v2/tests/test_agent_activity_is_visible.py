@@ -34,19 +34,19 @@ def _write_agent(agents_dir, agent_id, prompt, *, ipc_state=None, returncode=Non
         encoding="utf-8")
     # `list_agents` est caché 3 s : sans ce vidage, un agent écrit APRÈS le boot de
     # l'application resterait invisible le temps du test.
-    from bouzecode.web_v2.runtime import runner
-    runner._list_agents_cache.clear()
+    from bouzecode.web_v2.runtime.runner import agent_fiche
+    agent_fiche._list_agents_cache.clear()
 
 
 @pytest.fixture()
 def agents_dir(tmp_path, monkeypatch):
-    from bouzecode.web_v2.runtime import runner
+    from bouzecode.web_v2.runtime.runner import agent_fiche
     from bouzecode.web_v2.services.sessions import meta_index, purge, store
     from bouzecode.web_v2.services.work import fleet
 
     d = tmp_path / "web_agents"
     d.mkdir()
-    monkeypatch.setattr(runner, "AGENTS_DIR", d)
+    monkeypatch.setattr(agent_fiche, "AGENTS_DIR", d)
     monkeypatch.setattr(purge, "TRASH_DIR", d / "_trash")
     monkeypatch.setattr(purge, "DELETED_PATH", d / "deleted_sessions.json")
     monkeypatch.setattr(store, "CACHE_PATH", d / "index_cache.json")
@@ -54,7 +54,7 @@ def agents_dir(tmp_path, monkeypatch):
     store._status_cache.clear()
     fleet.clear_tree_cache()
     yield d
-    runner._list_agents_cache.clear()
+    agent_fiche._list_agents_cache.clear()
     fleet.clear_tree_cache()
 
 

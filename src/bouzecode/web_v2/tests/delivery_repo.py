@@ -1,5 +1,5 @@
 # [desc] Décor commun aux tests de livraison : dépôt git réel, worktree d'agent, ticket livré. [/desc]
-"""Fixtures partagées par `test_delivery_harvest.py` et `test_delivery_views_agree.py`.
+"""Fixtures partagées par `test_delivery_constat.py` et `test_delivery_views_agree.py`.
 
 Aucun mock : un vrai dépôt git avec `develop` NON checkout (comme en prod, où le
 serveur tient l'arbre principal), un vrai `git worktree`, le vrai store SQLite et de
@@ -15,12 +15,12 @@ from pathlib import Path
 
 import pytest
 
-from bouzecode.web_v2.runtime import runner
+from bouzecode.web_v2.runtime.runner import agent_fiche
 from bouzecode.web_v2.services.sessions import store
 from bouzecode.web_v2.services.work import fleet, projects, worktrees
 from bouzecode.web_v2.services.work import tickets as tickets_svc
 
-SLUG = "demo-app"
+SLUG = "demo-application"
 CODEUR = "c12bf30ad26b"
 PID_INEXISTANT = 4_000_000
 
@@ -31,21 +31,37 @@ def git_out(cwd: Path | str, *args: str) -> str:
     return res.stdout.strip()
 
 
+_MODELES: dict[str, Path] = {}
+
+
+def _modele_develop_repo(tmp_path_factory) -> Path:
+    """Le dépôt de départ, construit UNE fois par worker : sept appels git (~0,1 s chacun sous
+    Windows) que chaque test repayait. Jamais modifié : chaque test en reçoit une copie.
+    Mémoïsé ici plutôt qu'en fixture de session : les modules de test importent
+    `develop_repo` par son nom, une fixture de plus serait introuvable chez eux."""
+    if "develop" in _MODELES:
+        return _MODELES["develop"]
+    modele = tmp_path_factory.mktemp("modele_develop_repo") / "depot"
+    modele.mkdir()
+    git_out(modele, "init", "-q")
+    git_out(modele, "config", "user.email", "t@t.t")
+    git_out(modele, "config", "user.name", "t")
+    (modele / "README.md").write_text("init\n", encoding="utf-8")
+    git_out(modele, "add", "-A")
+    git_out(modele, "commit", "-q", "-m", "init")
+    git_out(modele, "branch", "-M", "main")
+    git_out(modele, "branch", "develop")
+    _MODELES["develop"] = modele
+    return modele
+
+
 @pytest.fixture()
-def develop_repo(tmp_path: Path) -> Path:
+def develop_repo(tmp_path: Path, tmp_path_factory) -> Path:
     """Dépôt dont `develop` existe mais n'est PAS checkout (main l'est)."""
     name = f"delrepo_{uuid.uuid4().hex[:8]}"  # WORKTREES_DIR est indexé par NOM de dépôt
     shutil.rmtree(worktrees.WORKTREES_DIR / name, ignore_errors=True)
     repo = tmp_path / name
-    repo.mkdir()
-    git_out(repo, "init", "-q")
-    git_out(repo, "config", "user.email", "t@t.t")
-    git_out(repo, "config", "user.name", "t")
-    (repo / "README.md").write_text("init\n", encoding="utf-8")
-    git_out(repo, "add", "-A")
-    git_out(repo, "commit", "-q", "-m", "init")
-    git_out(repo, "branch", "-M", "main")
-    git_out(repo, "branch", "develop")
+    shutil.copytree(_modele_develop_repo(tmp_path_factory), repo)
     return repo
 
 
@@ -53,7 +69,7 @@ def develop_repo(tmp_path: Path) -> Path:
 def agents_dir(tmp_path, monkeypatch) -> Path:
     directory = tmp_path / "agents"
     directory.mkdir()
-    monkeypatch.setattr(runner, "AGENTS_DIR", directory)
+    monkeypatch.setattr(agent_fiche, "AGENTS_DIR", directory)
     monkeypatch.setattr(fleet, "sweep_warm_pool", lambda: [])
     # Le cache d'arbre est un global de module qui SERT LA VERSION CONNUE pendant qu'il
     # recalcule (cf. fleet_cache) : sans cette ardoise propre, un test hériterait de l'arbre
@@ -68,7 +84,7 @@ def project(develop_repo, tmp_path, monkeypatch) -> Path:
     """Enregistre le dépôt comme projet du serveur (les routes en dépendent)."""
     path = tmp_path / "projects.json"
     path.write_text(json.dumps(
-        [{"slug": SLUG, "name": "Demo App", "path": str(develop_repo)}]), encoding="utf-8")
+        [{"slug": SLUG, "name": "Demo", "path": str(develop_repo)}]), encoding="utf-8")
     monkeypatch.setattr(projects, "PROJECTS_PATH", path)
     return develop_repo
 
@@ -83,28 +99,38 @@ def client(monkeypatch):
         yield flask_client
 
 
-def delivered_ticket(repo: Path, titre: str, produced: str = "fix.py") -> dict:
-    """Ticket dont l'unique run `work` a fini PROPREMENT (`completed`) en laissant du
-    travail NON COMMITÉ dans son worktree — l'état exact des cas vécus a88aeb4c/e03adb3b."""
+def running_ticket(repo: Path, titre: str, produced: str = "fix.py") -> dict:
+    """Ticket dont l'unique run `work` TOURNE dans son worktree, où il a laissé du travail
+    NON COMMITÉ."""
+    from bouzecode.web_v2.services.work.provisioning import meta_du_worktree
     ticket = tickets_svc.create_ticket(SLUG, titre, "corrige la faille")
     meta = worktrees.provision(str(repo), ticket["id"], base_branch="develop", with_venv=False)
     assert meta["ok"], meta
     (Path(meta["worktree"]) / produced).write_text("x = 1\n", encoding="utf-8")
+    tickets_svc.poser(SLUG, ticket, worktree=meta_du_worktree(meta), typology="coder")
+    tickets_svc.set_launching(SLUG, ticket)
     tickets_svc.add_run(SLUG, ticket, CODEUR, "work", "", typology="coder")
-    ticket["worktree"] = meta
-    ticket["typology"] = "coder"
-    tickets_svc.update_ticket(SLUG, ticket)
-    tickets_svc.mark_run_completed(SLUG, ticket, CODEUR)
     return tickets_svc.get_ticket(SLUG, ticket["id"])
 
 
-def finished_agent(agents_dir: Path, cwd: str) -> None:
+def delivered_ticket(repo: Path, titre: str, produced: str = "fix.py") -> dict:
+    """Ticket dont l'unique run `work` a fini PROPREMENT (hook de fin, `final_answer`) en
+    laissant du travail NON COMMITÉ dans son worktree — l'état exact des cas vécus
+    a88aeb4c/e03adb3b. La livraison est CONSTATÉE (tête, fichiers non commités), rien commité."""
+    from bouzecode.web_v2.services.work import constats
+    ticket = running_ticket(repo, titre, produced)
+    constats.fin_de_run(SLUG, ticket["id"], CODEUR, "final_answer")
+    return tickets_svc.get_ticket(SLUG, ticket["id"])
+
+
+def finished_agent(agents_dir: Path, cwd: str, ticket_id: str = "") -> None:
     """Fichier agent RÉEL d'un codeur qui a clos proprement : pid mort, rc=0, final_answer."""
     session = agents_dir / f"{CODEUR}.session.json"
     (agents_dir / f"{CODEUR}.json").write_text(json.dumps({
         "agent_id": CODEUR, "prompt": "corrige la faille", "model": "opus", "cwd": cwd,
         "pid": PID_INEXISTANT, "returncode": 0, "run_kind": "work",
         "started_at": "2026-07-28T11:08:14", "session_path": str(session),
+        "ticket_slug": SLUG if ticket_id else "", "ticket_id": ticket_id,
     }), encoding="utf-8")
     session.write_text(json.dumps({
         "messages": [{"role": "assistant", "content": "fait"}],
@@ -116,7 +142,7 @@ def finished_agent(agents_dir: Path, cwd: str) -> None:
     # l'application ou par le tick du watchdog. Le test réussissait ou échouait selon la
     # chance : à HEAD il passe dans la suite complète et échoue lancé seul. Une fausse
     # régression prête à accuser le prochain changement de code.
-    runner._list_agents_cache.clear()
+    agent_fiche._list_agents_cache.clear()
 
 
 def block_git_index(worktree: str) -> Path:

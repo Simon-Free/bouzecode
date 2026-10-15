@@ -1,4 +1,4 @@
-# [desc] E2E testing harness: runs multi-turn bouzecode conversations with MockLLM and interactive prompt support. [/desc]
+# [desc] E2E testing harness: runs multi-turn bouzecode conversations with real LLM and interactive prompt support. [/desc]
 """E2E testing harness for bouzecode.
 
 Usage:
@@ -23,6 +23,7 @@ from bouzecode.backend.agent.loop import run, resume_paused
 from bouzecode.backend.agent.state import AgentState
 from bouzecode.backend.core.config import load_config
 from bouzecode.backend.tools.interaction import PausedForInput
+from tests.harness_transcript import enregistrer as enregistrer_conversation
 
 
 @dataclass
@@ -97,7 +98,7 @@ def _drain_generator(gen, turn: TurnResult, all_events: list):
 
 
 def bouzecode(
-    messages: list[str],
+    messages: list,
     *,
     mock_llm=None,
     mock_api: list | None = None,
@@ -111,7 +112,9 @@ def bouzecode(
     """Run a full multi-turn conversation with the real LLM (or a mock).
 
     Args:
-        messages: List of user messages to send sequentially.
+        messages: List of user messages to send sequentially. An item may also be a
+            callable ``fn(state, config)`` — a REPL command such as ``cmd_clear`` played
+            between two messages on the conversation's real state and config.
         mock_llm: A MockLLM instance (from tests.fake_llm) — if provided,
             patches the LLM stream so no real API call is made.
         mock_tools: Controls tool execution when mock_llm is set:
@@ -141,6 +144,10 @@ def bouzecode(
 
     if config_overrides:
         config.update(config_overrides)
+    # Both mocks speak the Anthropic XML-tool protocol: pin an Anthropic model unless the
+    # test chose one (the code default, claude-opus-5-5, goes native on the preprod gateway).
+    if (mock_api is not None or mock_llm is not None) and not (config_overrides or {}).get("model"):
+        config["model"] = "claude-opus-5"
 
     # --- Mock patching ---
     _patches = []
@@ -158,6 +165,8 @@ def bouzecode(
         _patches.append(("stream", _lt, _orig_stream))
         _patches.append(("get_tool_schemas", _lt, _orig_get_tool_schemas))
         _patches.append(("is_web_ipc_active", _lt, _orig_is_web_ipc))
+
+
 
         if mock_tools is not None:
             _orig_exec = _lt._execute_level
@@ -197,7 +206,7 @@ def bouzecode(
         _os.environ["ANTHROPIC_BASE_URL"] = _url
         _os.environ.setdefault("ANTHROPIC_API_KEY", "test-key")
         config["anthropic_api_key"] = _os.environ["ANTHROPIC_API_KEY"]
-        _cch.LIVE_API_ALLOWED = True  # localhost mock, not a live gateway
+        _cch.LIVE_API_ALLOWED = True  # localhost mock, not the live gateway
 
         _orig_web = _lt.is_web_ipc_active
         _lt.is_web_ipc_active = lambda: False
@@ -218,9 +227,16 @@ def bouzecode(
     state = AgentState()
     all_events: list = []
     turns: list[TurnResult] = []
+    # Lue en direct par le rapport pytest si le test échoue (cf. tests/harness_transcript.py).
+    enregistrer_conversation(state, all_events, mock_llm)
 
     try:
         for user_msg in messages:
+            #  Une étape appelable entre deux messages = une commande du REPL (`/clear`…) jouée
+            #  sur le VRAI état et la VRAIE config de la conversation : fn(state, config).
+            if callable(user_msg):
+                user_msg(state, config)
+                continue
             turn = TurnResult()
             gen = run(user_msg, state, config, system_prompt)
 

@@ -8,7 +8,7 @@ sa longueur est connue, donc refuser ne coûte qu'un aller-retour.
 Ce que ces tests fixent :
 - `ranges` absent -> TOUT est sauvé, quelle que soit la taille, et le résultat le dit.
   Un plafond de 60 lignes refusait au-delà : « garde tout » était alors inexprimable
-  pour une doc de référence, ce que les instructions de l'agent exigent pourtant ;
+  pour une doc de référence, ce que les instructions Focus exigent pourtant ;
 - tool_id mort -> refus, avec la liste des ids encore sur le fil ;
 - fichier disparu depuis la lecture -> message d'erreur, pas d'exception.
 """
@@ -126,10 +126,10 @@ def test_snippet_on_a_dead_tool_id_refuses_and_lists_the_live_ids():
     assert "bonjour" not in note  # surtout : rien d'un AUTRE résultat n'a été sauvé
 
 
-# ── le crash mesuré : le fichier de repli n'existe plus ──────────────────────
+# ── le fichier de repli n'existe plus : le contenu lu est servi de mémoire ───
 
-def test_snippet_on_a_deleted_file_reports_it_instead_of_crashing(tmp_path):
-    """Le fichier lu plus tôt a été supprimé entre-temps : Snippet le dit, au lieu de lever FileNotFoundError."""
+def test_snippet_on_a_deleted_file_serves_the_frozen_content(tmp_path):
+    """Le fichier lu plus tôt a été supprimé : Snippet sert le contenu figé à la lecture, sans crash ni erreur."""
     log = tmp_path / "temp_run.log"
     log.write_text("premiere\ndeuxieme\ntroisieme\n", encoding="utf-8")
 
@@ -146,8 +146,10 @@ def test_snippet_on_a_deleted_file_reports_it_instead_of_crashing(tmp_path):
     note, res = _run(f'<param name="file_path">{disparu}</param>'
                      f'<param name="ranges">[[1, 3]]</param>')
 
-    assert "snippet ERROR" in note and "gone from disk" in note
-    assert "premiere" not in note  # rien n'a été inventé
+    assert "snippet ERROR" not in note
+    assert "frozen" in note          # la note dit d'où vient le contenu
+    assert "premiere" in note        # ...et le contenu lu plus tôt est bien là
+    assert "troisieme" in note
     assert "Error executing Snippet" not in res
     assert "FileNotFoundError" not in res
 

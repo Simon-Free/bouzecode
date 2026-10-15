@@ -117,10 +117,12 @@ def test_le_demarrage_de_l_agent_efface_la_phase_de_preparation(ticket):
 def test_un_lancement_echoue_efface_la_phase_de_preparation(ticket):
     """Même règle quand rien ne viendra : on n'affiche pas une préparation en cours sur un
     ticket dont le lancement a échoué."""
+    tickets.set_launching(SLUG, ticket)
     launch_phase.set_phase(SLUG, ticket, launch_phase.PROVISIONING_WORKTREE)
 
     dispatch.record_launch_failure(SLUG, ticket, "git indisponible")
 
     frais = tickets.get_ticket(SLUG, ticket["id"])
     assert launch_phase.phase_view(frais) == {}
-    assert frais[dispatch.LAUNCH_FAILED_KEY]["error"] == "git indisponible"
+    assert frais["state"] == "launch_failed"
+    assert frais["state_reason"]["message"] == "git indisponible"

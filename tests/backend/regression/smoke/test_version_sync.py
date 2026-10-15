@@ -7,7 +7,10 @@ def test_cli_version_matches_package_metadata():
     """VERSION in cli.py must equal importlib.metadata.version('bouzecode')."""
     from bouzecode.ui.cli import VERSION
 
-    expected = importlib.metadata.version("bouzecode")
+    try:
+        expected = importlib.metadata.version("bouzecode")
+    except importlib.metadata.PackageNotFoundError:
+        expected = importlib.metadata.version("bouzecode")  # venv not reinstalled
     assert VERSION == expected, (
         f"cli.py VERSION={VERSION!r} is stale; "
         f"package metadata says {expected!r}. "

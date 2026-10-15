@@ -47,8 +47,8 @@ def _fake_sessions(tmp_path, monkeypatch):
     monkeypatch.setattr(store, "CACHE_PATH", tmp_path / "cache.json")
 
     # Patch runner.list_agents to return empty (no web agents)
-    from bouzecode.web_v2.services.sessions.store import runner as _runner
-    monkeypatch.setattr(_runner, "list_agents", lambda: [])
+    from bouzecode.web_v2.runtime.runner import agent_registre
+    monkeypatch.setattr(agent_registre, "list_agents", lambda: [])
 
 
 @pytest.fixture()
@@ -100,7 +100,7 @@ def test_grep_invalid_regex(client):
     resp = client.get("/api/sessions/grep?q=[invalid")
     assert resp.status_code == 400
     data = resp.get_json()
-    assert "regex invalide" in data["error"]
+    assert "regex invalide" in data["error"]["message"]
 
 
 def test_grep_missing_q(client):

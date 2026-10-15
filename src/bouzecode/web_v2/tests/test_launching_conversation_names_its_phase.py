@@ -109,5 +109,10 @@ def test_le_demarrage_de_l_agent_ferme_la_phase_de_preparation(client, ticket_en
 
     tickets.add_run(SLUG, ticket_en_lancement, "abc123", "work", "claude-sonnet")
 
+    # Plus de phase à annoncer ; la route NOMME l'agent né (au lieu d'un 404) pour que l'onglet
+    # de préparation se rebranche aussitôt sur lui, sans attendre l'arbre des agents (en cache).
     resp = client.get(f"/api/sessions/launching/{ticket_en_lancement['id']}/blocks")
-    assert resp.status_code == 404
+    assert resp.status_code == 200
+    data = resp.get_json()
+    assert data["agent_key"] == "agent/abc123"
+    assert "phase" not in data["status"]

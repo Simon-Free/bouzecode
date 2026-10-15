@@ -8,7 +8,7 @@ appliqué par accident, les routes appelant resolve_profile() sans passer `manag
 Une typology explicite (ex: manager) est TOUJOURS respectée, et un projet non-code
 ne reçoit aucun défaut.
 
-Tests user-centric : VRAIS endpoints Flask (POST tickets + /launch), vraie fonction
+Tests user-centric : VRAIS endpoints Flask (POST tickets + POST …/runs), vraie fonction
 publique resolve_profile, vrai `git init` en dossier temp. Aucun unittest.mock.
 """
 import subprocess
@@ -17,7 +17,7 @@ import pytest
 
 from bouzecode.web_v2.services.work import tickets as tickets_svc
 from bouzecode.web_v2.services.work import dispatch
-from bouzecode.web_v2.routes.work import tickets as tickets_routes
+from bouzecode.web_v2.runtime.runner import agent_creation
 
 
 def _git_init(path):
@@ -57,27 +57,19 @@ def test_resolve_profile_projet_non_code_sans_typology_reste_vide(monkeypatch, t
 
 
 # ---------------------------------------------------------------------------
-# 2) VRAIS endpoints Flask : création de ticket + /launch
+# 2) VRAIS endpoints Flask : création de ticket + relance (POST …/runs)
 # ---------------------------------------------------------------------------
 
 @pytest.fixture()
 def code_project(monkeypatch, tmp_path):
     """Projet de CODE (git init réel) + store tickets temp + pas d'isolation ni spawn."""
+    from bouzecode.web_v2.tests.aides_tickets import projet
     _git_init(tmp_path)
-    monkeypatch.setattr(tickets_svc, "TICKETS_DIR", tmp_path / "tickets")
-    project = {"slug": "p", "name": "Projet", "path": str(tmp_path)}
-    monkeypatch.setattr(
-        tickets_routes, "_project_or_404",
-        lambda slug: (project, None) if slug == "p" else (None, ({"error": "nf"}, 404)),
-    )
-    monkeypatch.setattr(
-        tickets_routes, "_ticket_or_404",
-        lambda slug, tid: (tickets_svc.get_ticket("p", tid), None),
-    )
-    # Pas d'isolation réelle (worktree/venv) ni de décision réseau.
-    monkeypatch.setattr(tickets_routes.dispatch, "resolve_isolation",
-                        lambda path, requested, **kw: (dispatch.SHARED, "test", ""))
-    return project
+    projet(tmp_path, monkeypatch, "p")
+    #  Créer un ticket LANCÉ passe la garde d'environnement (API joignable) : neutralisée ici.
+    from bouzecode.web_v2 import api_sanity
+    monkeypatch.setattr(api_sanity, "require_api_sanity", lambda: None)
+    return {"slug": "p", "name": "p", "path": str(tmp_path)}
 
 
 @pytest.fixture()
@@ -94,12 +86,12 @@ def _capture_launch(monkeypatch):
     seen = {}
 
     def fake_launch(slug, ticket, project_path, profile, model,
-                    isolation=dispatch.SHARED, parent="", resume_branch=""):
+                    isolation=dispatch.SHARED, parent="", resume_branch="", work_branch=""):
         seen["profile"] = profile
         tickets_svc.add_run(slug, ticket, "agent-" + ticket["id"], "work", model,
                             typology=ticket.get("typology", ""))
 
-    monkeypatch.setattr(tickets_routes.dispatch, "_launch", fake_launch)
+    monkeypatch.setattr(dispatch, "_launch", fake_launch)
     return seen
 
 
@@ -109,7 +101,7 @@ def test_creation_ticket_manuel_sans_typology_reste_nu(client, monkeypatch):
     # defer=False → chemin synchrone déterministe : _launch reçoit le profile résolu.
     resp = client.post("/api/projects/p/tickets",
                        json={"title": "T", "prompt": "fais un truc", "defer": False})
-    assert resp.status_code == 200
+    assert resp.status_code == 201
     assert seen["profile"] == ""
 
 
@@ -117,9 +109,9 @@ def test_creation_ticket_dispatche_par_un_manager_applique_coder(client, monkeyp
     """Même ticket, mais dispatché PAR UN MANAGER (parent = agent_id) → défaut `coder`."""
     seen = _capture_launch(monkeypatch)
     resp = client.post("/api/projects/p/tickets",
-                       json={"title": "T", "prompt": "fais un truc",
+                       json={"title": "T", "prompt": "fais un truc", "isolation": "shared",
                              "parent": "agent-manager-42", "defer": False})
-    assert resp.status_code == 200
+    assert resp.status_code == 201
     assert seen["profile"] == "coder"
 
 
@@ -129,7 +121,7 @@ def test_creation_ticket_parent_manuel_sentinelle_reste_nu(client, monkeypatch):
     resp = client.post("/api/projects/p/tickets",
                        json={"title": "T", "prompt": "fais un truc",
                              "parent": "dispatcher:manual", "defer": False})
-    assert resp.status_code == 200
+    assert resp.status_code == 201
     assert seen["profile"] == ""
 
 
@@ -140,7 +132,7 @@ def test_creation_ticket_typology_explicite_manager_conservee(client, monkeypatc
     resp = client.post("/api/projects/p/tickets",
                        json={"title": "T", "prompt": "orchestre", "typology": "manager",
                              "defer": False})
-    assert resp.status_code == 200
+    assert resp.status_code == 201
     # Typology explicite respectée : PAS de défaut coder appliqué.
     assert seen["profile"] == "manager"
 
@@ -156,8 +148,8 @@ def _capture_create_agent(monkeypatch):
             agent_id = "a1"
         return _Agent()
 
-    monkeypatch.setattr(tickets_routes.runner, "create_agent", fake_create_agent)
-    # /launch passe par api_sanity ; on neutralise le garde-fou dans ce test.
+    monkeypatch.setattr(agent_creation, "create_agent", fake_create_agent)
+    # La relance passe par la garde d'environnement ; on la neutralise dans ce test.
     from bouzecode.web_v2 import api_sanity
     monkeypatch.setattr(api_sanity, "require_api_sanity", lambda: None)
     return captured
@@ -168,8 +160,8 @@ def test_launch_ticket_manuel_sans_typology_reste_nu(client, monkeypatch):
     captured = _capture_create_agent(monkeypatch)
     t = tickets_svc.create_ticket("p", "T", "prompt de launch")
 
-    resp = client.post(f"/api/tickets/p/{t['id']}/launch", json={})
-    assert resp.status_code == 200
+    resp = client.post(f"/api/projects/p/tickets/{t['id']}/runs", json={"defer": False})
+    assert resp.status_code == 202
     assert captured["profile"] == ""
 
 
@@ -181,8 +173,8 @@ def test_launch_ticket_dun_manager_applique_coder(client, monkeypatch):
     t["parent"] = "agent-manager-42"
     tickets_svc.update_ticket("p", t)
 
-    resp = client.post(f"/api/tickets/p/{t['id']}/launch", json={})
-    assert resp.status_code == 200
+    resp = client.post(f"/api/projects/p/tickets/{t['id']}/runs", json={"defer": False})
+    assert resp.status_code == 202
     assert captured["profile"] == "coder"
 
 
@@ -192,9 +184,9 @@ def test_launch_typology_explicite_manager_conservee(client, monkeypatch):
                         lambda name, path: {"profile": "manager", "default_model": ""})
 
     t = tickets_svc.create_ticket("p", "T", "prompt")
-    resp = client.post(f"/api/tickets/p/{t['id']}/launch",
-                       json={"typology": "manager"})
-    assert resp.status_code == 200
+    resp = client.post(f"/api/projects/p/tickets/{t['id']}/runs",
+                       json={"typology": "manager", "defer": False})
+    assert resp.status_code == 202
     assert captured["profile"] == "manager"
 
 
@@ -210,6 +202,6 @@ def test_relance_dun_ticket_manager_ne_retombe_pas_sur_coder(client, monkeypatch
     t["parent"] = "agent-manager-42"
     tickets_svc.update_ticket("p", t)
 
-    resp = client.post(f"/api/tickets/p/{t['id']}/launch", json={})
-    assert resp.status_code == 200
+    resp = client.post(f"/api/projects/p/tickets/{t['id']}/runs", json={"defer": False})
+    assert resp.status_code == 202
     assert captured["profile"] == "manager"

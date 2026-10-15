@@ -373,7 +373,7 @@ def test_depends_on_bracket_syntax_in_attributes():
     assert completed[0]["name"] == "Write"
     assert completed[0]["input"]["file_path"] == "a.py"
     assert completed[0]["input"]["tool_call_alias"] == "w1"
-    assert completed[0]["input"]["depends_on"] == '["wp1"]'
+    assert completed[0]["input"]["depends_on"] == ["wp1"]
 
 
 def test_depends_on_multiple_bracket_syntax():
@@ -391,7 +391,7 @@ def test_depends_on_multiple_bracket_syntax():
     _, completed = _feed(p, xml)
     assert len(completed) == 1
     assert completed[0]["name"] == "Bash"
-    assert completed[0]["input"]["depends_on"] == '["w1","w2"]'
+    assert completed[0]["input"]["depends_on"] == ["w1", "w2"]
 
 
 def test_unescaped_cdata_terminator_in_payload_preserved():

@@ -18,7 +18,7 @@ import time
 import psutil
 import pytest
 
-from bouzecode.web_v2.runtime import runner
+from bouzecode.web_v2.runtime.runner import agent_arret, agent_chaud, agent_fiche, agent_processus
 from bouzecode.web_v2.services.work import fleet, warm_pool
 from bouzecode.web_v2.tests.production_isolation import autoriser_la_destruction
 
@@ -53,9 +53,9 @@ def _cmdline_visible(pid: int) -> bool:
     return bool(psutil.Process(pid).cmdline())
 
 
-def _agent_visant(pid: int, session_path: str, **etat) -> runner.Agent:
+def _agent_visant(pid: int, session_path: str, **etat) -> agent_fiche.Agent:
     """Un agent dont le pid tracké est `pid` et dont la session est `session_path`."""
-    return runner.Agent(agent_id="cible01", prompt="p", model="", cwd="", pid=pid,
+    return agent_fiche.Agent(agent_id="cible01", prompt="p", model="", cwd="", pid=pid,
                         started_at="2026-07-28T10:00:00Z", session_path=session_path,
                         **etat)
 
@@ -69,7 +69,7 @@ def test_un_pid_recycle_n_est_pas_tue(process_jetable, monkeypatch, tmp_path):
     etranger = process_jetable("un-process-qui-n-est-pas-un-agent")
     session = str(tmp_path / "cible01.session.json")
 
-    tue = runner.terminate_agent_process(_agent_visant(etranger.pid, session))
+    tue = agent_arret.terminate_agent_process(_agent_visant(etranger.pid, session))
 
     assert tue is False
     assert etranger.poll() is None, "un process TIERS a été terminé"
@@ -84,10 +84,33 @@ def test_le_process_de_l_agent_est_bien_tue(process_jetable, monkeypatch, tmp_pa
     session = str(tmp_path / "cible01.session.json")
     agent_vivant = process_jetable(session)  # sa command line PORTE la session
 
-    tue = runner.terminate_agent_process(_agent_visant(agent_vivant.pid, session))
+    tue = agent_arret.terminate_agent_process(_agent_visant(agent_vivant.pid, session))
 
     assert tue is True
     assert agent_vivant.wait(timeout=5) is not None
+
+
+def test_un_instant_de_creation_different_refuse_meme_avec_la_bonne_cmdline(
+        process_jetable, monkeypatch, tmp_path):
+    """La référence `pid_create_time` relevée au spawn (vivacité) est aussi une preuve
+    NÉGATIVE pour terminate : un écart dit « pid recyclé », quelle que soit la cmdline.
+
+    Contre-preuve dans le même test : avec l'instant de création RÉEL du process, la même
+    fiche est bien terminée — le refus ne vient donc que de l'écart."""
+    autoriser_la_destruction(monkeypatch)
+    session = str(tmp_path / "cible01.session.json")
+    porteur = process_jetable(session)
+    vrai_instant = psutil.Process(porteur.pid).create_time()
+
+    refuse = agent_arret.terminate_agent_process(
+        _agent_visant(porteur.pid, session, pid_create_time=vrai_instant - 3600))
+    assert refuse is False
+    assert porteur.poll() is None, "un pid à l'instant de création étranger a été terminé"
+
+    tue = agent_arret.terminate_agent_process(
+        _agent_visant(porteur.pid, session, pid_create_time=vrai_instant))
+    assert tue is True
+    assert porteur.wait(timeout=5) is not None
 
 
 def test_un_agent_deja_termine_n_est_jamais_candidat(process_jetable, monkeypatch, tmp_path):
@@ -101,7 +124,7 @@ def test_un_agent_deja_termine_n_est_jamais_candidat(process_jetable, monkeypatc
     fini = _agent_visant(homonyme.pid, session,
                          returncode=0, finished_at="2026-07-28T11:00:00Z")
 
-    tue = runner.terminate_agent_process(fini)
+    tue = agent_arret.terminate_agent_process(fini)
 
     assert tue is False
     assert homonyme.poll() is None
@@ -115,8 +138,8 @@ def test_aucune_terminaison_n_est_possible_depuis_un_test(process_jetable, tmp_p
     session = str(tmp_path / "cible01.session.json")
     parfaitement_identifie = process_jetable(session)
 
-    assert runner.destruction_permitted() is False
-    tue = runner.terminate_agent_process(_agent_visant(parfaitement_identifie.pid, session))
+    assert agent_arret.destruction_permitted() is False
+    tue = agent_arret.terminate_agent_process(_agent_visant(parfaitement_identifie.pid, session))
 
     assert tue is False
     assert parfaitement_identifie.poll() is None
@@ -134,8 +157,9 @@ def test_le_balayage_du_warm_pool_est_inerte_sous_pytest(monkeypatch):
     _ecrire_un_agent_chaud("evincable")
     appels = []
 
-    monkeypatch.setattr(runner, "is_warm", lambda agent: True)
-    monkeypatch.setattr(runner, "kill_agent", lambda agent: appels.append(agent.agent_id))
+    monkeypatch.setattr(agent_chaud, "is_warm", lambda agent: True)
+    monkeypatch.setattr(agent_processus, "pid_still_belongs_to", lambda agent: True)
+    monkeypatch.setattr(agent_arret, "kill_agent", lambda agent: appels.append(agent.agent_id))
     monkeypatch.setattr(warm_pool, "WARM_POOL_MAX", 0)  # tout le parc est « en trop »
 
     assert fleet.sweep_warm_pool() == []
@@ -161,8 +185,9 @@ def test_un_refus_d_eviction_n_interrompt_pas_les_suivantes(monkeypatch):
             raise psutil.AccessDenied(pid=agent.pid)
         tues.append(agent.agent_id)
 
-    monkeypatch.setattr(runner, "is_warm", lambda agent: True)
-    monkeypatch.setattr(runner, "kill_agent", _kill)
+    monkeypatch.setattr(agent_chaud, "is_warm", lambda agent: True)
+    monkeypatch.setattr(agent_processus, "pid_still_belongs_to", lambda agent: True)
+    monkeypatch.setattr(agent_arret, "kill_agent", _kill)
     monkeypatch.setattr(warm_pool, "WARM_POOL_MAX", 0)
 
     evinces = fleet.sweep_warm_pool()
@@ -175,13 +200,13 @@ def _ecrire_un_agent_chaud(agent_id: str) -> None:
     """Un vrai artefact d'agent dans le parc ISOLÉ (redirigé par le conftest autouse)."""
     import json
 
-    (runner.AGENTS_DIR / f"{agent_id}.json").write_text(json.dumps({
+    (agent_fiche.AGENTS_DIR / f"{agent_id}.json").write_text(json.dumps({
         "agent_id": agent_id, "prompt": "une conversation", "model": "", "cwd": "",
         "pid": 999_999_999, "started_at": "2026-06-01T10:00:00Z", "returncode": None,
-        "session_path": str(runner.AGENTS_DIR / f"{agent_id}.session.json"),
+        "session_path": str(agent_fiche.AGENTS_DIR / f"{agent_id}.session.json"),
         "stdout_path": "", "ipc_dir": "",
     }), encoding="utf-8")
-    runner._list_agents_cache.clear()
+    agent_fiche._list_agents_cache.clear()
 
 
 def test_le_garde_fou_s_efface_hors_pytest(monkeypatch):
@@ -189,4 +214,4 @@ def test_le_garde_fou_s_efface_hors_pytest(monkeypatch):
     serveur (lancé par bouzeui.ps1) garde ses évictions."""
     monkeypatch.delenv("PYTEST_CURRENT_TEST", raising=False)
 
-    assert runner.destruction_permitted() is True
+    assert agent_arret.destruction_permitted() is True

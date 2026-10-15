@@ -13,6 +13,8 @@ import threading
 import pytest
 
 from bouzecode.web_v2.services.work import _persistence, tickets
+from bouzecode.web_v2.services.work.fsm import etats
+from bouzecode.web_v2.tests.aides_tickets import constater_tout
 
 
 def _rendre_illisibles_les_autres_tickets(slug: str, ticket_epargne: str) -> None:
@@ -103,7 +105,35 @@ def test_un_ticket_en_cours_de_lancement_est_retrouve_sur_chaque_projet():
         ("projet-a", lance_ici["id"]),
         ("projet-b", lance_la["id"]),
     }
-    assert all(t.get("launching") for _slug, t in trouves)
+    assert all(t["state"] == etats.PROVISIONING for _slug, t in trouves)
+
+
+def test_un_lancement_fige_depuis_longtemps_n_est_plus_annonce():
+    """Un serveur tué en plein provisioning laisse le ticket FIGÉ en préparation : il restait
+    'en cours de lancement' à vie et fabriquait un node fantôme inouvrable/non archivable
+    dans l'arbre (cas 0c8f4800, figé depuis 2 jours). Passé le seuil (30 min), le watchdog le
+    constate (`launch_failed`) et on ne l'annonce plus."""
+    from datetime import datetime, timedelta
+
+    frais = tickets.create_ticket("proj", "Lancement frais", "prompt")
+    vieux = tickets.create_ticket("proj", "Lancement figé", "prompt")
+    tickets.set_launching("proj", frais)
+    tickets.set_launching("proj", vieux)
+
+    # Backdate l'événement `launched` du ticket figé bien au-delà du seuil, en base directe.
+    with sqlite3.connect(tickets.TICKETS_DIR / "tickets.db") as conn:
+        conn.execute("UPDATE ticket_events SET at=? WHERE slug=? AND ticket_id=? AND kind=?",
+                     ((datetime.now() - timedelta(days=2)).isoformat(timespec="seconds"),
+                      "proj", vieux["id"], etats.LAUNCHED))
+    constater_tout(fois=1)
+
+    trouves = tickets.launching_tickets()
+
+    # Le lancement frais reste annoncé ; le figé (2 jours) a disparu de la liste.
+    ids = {t["id"] for _slug, t in trouves}
+    assert frais["id"] in ids
+    assert vieux["id"] not in ids
+    assert tickets.get_ticket("proj", vieux["id"])["state"] == etats.LAUNCH_FAILED
 
 
 def test_un_ticket_au_repos_n_est_jamais_annonce_en_lancement():

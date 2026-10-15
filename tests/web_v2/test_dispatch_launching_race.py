@@ -4,13 +4,15 @@ peut être finalisé alors que l'enfant n'a pas encore démarré (race des 14 s
 observée sur le manager 94dfb6d7ceb4).
 
 Repro : on stubbe `_launch` pour qu'il ne fasse RIEN (simule la fenêtre entre
-create_ticket et l'add_run réel). Sur le code AVANT fix, `dispatch()` ne posait
+create_ticket et l'add_run réel). Sur le code AVANT fix, la création ne posait
 pas `launching` → child_pending_launch()=False ET has_launched()=False →
 l'enfant était invisible → should_wake_parent() finalisait le parent à tort.
 """
 import threading
 
-from bouzecode.web_v2.services.work import dispatch
+from bouzecode.web_v2 import api_sanity
+from bouzecode.web_v2.services.work import dispatch, projects
+from bouzecode.web_v2.services.work.api_tickets import creation
 from bouzecode.web_v2.services.work import tickets as tickets_svc
 from bouzecode.web_v2.services.work import _persistence
 from bouzecode.web_v2.services.work import wake
@@ -25,11 +27,10 @@ def _wire(monkeypatch, tmp_path):
     monkeypatch.setattr(_persistence, "TICKETS_DIR", tmp_path / "tickets")
     monkeypatch.setattr(tickets_svc, "TICKETS_DIR", tmp_path / "tickets")
     project = {"slug": "p", "name": "Projet", "path": str(tmp_path)}
-    monkeypatch.setattr(dispatch.projects, "list_projects", lambda: [project])
-    monkeypatch.setattr(dispatch.projects, "find", lambda slug: project)
+    monkeypatch.setattr(projects, "list_projects", lambda: [project])
+    monkeypatch.setattr(projects, "find", lambda slug: project)
     monkeypatch.setattr(dispatch, "get_typology", lambda name, path: {"profile": "", "default_model": ""})
-    monkeypatch.setattr(dispatch, "resolve_isolation",
-                        lambda path, requested, needs_worktree=False: ("shared", "test", ""))
+    monkeypatch.setattr(api_sanity, "require_api_sanity", lambda: None)
 
 
 def _child_ticket(monkeypatch, tmp_path, defer):
@@ -45,8 +46,9 @@ def _child_ticket(monkeypatch, tmp_path, defer):
     monkeypatch.setattr(dispatch, "_launch", fake_launch)
     monkeypatch.setattr(dispatch, "_launch_bg", fake_launch)
 
-    result = dispatch.dispatch("fais un truc", project_slug="p", typology="default",
-                               parent="mgr123456789", defer=defer)
+    result = creation.creer("p", {"title": "fais un truc", "prompt": "fais un truc",
+                                  "isolation": "shared", "parent": "mgr123456789",
+                                  "defer": defer})
     ticket_id = result["ticket_id"]
     # relire depuis le store (source de vérité, pas l'objet en mémoire)
     rows = tickets_svc.list_tickets("p")
@@ -71,17 +73,16 @@ def test_parent_not_woken_while_child_launching(monkeypatch, tmp_path):
     """Conséquence directe : tant que l'enfant est `launching` (pas encore de run),
     should_wake_parent renvoie False → le parent NE peut PAS être finalisé.
 
-    Contre-preuve : le MÊME ticket sans le flag `launching` (état bug) et sans run
-    laisse la porte ouverte à la finalisation prématurée."""
+    Contre-preuve : le MÊME ticket resté `created` (état bug : jamais passé en
+    préparation) et sans run laisse la porte ouverte à la finalisation prématurée."""
     child = _child_ticket(monkeypatch, tmp_path, defer=True)
     sig = wake.children_signature([child])
 
-    # État corrigé : launching posé → parent bloqué
+    # État corrigé : enfant en préparation (`provisioning`) → parent bloqué
     assert wake.should_wake_parent(True, [child], None, sig) is False
 
-    # État bug (flag retiré, toujours aucun run) : l'enfant devient invisible et
-    # ne bloque plus le réveil (démontre pourquoi le fix est nécessaire).
-    bugged = {**child}
-    bugged.pop("launching", None)
+    # État bug (jamais passé en préparation, toujours aucun run) : l'enfant devient
+    # invisible et ne bloque plus le réveil (démontre pourquoi le fix est nécessaire).
+    bugged = {**child, "state": "created"}
     assert wake.child_pending_launch(bugged) is False
     assert wake.has_launched(bugged) is False

@@ -12,11 +12,14 @@ test_pages_boot_smoke.py (il était identique dans quatre fichiers).
 """
 from __future__ import annotations
 
-from pathlib import Path
-
 import pytest
 
-_SHOT_DIR = Path(__file__).parent / "_artifacts"
+
+@pytest.fixture()
+def shot_dir(tmp_path):
+    """Les captures vont dans le dossier du test, jamais dans le dépôt (plugin home_etanche)."""
+    return tmp_path
+
 
 # Le violet accent de l'app, #7c3aed, tel que le navigateur le rend.
 _ACCENT_RGB = "124, 58, 237"
@@ -50,10 +53,9 @@ def _open_first_conversation(page) -> bool:
         return False
 
 
-def test_opening_a_conversation_shows_one_compact_switch_and_one_id(server, page):
+def test_opening_a_conversation_shows_one_compact_switch_and_one_id(server, page, shot_dir):
     """Ouvrir une conversation affiche le switch sur la ligne meta, son bouton actif
     coloré, et l'identifiant court une seule fois."""
-    _SHOT_DIR.mkdir(parents=True, exist_ok=True)
     page.goto(f"{server}/conversations", wait_until="domcontentloaded")
     page.wait_for_selector(".conv-main")
 
@@ -74,4 +76,4 @@ def test_opening_a_conversation_shows_one_compact_switch_and_one_id(server, page
         f"l'identifiant ne doit plus être répété dans les onglets, obtenu {layout['idChipsInTabs']}"
     )
 
-    page.screenshot(path=str(_SHOT_DIR / "switch_in_meta_row.png"))
+    page.screenshot(path=str(shot_dir / "switch_in_meta_row.png"))

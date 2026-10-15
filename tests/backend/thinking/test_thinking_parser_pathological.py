@@ -74,21 +74,29 @@ class TestThinkingMentionsCloseTag:
         assert "The model uses </thinking>" in merged["thinking"]
         assert "Actual response text here." in merged["text"]
 
-    def test_close_tag_at_col0_in_content(self):
-        """</thinking> at col 0 but with trailing text is NOT a real close."""
+    def test_close_tag_with_trailing_text_at_col0_closes(self):
+        """</thinking> at col 0 followed by text IS a real close.
+
+        A sloppy close in column 0 is far more frequent than a literal mention
+        placed in column 0; the mention case stays protected because it appears
+        mid-line (see test_stream_full_feed above). The rest of the line after
+        the tag must be emitted as normal TEXT.
+        """
         text = (
             "<thinking>\n"
+            "Some thought.\n"
             "</thinking> is the close tag for thoughts.\n"
-            "More thinking here.\n"
-            "</thinking>\n"
             "Response."
         )
         results = _feed_all(text)
         merged = _concat_by_type(results)
-        # The first </thinking> has trailing text, so it should NOT close
-        assert "</thinking> is the close tag" in merged["thinking"]
-        assert "More thinking here." in merged["thinking"]
+        assert "Some thought." in merged["thinking"]
+        # Tag must not leak into visible text, but its trailing text must
+        assert "</thinking>" not in merged.get("text", "")
+        assert "is the close tag for thoughts." in merged["text"]
         assert "Response." in merged["text"]
+        # And that trailing text is NOT classified as thinking
+        assert "is the close tag" not in merged.get("thinking", "")
 
     def test_strip_thinking_tags_with_mention(self):
         """strip_thinking_tags should handle content mentioning the tag."""

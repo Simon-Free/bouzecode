@@ -39,12 +39,12 @@ def _write_agent(agents_dir, agent_id, prompt, *, running=False):
 
 @pytest.fixture()
 def agents_dir(tmp_path, monkeypatch):
-    from bouzecode.web_v2.runtime import runner
+    from bouzecode.web_v2.runtime.runner import agent_fiche
 
     d = tmp_path / "web_agents"
     d.mkdir()
-    monkeypatch.setattr(runner, "AGENTS_DIR", d)
-    runner._list_agents_cache.clear()
+    monkeypatch.setattr(agent_fiche, "AGENTS_DIR", d)
+    agent_fiche._list_agents_cache.clear()
     # purge.TRASH_DIR est figé à l'import → le repointer sur le tmp AGENTS_DIR.
     from bouzecode.web_v2.services.sessions import purge
     monkeypatch.setattr(purge, "TRASH_DIR", d / "_trash")
@@ -56,7 +56,7 @@ def agents_dir(tmp_path, monkeypatch):
     _write_agent(d, "cccccc", "Corriger le bug de parsing dans parser.py")
     # test conversation MAIS en cours d'exécution (jamais purgée)
     _write_agent(d, "dddddd", "test running keep", running=True)
-    runner._list_agents_cache.clear()
+    agent_fiche._list_agents_cache.clear()
     return d
 
 

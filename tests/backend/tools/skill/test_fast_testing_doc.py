@@ -17,3 +17,9 @@ def test_fast_testing_prompt_carries_derived_fixture_rule():
     assert "NODES.filter" in prompt
     # La nuance visuel/CSS -> vrai navigateur (happy-dom/jsdom n'applique aucun CSS).
     assert "jsdom" in prompt or "happy-dom" in prompt
+
+
+def test_demo_coding_prompt_references_the_rule():
+    prompt = builtin._DEMO_CODING_PROMPT
+    assert "DÉRIVÉES du réel" in prompt
+    assert "dispatcher:manual" in prompt

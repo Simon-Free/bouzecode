@@ -3,8 +3,8 @@
 
 Un plafond de 200 lignes a existé ici : il rognait tout snippet plus long et
 écrivait `## snippet-truncated:` dans la note. Il rendait impossible de figer une
-doc de référence en un appel (la doc de référence fait 1 210 lignes) alors que les
-instructions de l'agent demandent explicitement de la snippeter en entier. Ces tests
+doc de référence en un appel (la doc DEMODB fait 1 210 lignes) alors que les
+instructions Focus demandent explicitement de la snippeter en entier. Ces tests
 verrouillent le contrat inverse : ce qui est demandé est sauvé, intégralement.
 """
 from __future__ import annotations

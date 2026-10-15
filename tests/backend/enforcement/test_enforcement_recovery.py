@@ -1,7 +1,7 @@
 # [desc] Tests the forced Methodology/Snippet recovery that augments a batch before execution. [/desc]
 """Enforcement contract: no in-wire bounce. enforce_methodology just dedups + proceeds.
 Missing working memory is recovered by FORCED side-calls that augment the turn's batch
-BEFORE it executes: Methodology (from this turn's thinking) is prepended if absent;
+BEFORE it executes: Methodology (from this turn's tool calls) is prepended if absent;
 Snippets for still-uncovered Read/Skill results (already executed → content available)
 are appended. The side LLM calls are mocked here — no network.
 """
@@ -110,8 +110,9 @@ def test_snippetable_results_ignores_small_reads():
 
 # ── the two forced side-calls seed their context + force tool_choice ─────────
 
-def test_recover_methodology_seeds_prev_and_thinking(monkeypatch):
-    """La Methodology recuperee est demandee au modele avec son raisonnement du tour et sa note precedente sous les yeux."""
+def test_recover_methodology_seeds_prev_and_turn_actions(monkeypatch):
+    """La Methodology recuperee est demandee au modele avec ce que le tour a FAIT (outils,
+    arguments, resultats recus) et sa note precedente — jamais sa reflexion recopiee."""
     captured = {}
 
     def fake(tool_name, system, msg, config, **k):
@@ -122,10 +123,25 @@ def test_recover_methodology_seeds_prev_and_thinking(monkeypatch):
     ctx = _ctx("exploré src/, il faut lire config.py")
     config = {"model": "deepseek-v4-pro",
               "_context_state": types.SimpleNamespace(notes={METHODOLOGY_NOTE: "## todo\n- [ ] démarrer"})}
-    tc = recover_methodology(_state([]), config, ctx)
+    state = _state([
+        {"role": "tool", "tool_call_id": "g0", "name": "Glob", "content": "src/config.py"},
+        {"role": "assistant", "content": "", "tool_calls": []},
+    ])
+    calls = [{"id": "r1", "name": "Read", "input": {"file_path": "src/config.py"}}]
+    tc = recover_methodology(state, config, ctx, calls)
     assert tc["name"] == "Methodology" and captured["tool_name"] == "Methodology"
-    assert "exploré src/" in captured["msg"]        # this turn's thinking is seeded
+    assert "exploré src/" not in captured["msg"]     # the turn's reasoning is never copied
+    assert '- Read {"file_path": "src/config.py"}' in captured["msg"]   # tool + key args
+    assert "─ Glob :\nsrc/config.py" in captured["msg"]                 # result just received
     assert "- [ ] démarrer" in captured["msg"]       # previous Methodology is seeded
+
+
+def test_recover_methodology_none_without_tool(monkeypatch):
+    """Un tour sans outil (hors Methodology/Snippet) n'a plus de matiere a consigner."""
+    monkeypatch.setattr(enforcement_call, "_ask_forced",
+                        lambda *a, **k: [{"id": "m1", "name": "Methodology", "input": {}}])
+    snippet_only = [{"id": "s1", "name": "Snippet", "input": {}}]
+    assert recover_methodology(_state([]), {"model": "m"}, _ctx(), snippet_only) is None
 
 
 def test_recover_methodology_none_without_thinking(monkeypatch):
@@ -135,8 +151,8 @@ def test_recover_methodology_none_without_thinking(monkeypatch):
     assert recover_methodology(_state([]), {"model": "m"}, _ctx(thinking="")) is None
 
 
-def test_recover_snippets_seeds_reads_and_thinking(monkeypatch):
-    """Le Snippet recupere est demande avec le contenu lu et le raisonnement du tour, et le modele est oblige de repondre."""
+def test_recover_snippets_seeds_reads_without_thinking(monkeypatch):
+    """Le Snippet recupere est demande avec le contenu lu (jamais la reflexion du tour), et le modele est oblige de repondre."""
     captured = {}
 
     def fake(tool_name, system, msg, config, **k):
@@ -149,7 +165,7 @@ def test_recover_snippets_seeds_reads_and_thinking(monkeypatch):
     assert out and out[0]["name"] == "Snippet"
     assert captured["tool_name"] == "Snippet" and captured["required"] is True
     assert "def foo()" in captured["msg"]            # the read content is replayed
-    assert "je dois figer a.py" in captured["msg"]   # this turn's thinking is seeded
+    assert "je dois figer a.py" not in captured["msg"]   # the turn's reasoning is never copied
 
 
 def test_recover_snippets_noop_when_no_results():
@@ -188,7 +204,7 @@ def test_loop_prepends_methodology_when_missing(monkeypatch):
     from tests.fake_llm import MockLLM
 
     monkeypatch.setattr(enforcement_call, "recover_methodology",
-                        lambda state, config, ctx: {"id": "rm", "name": "Methodology",
+                        lambda state, config, ctx, tool_calls=None: {"id": "rm", "name": "Methodology",
                                                     "input": {"content": "recovered"}})
     glob = '<tool_use name="Glob" id="g1"><param name="pattern">**/*.py</param></tool_use>'
     meth = '<tool_use name="Methodology" id="m9"><param name="content">done</param></tool_use>'

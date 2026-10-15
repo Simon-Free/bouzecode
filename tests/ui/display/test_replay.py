@@ -1,15 +1,12 @@
-# [desc] Tests replay_messages output formatting for various message types including tools and XML stripping [/desc]
-"""Replay rendering.
+﻿# [desc] Tests that replay_messages renders saved sessions through the live conversation engine (text + tool calls). [/desc]
+import os
+import sys
 
-Tool calls are rendered by `tool_display._format_tool_call`, which prints the
-call in a black-style multiline block (`Bash(\\n    command="ls",\\n)`) — not the
-old one-line `Bash(ls)` summary. The assertions below therefore look for the
-tool name and the parameter, not for a collapsed form that no longer exists.
-"""
-from bouzecode.ui.replay import replay_messages
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 
 def _run_replay(messages):
+    from bouzecode.ui.replay import replay_messages
     import io, contextlib
     buf = io.StringIO()
     with contextlib.redirect_stdout(buf):
@@ -31,7 +28,7 @@ def test_user_and_assistant_text():
     assert "hello there" in out
     assert "hi back" in out
     assert "you" in out  # user header
-    assert "bouz" in out  # assistant header
+    assert "bouzecode" in out  # assistant header
 
 
 def test_assistant_tool_call_with_internal_format():
@@ -45,8 +42,7 @@ def test_assistant_tool_call_with_internal_format():
         {"role": "tool", "tool_call_id": "tc1", "name": "Bash", "content": "file1\nfile2"},
     ]
     out = _run_replay(msgs)
-    assert "Bash(" in out
-    assert 'command="ls"' in out
+    assert 'command="ls"' in out  # black-style call block
     assert "lines" in out  # print_tool_end summary
 
 
@@ -67,8 +63,7 @@ def test_anthropic_native_blocks():
     ]
     out = _run_replay(msgs)
     assert "thinking aloud" in out
-    assert "Read(" in out
-    assert 'file_path="x.py"' in out
+    assert 'file_path="x.py"' in out  # black-style Read call block
     # the pure tool_result message must not show as a user turn
     assert out.count("you") == 1
 
@@ -87,8 +82,7 @@ def test_assistant_content_with_inline_tool_use_xml_is_stripped():
     assert "Let me read it." in out
     assert "<tool_use" not in out
     assert "</tool_use>" not in out
-    assert "Read(" in out
-    assert 'file_path="/tmp/x.csv"' in out
+    assert 'file_path="/tmp/x.csv"' in out  # black-style Read call block
 
 
 def test_pure_tool_result_user_message_is_skipped():

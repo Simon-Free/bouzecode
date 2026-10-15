@@ -1,13 +1,16 @@
-# [desc] BUG 1 : dispatch(defer=True) crée le ticket et répond AVANT le travail lourd
+# [desc] BUG 1 : la création d'un ticket (defer, le défaut) répond AVANT le travail lourd
 # (provisioning worktree + spawn), qui part en tâche de fond. Empêche le faux timeout
 # du manager (→ tickets dupliqués). Fakes purs, zéro agent LLM, zéro git. [/desc]
 from __future__ import annotations
 
 import threading
 
-from bouzecode.web_v2.services.work import dispatch
+from bouzecode.web_v2 import api_sanity
+from bouzecode.web_v2.services.work import dispatch, projects
+from bouzecode.web_v2.services.work.api_tickets import creation
 from bouzecode.web_v2.services.work import tickets as tickets_svc
 from bouzecode.web_v2.services.work import _persistence
+from bouzecode.web_v2.runtime.runner import agent_creation
 
 
 class _FakeAgent:
@@ -16,15 +19,21 @@ class _FakeAgent:
 
 
 def _wire(monkeypatch, tmp_path):
-    """Route tout vers un projet factice, ticket dans un dossier temp, pas d'isolation."""
+    """Route tout vers un projet factice (pas un dépôt git : isolation `shared`), ticket dans un
+    dossier temp, environnement API réputé joignable."""
     monkeypatch.setattr(_persistence, "TICKETS_DIR", tmp_path / "tickets")
     monkeypatch.setattr(tickets_svc, "TICKETS_DIR", tmp_path / "tickets")
     project = {"slug": "p", "name": "Projet", "path": str(tmp_path)}
-    monkeypatch.setattr(dispatch.projects, "list_projects", lambda: [project])
-    monkeypatch.setattr(dispatch.projects, "find", lambda slug: project)
+    monkeypatch.setattr(projects, "list_projects", lambda: [project])
+    monkeypatch.setattr(projects, "find", lambda slug: project)
     monkeypatch.setattr(dispatch, "get_typology", lambda name, path: {"profile": "", "default_model": ""})
-    monkeypatch.setattr(dispatch, "resolve_isolation",
-                        lambda path, requested, needs_worktree=False: ("shared", "test", ""))
+    monkeypatch.setattr(api_sanity, "require_api_sanity", lambda: None)
+
+
+def _creer(prompt: str, defer: bool) -> dict:
+    """Ce que fait l'outil Agent d'un manager : POST /api/projects/p/tickets (service)."""
+    return creation.creer("p", {"title": prompt, "prompt": prompt, "isolation": "shared",
+                                "parent": "mgr123456789", "defer": defer})
 
 
 def test_defer_returns_ticket_then_launches_in_background(monkeypatch, tmp_path):
@@ -39,13 +48,10 @@ def test_defer_returns_ticket_then_launches_in_background(monkeypatch, tmp_path)
 
     monkeypatch.setattr(dispatch, "_launch", fake_launch)
 
-    result = dispatch.dispatch("fais un truc", project_slug="p", typology="default",
-                               parent="mgr123456789", defer=True)
+    result = _creer("fais un truc", defer=True)
 
-    # La réponse est immédiate : routée, avec ticket_id, marquée deferred, SANS 'key'.
-    assert result["routed"] is True
-    assert result["ticket_id"]
-    assert result["deferred"] is True
+    # La réponse est immédiate : le ticket, en préparation, SANS 'key' (l'agent n'est pas né).
+    assert result["ticket_id"] and result["state"] == "provisioning"
     assert "key" not in result
     # Le launch lourd s'exécute bien en tâche de fond, sur CE ticket.
     assert launched.wait(3)
@@ -58,8 +64,7 @@ def test_deferred_ticket_persisted_before_launch(monkeypatch, tmp_path):
     gate = threading.Event()
     monkeypatch.setattr(dispatch, "_launch", lambda *a: gate.wait(3))
 
-    result = dispatch.dispatch("bosse", project_slug="p", typology="default",
-                               parent="mgr123456789", defer=True)
+    result = _creer("bosse", defer=True)
 
     stored = tickets_svc.get_ticket("p", result["ticket_id"])
     assert stored is not None
@@ -69,12 +74,11 @@ def test_deferred_ticket_persisted_before_launch(monkeypatch, tmp_path):
 
 def test_sync_dispatch_still_returns_key(monkeypatch, tmp_path):
     _wire(monkeypatch, tmp_path)
-    monkeypatch.setattr(dispatch.runner, "create_agent",
+    monkeypatch.setattr(agent_creation, "create_agent",
                         lambda *a, **k: _FakeAgent("abc123def456"))
 
-    result = dispatch.dispatch("bosse", project_slug="p", typology="default")
+    result = _creer("bosse", defer=False)
 
-    assert result.get("deferred") is not True  # absent en mode synchrone
     assert result["key"] == "agent/abc123def456"
     # un run 'work' a été enregistré sur le ticket
     stored = tickets_svc.get_ticket("p", result["ticket_id"])

@@ -10,6 +10,7 @@ the old location.
 
 import ast
 import importlib
+import importlib.util
 import pathlib
 import sys
 from typing import List, Tuple
@@ -141,6 +142,10 @@ def test_lazy_import_resolves(file_rel: str, lineno: int, module_path: str):
             if "PackageNotFoundError" in type(exc).__name__ or "metadata" in str(exc):
                 pytest.skip(f"Package not installed in editable mode: {exc}")
             raise
+        if not has and hasattr(mod, "__path__"):
+            #  `from paquet import sous_module` est valide : Python importe le sous-module.
+            #  Sans ce repli le test dependait de l'ordre (un autre test l'avait deja importe).
+            has = importlib.util.find_spec(module_path) is not None
         if not has:
             pytest.fail(
                 f"{file_rel}:{lineno} — attribute '{attr_name}' not found in '{module_to_import}'\n"

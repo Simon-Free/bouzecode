@@ -1,0 +1,20 @@
+data: {"id": "gen-1", "object": "chat.completion.chunk", "created": 1790286032, "model": "deepseek/deepseek-v4-flash", "provider": "DeepSeek", "choices": [{"index": 0, "delta": {"content": "Je note.\n"}, "finish_reason": null}]}
+
+data: {"id": "gen-1", "object": "chat.completion.chunk", "created": 1790286032, "model": "deepseek/deepseek-v4-flash", "provider": "DeepSeek", "choices": [{"index": 0, "delta": {"content": "<tool_calls>\n"}, "finish_reason": null}]}
+
+data: {"id": "gen-1", "object": "chat.completion.chunk", "created": 1790286032, "model": "deepseek/deepseek-v4-flash", "provider": "DeepSeek", "choices": [{"index": 0, "delta": {"content": "<tool_use name=\"Methodology\" id=\"m1\"><param name=\"content\">ok</param></tool_use>"}, "finish_reason": null}]}
+
+data: {"id": "gen-1", "object": "chat.completion.chunk", "created": 1790286032, "model": "deepseek/deepseek-v4-flash", "provider": "DeepSeek", "choices": [{"index": 0, "delta": {"content": "\n</tool_calls>"}, "finish_reason": null}]}
+
+data: {"id": "gen-1", "object": "chat.completion.chunk", "created": 1790286032, "model": "deepseek/deepseek-v4-flash", "provider": "DeepSeek", "choices": [{"index": 0, "delta": {"content": "\n<tool_result id=\"m1\">"}, "finish_reason": null}]}
+
+data: {"id": "gen-1", "object": "chat.completion.chunk", "created": 1790286032, "model": "deepseek/deepseek-v4-flash", "provider": "DeepSeek", "choices": [{"index": 0, "delta": {"content": "RÉSULTAT INVENTÉ"}, "finish_reason": null}]}
+
+data: {"id": "gen-1", "object": "chat.completion.chunk", "created": 1790286032, "model": "deepseek/deepseek-v4-flash", "provider": "DeepSeek", "choices": [{"index": 0, "delta": {"content": "</tool_result>\nsuite inventée"}, "finish_reason": null}]}
+
+data: {"id": "gen-1", "object": "chat.completion.chunk", "created": 1790286032, "model": "deepseek/deepseek-v4-flash", "provider": "DeepSeek", "choices": [{"index": 0, "delta": {}, "finish_reason": "stop"}]}
+
+data: {"id": "gen-1", "object": "chat.completion.chunk", "created": 1790286032, "model": "deepseek/deepseek-v4-flash", "provider": "DeepSeek", "choices": [], "usage": {"prompt_tokens": 7000, "completion_tokens": 140, "total_tokens": 7140, "prompt_tokens_details": {"cached_tokens": 6000}}}
+
+data: [DONE]
+

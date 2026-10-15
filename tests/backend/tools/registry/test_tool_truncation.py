@@ -114,8 +114,25 @@ class TestTruncateToolOutput:
         result = truncate_tool_output(
             output, "Bash", max_lines=200, max_chars=8000, head_lines=80, tail_lines=160
         )
-        # Every original line appears exactly once (no duplication)
+        # No line is duplicated, and the char cap is really applied: the old version
+        # returned all 15 000 chars with the marker appended (nothing cut).
         for i in range(50):
-            assert result.count(f"row {i} ") == 1
+            assert result.count(f"row {i} ") <= 1
+        marker_len = len(result) - len(result.split("\n\n[...output truncated")[0])
+        assert len(result) - marker_len <= 8000
+        assert "row 0 " in result and "row 49 " in result  # head and tail kept
         # Marker still present so the full file remains reachable
+        assert "truncated" in result.lower()
+
+    def test_between_max_lines_and_head_plus_tail_is_really_cut(self, tmp_path, monkeypatch):
+        """201 to 240 lines (defaults 200/80/160): the marker used to be added without
+        cutting anything. Now at most max_lines lines are kept, head and tail."""
+        monkeypatch.setenv("BOUZECODE_TOOL_OUTPUT_DIR", str(tmp_path))
+        output = "\n".join(f"line {i}" for i in range(222))
+
+        result = truncate_tool_output(output, "Bash")
+
+        kept = [l for l in result.split("\n") if l.startswith("line ")]
+        assert len(kept) <= 200
+        assert "line 0" in kept and "line 221" in kept
         assert "truncated" in result.lower()

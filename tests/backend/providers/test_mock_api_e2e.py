@@ -71,7 +71,10 @@ def test_thinking_streamed_via_sse_lands_in_transcript():
     archived in the transcript (the <thinking> block), then stripped from later wire turns."""
     result = bouzecode(
         ["reason about it"],
-        mock_api=[{"thinking": ["private reasoning here"], "text": "the answer."}],
+        # The reasoning turn carries its Methodology (enforced every turn); a plain closing
+        # reply then ends the session instead of exhausting the script.
+        mock_api=[{"thinking": ["private reasoning here"], "text": f"the answer.\n{METH}"},
+                  "C'est fait."],
     )
     asst = [m for m in result.messages if m.get("role") == "assistant"][0]
     assert "<thinking>" in asst["content"]

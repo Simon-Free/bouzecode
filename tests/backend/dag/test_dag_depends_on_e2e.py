@@ -25,6 +25,8 @@ KEPT AS UNITS in test_dag_depends_on.py (justified there):
 """
 from __future__ import annotations
 
+import sys
+
 from tests.e2e_harness import bouzecode
 from tests.fake_llm import MockLLM
 
@@ -42,8 +44,9 @@ def _write(path, tid="w1"):
 
 
 def _bash(path, tid="b1", depends_on=None):
+    # sys.executable plutôt que `python` : ce binaire n'existe pas sur toutes les machines.
     dep = (f'<param name="depends_on">{depends_on}</param>') if depends_on else ""
-    return (f'<tool_use name="Bash" id="{tid}"><param name="command">python {path}</param>'
+    return (f'<tool_use name="Bash" id="{tid}"><param name="command">{sys.executable} {path}</param>'
             f'{dep}</tool_use>')
 
 

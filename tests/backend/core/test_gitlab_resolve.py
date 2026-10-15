@@ -39,15 +39,15 @@ def test_parse_strips_dot_git_suffix():
 
 
 def test_ssh_remote_normalized_to_https():
-    info = resolve_input("git@h.example.com:grp/my-plugin.git")
-    assert info["web_url"] == "https://h.example.com/grp/my-plugin"
+    info = resolve_input("git@h.example.com:grp/demo-sql-plugin.git")
+    assert info["web_url"] == "https://h.example.com/grp/demo-sql-plugin"
 
 
 def test_plugin_install_target_derives_name_and_git_source():
-    info = resolve_input("https://h.example.com/voy/myorg/my-plugin")
+    info = resolve_input("https://h.example.com/voy/demo_plugins/demo-sql-plugin")
     package, git_source = plugin_install_target(info)
-    assert package == "my-plugin"
-    assert git_source == "git+https://h.example.com/voy/myorg/my-plugin.git"
+    assert package == "demo-sql-plugin"
+    assert git_source == "git+https://h.example.com/voy/demo_plugins/demo-sql-plugin.git"
 
 
 def test_invalid_input_is_rejected():
@@ -57,14 +57,14 @@ def test_invalid_input_is_rejected():
 
 def test_local_path_deduces_remote(tmp_path):
     _git(tmp_path, "init")
-    _git(tmp_path, "remote", "add", "origin", "git@h.example.com:grp/my-plugin.git")
+    _git(tmp_path, "remote", "add", "origin", "git@h.example.com:grp/demo-sql-plugin.git")
 
     info = resolve_input(str(tmp_path))
     package, git_source = plugin_install_target(info)
 
-    assert info["web_url"] == "https://h.example.com/grp/my-plugin"
-    assert package == "my-plugin"
-    assert git_source == "git+https://h.example.com/grp/my-plugin.git"
+    assert info["web_url"] == "https://h.example.com/grp/demo-sql-plugin"
+    assert package == "demo-sql-plugin"
+    assert git_source == "git+https://h.example.com/grp/demo-sql-plugin.git"
 
 
 def test_local_path_without_remote_errors(tmp_path):

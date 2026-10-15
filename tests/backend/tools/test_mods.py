@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import os
-import time
 import tempfile
 from pathlib import Path
 from concurrent.futures import ThreadPoolExecutor
@@ -58,12 +57,19 @@ def test_edit_allowed_after_read(tmp_file):
     assert "[Warning]" not in result
 
 
+def _vieillir_d_une_seconde(chemin):
+    """Pose un mtime postérieur d'une seconde : une modification externe se voit même quand
+    l'écriture tombe dans le même tic d'horloge que la lecture."""
+    st = os.stat(chemin)
+    os.utime(chemin, ns=(st.st_atime_ns, st.st_mtime_ns + 1_000_000_000))
+
+
 def test_edit_warns_on_external_modification(tmp_file):
     """Edit still applies if file changed on disk, but a warning + diff is included."""
     from bouzecode.backend.tools import _read, _edit
     _read(tmp_file)
-    time.sleep(0.05)  # ensure mtime differs
     Path(tmp_file).write_text("externally changed\nline2\nline3\n", encoding="utf-8")
+    _vieillir_d_une_seconde(tmp_file)  # mtime distinct, sans dépendre de la résolution de l'horloge
     result = _edit(tmp_file, "line2", "modified2")
     assert "Changes applied" in result
     assert "[Warning]" in result
@@ -76,8 +82,8 @@ def test_edit_no_warning_after_re_read(tmp_file):
     """After re-Read, the next Edit on the same file emits no stale warning."""
     from bouzecode.backend.tools import _read, _edit
     _read(tmp_file)
-    time.sleep(0.05)
     Path(tmp_file).write_text("new content\nline2\n", encoding="utf-8")
+    _vieillir_d_une_seconde(tmp_file)
     _read(tmp_file)  # refresh cache
     result = _edit(tmp_file, "new content", "modified")
     assert "Changes applied" in result
@@ -202,8 +208,10 @@ def test_dag_levels_empty():
     assert _build_dag_levels([]) == ([], {})
 
 
-def test_dag_levels_ignores_invalid_dep():
-    """depends_on referencing non-existent IDs should be ignored."""
+def test_dag_levels_runs_a_call_with_an_unknown_dep_after_the_others():
+    """A depends_on naming an id absent from the turn is not dropped: the call is scheduled
+    after every other call of the turn (dropping it ran the consumer in parallel with the
+    producer it was waiting for)."""
     from bouzecode.backend.agent import _build_dag_levels
 
     tool_calls = [
@@ -211,19 +219,22 @@ def test_dag_levels_ignores_invalid_dep():
         {"id": "2", "name": "Read", "input": {"file_path": "b.py"}},
     ]
     levels, _ = _build_dag_levels(tool_calls)
-    assert len(levels) == 1
-    assert len(levels[0]) == 2
+    assert [[tc["id"] for tc in level] for level in levels] == [["2"], ["1"]]
 
 
-def test_dag_levels_depends_on_stripped_from_input():
-    """depends_on should be consumed by the DAG builder (popped from input)."""
+def test_scheduling_keys_never_reach_the_tool_and_survive_a_rebuild():
+    """depends_on is a scheduling key, not a tool parameter: the tool never receives it,
+    and building the DAG twice (pause/resume) keeps the dependency."""
     from bouzecode.backend.agent import _build_dag_levels
+    from bouzecode.backend.agent.dag import _tool_params
 
     tc = {"id": "1", "name": "Write", "input": {"file_path": "a.py", "content": "x"}}
     tc2 = {"id": "2", "name": "Bash", "input": {"command": "echo", "depends_on": ["1"]}}
-    _build_dag_levels([tc, tc2])
-    # depends_on should no longer be in tc2's input
-    assert "depends_on" not in tc2["input"]
+    first, _ = _build_dag_levels([tc, tc2])
+    again, _ = _build_dag_levels([tc, tc2])
+    assert [[t["id"] for t in lvl] for lvl in first] == [["1"], ["2"]]
+    assert [[t["id"] for t in lvl] for lvl in again] == [["1"], ["2"]]
+    assert _tool_params(tc2) == {"command": "echo"}
 
 
 def test_propagate_denials():
@@ -261,15 +272,17 @@ def test_dag_levels_with_alias():
     assert levels[1][0]["id"] == "toolu_03"
 
 
-def test_dag_levels_alias_stripped_from_input():
-    """tool_call_alias should be consumed (popped from input)."""
+def test_alias_resolves_and_never_reaches_the_tool():
+    """tool_call_alias resolves a depends_on, and neither key is passed to the tool."""
     from bouzecode.backend.agent import _build_dag_levels
+    from bouzecode.backend.agent.dag import _tool_params
 
     tc = {"id": "1", "name": "Write", "input": {"file_path": "a.py", "content": "x", "tool_call_alias": "w1"}}
     tc2 = {"id": "2", "name": "Bash", "input": {"command": "echo", "depends_on": ["w1"]}}
-    _build_dag_levels([tc, tc2])
-    assert "tool_call_alias" not in tc["input"]
-    assert "depends_on" not in tc2["input"]
+    levels, _ = _build_dag_levels([tc, tc2])
+    assert [[t["id"] for t in lvl] for lvl in levels] == [["1"], ["2"]]
+    assert "tool_call_alias" not in _tool_params(tc)
+    assert "depends_on" not in _tool_params(tc2)
 
 
 def test_dag_levels_alias_mixed_with_ids():

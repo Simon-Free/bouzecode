@@ -1,7 +1,7 @@
 # [desc] Tests stream resilience helpers against malformed SSE events with JSON/Unicode decode errors. [/desc]
 """Tests for stream resilience against malformed SSE events.
 
-Scenario: a gateway/proxy in front of Anthropic can send SSE events with
+Scenario: the gateway/proxy in front of Anthropic can send SSE events with
 empty or corrupt `data:` payloads. The Anthropic SDK then raises
 JSONDecodeError (or UnicodeDecodeError) mid-stream, which used to kill
 the whole turn with a traceback.

@@ -17,7 +17,7 @@ import time
 
 import pytest
 
-from bouzecode.web_v2.runtime import runner
+from bouzecode.web_v2.runtime.runner import agent_commande, agent_creation, agent_fiche
 from bouzecode.web_v2.services.work import fleet_cache
 
 CLE = (0, 12)
@@ -87,9 +87,9 @@ def test_la_naissance_d_un_agent_perime_l_arbre_deja_calcule(monkeypatch):
     fleet_cache.cached(CLE, lambda: calculs.append(1) or "arbre-sans-le-nouvel-agent")
     assert len(calculs) == 1
 
-    monkeypatch.setattr(runner, "_bouzecode_launch_cmd", lambda: [sys.executable, "-c", "pass"])
-    monkeypatch.setattr(runner, "check_provider_env", lambda *_, **__: None)
-    agent = runner.create_agent("réponds PONG", "opus", str(runner.AGENTS_DIR))
+    monkeypatch.setattr(agent_commande, "_bouzecode_launch_cmd", lambda: [sys.executable, "-c", "pass"])
+    monkeypatch.setattr(agent_commande, "check_provider_env", lambda *_, **__: None)
+    agent = agent_creation.create_agent("réponds PONG", "opus", str(agent_fiche.AGENTS_DIR))
 
     assert agent.agent_id
     # Périmé ⇒ le prochain lecteur relance le calcul, au lieu d'attendre la fin du TTL.

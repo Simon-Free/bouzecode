@@ -12,7 +12,7 @@ import json
 
 from bouzecode.backend.context_manager.audit import build_verbatim_audit_note
 from bouzecode.backend.agent.providers.conversion import messages_to_anthropic, _find_current_loop_start
-from bouzecode.backend.agent.providers.backends.dispatch import _inject_into_last_user_message
+from bouzecode.backend.agent.providers.backends.encapsulation import avec_les_notes_du_harnais
 
 
 def _make_tool_result(tool_call_id: str, content: str) -> dict:
@@ -90,22 +90,21 @@ class TestSystemBlockStability:
         h2 = _system_prompt_hash(stable + [{"type": "text", "text": build_verbatim_audit_note(msgs_2)}])
         assert h1 != h2, "Audit in system blocks would cause cache miss"
 
-    def test_inject_into_last_user_message(self):
+    def test_audit_goes_after_the_tool_results(self):
         original_msg = {"role": "user", "content": "original question"}
         msgs = [
             original_msg,
             _make_assistant_with_tool_call("tc1"),
             _make_tool_result("tc1", "result"),
         ]
-        _inject_into_last_user_message(msgs, "AUDIT NOTE HERE")
-        # Shipped contract (dispatch._inject_into_last_user_message): the note is
-        # prepended to the LAST user-facing message (user OR tool), scanning from
-        # the end — here the trailing tool_result (msgs[2]), because a turn whose
-        # wire ends on a tool_result has no plain user message yet. The leading
-        # user message (msgs[0]) is left untouched.
-        assert msgs[2]["content"].startswith("AUDIT NOTE HERE")
-        assert "result" in msgs[2]["content"]
-        assert msgs[0]["content"] == "original question"
+        wire = avec_les_notes_du_harnais(msgs, "AUDIT NOTE HERE")
+        # Since 2026-10-07 the audit is no longer prepended INTO the trailing tool_result
+        # (harness text inside tool data tripped the gateway's content_filter): it rides in a
+        # <harness_notes> user message right after the results, at the tail — the cached
+        # prefix stays untouched. Nothing already in the history is mutated.
+        assert wire[3]["role"] == "user" and "AUDIT NOTE HERE" in wire[3]["content"]
+        assert wire[3]["content"].startswith("<harness_notes>")
+        assert wire[:3] == msgs and msgs[2]["content"] == "result"
         assert original_msg["content"] == "original question"
 
 

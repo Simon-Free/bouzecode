@@ -90,6 +90,13 @@ def capture(monkeypatch):
     return cap
 
 
+def note_blocks(call: dict) -> list[dict]:
+    """The note's content parts: since 2026-10-07 the note travels in <working_notes> at the
+    head of the first user message, no longer in the system (content_filter refusals)."""
+    content = call["messages"][0]["content"] if call["messages"] else []
+    return content if isinstance(content, list) else []
+
+
 def find_methodology_block(blocks: list[dict]) -> dict | None:
     for b in blocks:
         if isinstance(b, dict) and _METHODOLOGY_HEADER.strip() in (b.get("text") or ""):

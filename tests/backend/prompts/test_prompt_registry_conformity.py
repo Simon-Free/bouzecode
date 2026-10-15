@@ -20,10 +20,11 @@ from bouzecode.backend.core._embedded_data import (
 from bouzecode.backend.core.profile_extra import get_agent_profile_extra
 from bouzecode.backend.core.tool_mentions import tool_names_cited
 from bouzecode.backend.core.tool_registry import get_tool
-from bouzecode.backend.tools.registration import enabled_tools_for_profile
+from bouzecode.backend.tools.registration import enabled_tools_for_profile, tools_offered_to_profile
 
 SHIPPED_PROFILES = [
-    "default", "coder", "general-purpose", "manager", "meta-agent", "frontend",
+    "default", "coder", "general-purpose", "manager", "meta-agent",
+    "frontend", "azure-deployer", "databricks-deployer",
 ]
 
 # Exemptions EXPLICITES et DATÉES (2026-07-27). Une exemption dit « ce texte nomme un
@@ -38,6 +39,11 @@ EXEMPTIONS = {
     # Corriger demande des exemples PAR profil (surface partagée par tous les agents) —
     # décision hors périmètre de ce ticket, tracée ici plutôt que silencieuse.
     ("manager", "noyau + exemples de tour"): {"Edit", "Write", "Bash"},
+    # (2026-09-23) Le schéma d'`Agent` DÉCRIT l'outil de l'ENFANT (« il demande son worktree avec
+    # `Environment` ») et celui de `LoadProjectConfig` s'adresse à un agent qui va écrire. Le
+    # manager, read-only, ne s'isole jamais : lui donner `Environment` violerait son rôle.
+    ("manager", "schéma de Agent"): {"Environment"},
+    ("manager", "schéma de LoadProjectConfig"): {"Environment"},
 }
 
 
@@ -46,9 +52,6 @@ def prompt_surfaces(profile_name: str, available: set) -> dict:
     surfaces = {
         "noyau + exemples de tour": SYSTEM_PROMPT_TEMPLATE.replace(
             "{tool_examples}", TOOL_EXAMPLES_XML),
-        # Ni « AGENTS.md » ni « README.md » : la section ne cite aucun fichier de
-        # cartographie, elle oriente vers les outils AgentsMap() / SymbolMap().
-        "navigation du code (AgentsMap/SymbolMap)": context.get_readme_navigation_section(),
         "prose de profil": get_agent_profile_extra(profile_name),
         "bloc plan mode": PLAN_MODE_TEMPLATE,
     }
@@ -74,10 +77,28 @@ def _all_tool_names() -> set:
     return {t.name for t in get_all_tools()}
 
 
+#  Fleet / MessageAgent (`web_seulement`) n'existent que s'il y a une flotte : sous bouzeui
+#  web, ou dans un TUI qui héberge ses sous-agents en process. Chaque profil est vérifié dans
+#  les DEUX mondes — sauf `manager`, qui ne tourne que sous le web (il pilote des tickets).
+SANS_FLOTTE = [p for p in SHIPPED_PROFILES if p != "manager"]
+
+
+@pytest.fixture(params=[True, False], ids=["avec-flotte", "sans-flotte"])
+def flotte(request, monkeypatch):
+    from bouzecode.backend.core import tool_registry
+    monkeypatch.delenv("BOUZECODE_WEB_IPC_DIR", raising=False)
+    monkeypatch.setattr(tool_registry, "_flotte_locale", request.param)
+    return request.param
+
+
 @pytest.mark.parametrize("profile_name", SHIPPED_PROFILES)
-def test_no_prompt_surface_names_a_tool_the_agent_cannot_call(profile_name):
-    """Chaque profil livré : rien dans son prompt ne nomme un outil hors de son registre."""
-    available = enabled_tools_for_profile(profile_name)
+def test_no_prompt_surface_names_a_tool_the_agent_cannot_call(profile_name, flotte):
+    """Chaque profil livré : rien dans son prompt ne nomme un outil hors de son registre —
+    avec et sans flotte (hors web et hors TUI, Fleet et MessageAgent ne sont pas proposés)."""
+    if not flotte and profile_name not in SANS_FLOTTE:
+        pytest.skip(f"{profile_name} ne tourne que sous le web")
+    available = tools_offered_to_profile(profile_name)
+    assert flotte or not {"Fleet", "MessageAgent"} & available
     found = violations(prompt_surfaces(profile_name, available), available, profile_name)
     assert not found, (
         f"Le prompt de `{profile_name}` prescrit des outils qu'il n'a pas : {found}. "
@@ -151,7 +172,7 @@ def _guard_messages() -> tuple:
 def test_guard_messages_only_name_tools_the_agent_can_call(profile_name):
     """Un refus/avertissement d'outil ne doit jamais aiguiller vers un outil absent :
     c'est exactement le tour perdu qu'on veut supprimer."""
-    available = enabled_tools_for_profile(profile_name)
+    available = tools_offered_to_profile(profile_name)
     if "Bash" not in available:
         pytest.skip(f"{profile_name} n'a pas Bash — ces gardes ne lui parviennent jamais")
     assert not violations(dict(_guard_messages()), available, profile_name)
@@ -165,6 +186,8 @@ BASELINE_2026_07_27 = {
     "coder": {"Read", "Write", "Edit", "Bash", "Glob", "Grep", "RunPythonTest"},
     "manager": {"Read", "Glob", "Grep", "Agent", "MessageAgent", "ListAgentTypes", "Fleet"},
     "meta-agent": {"Read", "Write", "Edit", "Bash", "Glob", "Grep", "Agent", "ListAgentTypes"},
+    "azure-deployer": {"Read", "Write", "Edit", "Bash", "Glob", "Grep", "RunPythonTest"},
+    "databricks-deployer": {"Read", "Write", "Edit", "Bash", "Glob", "Grep", "RunPythonTest"},
 }
 
 

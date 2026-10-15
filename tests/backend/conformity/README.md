@@ -15,7 +15,7 @@ datées avec la décision à prendre** plutôt que des skips muets. Ils sont les
 ## Usage
 
 ```
-uv run --no-sync --directory . pytest tests/backend/conformity -n auto -v
+uv run --no-sync --directory . pytest tests/backend/conformity -n 4 -v
 ```
 
 | Fichier | Rôle |

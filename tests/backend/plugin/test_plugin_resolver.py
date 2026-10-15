@@ -52,12 +52,12 @@ def test_ensure_plugins_installs_and_returns_tool_names(site, monkeypatch):
 
 def test_ensure_plugins_surfaces_install_error(site, monkeypatch):
     def _fail_pip(package, index_url):
-        return False, "pip install failed: package index unreachable"
+        return False, "pip install failed: Artifactory unreachable"
     monkeypatch.setattr("bouzecode.backend.plugin.store._pip_install", _fail_pip)
 
     tools, errors = ensure_plugins(["demo-missing-plugin"])
     assert tools == []
-    assert any("package index unreachable" in e for e in errors)
+    assert any("Artifactory unreachable" in e for e in errors)
 
 
 def test_ensure_plugins_installs_from_git_source(site, monkeypatch):
@@ -71,7 +71,7 @@ def test_ensure_plugins_installs_from_git_source(site, monkeypatch):
     monkeypatch.setattr("bouzecode.backend.plugin.store._clone_and_install", _fake_clone)
 
     tools, errors = ensure_plugins([
-        {"name": "demo-gitplugin", "source": "git+https://gitlab.example.com/x/demo-gitplugin.git"},
+        {"name": "demo-gitplugin", "source": "git+https://gitlab/x/demo-gitplugin.git"},
     ])
     assert errors == []
     assert "GitTool" in tools

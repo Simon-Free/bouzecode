@@ -14,7 +14,7 @@ from __future__ import annotations
 
 import json
 
-from bouzecode.web_v2.runtime import runner
+from bouzecode.web_v2.runtime.runner import agent_arret, agent_fiche, agent_registre
 from bouzecode.web_v2.services.work import fleet, wake
 from bouzecode.web_v2.tests.production_isolation import (
     PARC_REEL, verifier_le_parc_est_isole,
@@ -35,7 +35,7 @@ def test_le_balayage_du_warm_pool_ne_tue_personne(monkeypatch):
     exception pour ne pas interrompre la boucle d'éviction (une seule éviction refusée
     la stoppait entièrement), et avalerait donc une sentinelle qui lève."""
     appels: list = []
-    monkeypatch.setattr(runner, "kill_agent", lambda agent: appels.append(agent.agent_id))
+    monkeypatch.setattr(agent_arret, "kill_agent", lambda agent: appels.append(agent.agent_id))
 
     assert fleet.sweep_warm_pool() == []
     assert appels == [], "kill_agent a été appelé depuis un test"
@@ -45,7 +45,7 @@ def test_le_tick_du_watchdog_ne_tue_personne(monkeypatch):
     """Le chemin RÉEL par lequel le danger arrivait : `wake.tick()` balaie le warm-pool à
     chaque tour. Il ne doit atteindre aucun process, même quand des agents existent."""
     tues: list = []
-    monkeypatch.setattr(runner, "kill_agent", lambda agent: tues.append(agent.agent_id))
+    monkeypatch.setattr(agent_arret, "kill_agent", lambda agent: tues.append(agent.agent_id))
 
     wake.tick()
 
@@ -56,14 +56,14 @@ def test_un_agent_du_parc_jetable_est_bien_vu(tmp_path):
     """Contre-preuve indispensable : l'isolation ne rend pas `list_agents` aveugle. Sans ce
     test, les trois assertions « rien vu » ci-dessus seraient vraies pour une mauvaise raison
     (un `list_agents` cassé les satisferait toutes)."""
-    (runner.AGENTS_DIR / "cafe1234.json").write_text(json.dumps({
+    (agent_fiche.AGENTS_DIR / "cafe1234.json").write_text(json.dumps({
         "agent_id": "cafe1234", "prompt": "p", "model": "", "cwd": "", "pid": 0,
         "started_at": "2026-07-28T10:00:00", "returncode": 0,
         "session_path": "", "stdout_path": "",
     }), encoding="utf-8")
-    runner._list_agents_cache.clear()
+    agent_fiche._list_agents_cache.clear()
 
-    assert [agent.agent_id for agent in runner.list_agents()] == ["cafe1234"]
+    assert [agent.agent_id for agent in agent_registre.list_agents()] == ["cafe1234"]
 
 
 def test_la_redirection_survit_a_un_acces_par_attribut():

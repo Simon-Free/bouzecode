@@ -6,6 +6,7 @@ import json
 from pathlib import Path
 
 from bouzecode.web_v2.services.work import integration
+from bouzecode.web_v2.runtime.runner import agent_fiche
 
 
 class _FakeAgent:
@@ -17,7 +18,7 @@ def _ticket_with_session(tmp_path: Path, monkeypatch, data: dict) -> dict:
     session = tmp_path / "coder.session.json"
     session.write_text(json.dumps(data, ensure_ascii=False), encoding="utf-8")
     ticket = {"runs": [{"kind": "work", "agent_id": "coder-1"}]}
-    monkeypatch.setattr(integration.runner, "load_agent",
+    monkeypatch.setattr(agent_fiche, "load_agent",
                         lambda agent_id: _FakeAgent(str(session)))
     return ticket
 
@@ -38,7 +39,7 @@ _RECAP = {
 def test_coder_recap_body_formats_markdown(tmp_path, monkeypatch):
     ticket = _ticket_with_session(tmp_path, monkeypatch, {"recap": _RECAP})
 
-    body = integration._coder_recap_body(ticket)
+    body = integration.coder_recap_body(ticket)
 
     assert "## Symptoms" in body
     assert "## Explanation" in body
@@ -56,10 +57,10 @@ def test_coder_recap_body_formats_markdown(tmp_path, monkeypatch):
 
 def test_coder_recap_body_empty_when_no_recap(tmp_path, monkeypatch):
     ticket = _ticket_with_session(tmp_path, monkeypatch, {"diff": "x"})  # pas de recap
-    assert integration._coder_recap_body(ticket) == ""
+    assert integration.coder_recap_body(ticket) == ""
 
 
 def test_coder_recap_body_empty_when_no_work_run(tmp_path, monkeypatch):
     ticket = {"runs": [{"kind": "validate", "agent_id": "v-1"}]}
-    monkeypatch.setattr(integration.runner, "load_agent", lambda a: None)
-    assert integration._coder_recap_body(ticket) == ""
+    monkeypatch.setattr(agent_fiche, "load_agent", lambda a: None)
+    assert integration.coder_recap_body(ticket) == ""

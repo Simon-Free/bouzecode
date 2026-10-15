@@ -1,14 +1,14 @@
-# [desc] POST /api/agents/<id>/continue : répondre à une question (AskUserQuestion OU validation de
+# [desc] POST /api/agents/<id>/messages : répondre à une question (AskUserQuestion OU validation de
 # plan) reprend le tour EN PAUSE, et une remise qui n'a pas eu lieu n'est jamais annoncée OK. [/desc]
 from __future__ import annotations
 
 import pytest
 
-from bouzecode.web_v2.runtime import runner
+from bouzecode.web_v2.runtime.runner import agent_fiche, agent_reprise
 
 
 def _agent():
-    return runner.Agent(agent_id="a1", prompt="p", model="", cwd="/live", pid=0,
+    return agent_fiche.Agent(agent_id="a1", prompt="p", model="", cwd="/live", pid=0,
                         started_at="", session_path="/tmp/a1.session.json")
 
 
@@ -23,14 +23,14 @@ def make_client(monkeypatch):
     def build(state: str, pending_present: bool = True, delivered=_agent()):
         calls = []
         agent = _agent()
-        monkeypatch.setattr(runner, "load_agent", lambda aid: agent if aid == "a1" else None)
+        monkeypatch.setattr(agent_fiche, "load_agent", lambda aid: agent if aid == "a1" else None)
         monkeypatch.setattr(store, "agent_status", lambda a: {"state": state})
         monkeypatch.setattr(store, "invalidate_status", lambda aid: None)
         monkeypatch.setattr(pending, "exists", lambda sp: pending_present)
         monkeypatch.setattr(dispatch, "rehome_agent_cwd", lambda a: a.cwd)
-        monkeypatch.setattr(runner, "resume_pending_agent",
+        monkeypatch.setattr(agent_reprise, "resume_pending_agent",
                             lambda a, text: calls.append(("resume", text)) or delivered)
-        monkeypatch.setattr(runner, "continue_agent",
+        monkeypatch.setattr(agent_reprise, "continue_agent",
                             lambda a, text: calls.append(("continue", text)) or delivered)
 
         from bouzecode.web_v2.app import create_app
@@ -50,7 +50,7 @@ def test_validation_de_plan_reprend_le_tour_en_pause(make_client):
     la conversation restait « à répondre » pour toujours, même une fois le plan validé."""
     client = make_client("awaiting_plan_validation")
 
-    resp = client.post("/api/agents/a1/continue", json={"text": "Oui, ça part"})
+    resp = client.post("/api/agents/a1/messages", json={"mode": "refuse", "text": "Oui, ça part"})
 
     assert resp.status_code == 200
     assert client._calls == [("resume", "Oui, ça part")]
@@ -59,7 +59,7 @@ def test_validation_de_plan_reprend_le_tour_en_pause(make_client):
 def test_question_libre_reprend_le_tour_en_pause(make_client):
     client = make_client("awaiting_input")
 
-    resp = client.post("/api/agents/a1/continue", json={"text": "réponse A"})
+    resp = client.post("/api/agents/a1/messages", json={"mode": "refuse", "text": "réponse A"})
 
     assert resp.status_code == 200
     assert client._calls == [("resume", "réponse A")]
@@ -69,7 +69,7 @@ def test_sans_question_pendante_c_est_un_tour_neuf(make_client):
     """Pas de pending sur disque : un message ordinaire ouvre bien un nouveau tour."""
     client = make_client("finished", pending_present=False)
 
-    resp = client.post("/api/agents/a1/continue", json={"text": "et maintenant X"})
+    resp = client.post("/api/agents/a1/messages", json={"mode": "refuse", "text": "et maintenant X"})
 
     assert resp.status_code == 200
     assert client._calls == [("continue", "et maintenant X")]
@@ -81,9 +81,9 @@ def test_remise_impossible_n_est_pas_annoncee_ok(make_client):
     la réponse de l'utilisateur disparaissait sans une trace. Elle doit désormais le DIRE."""
     client = make_client("awaiting_input", delivered=None)
 
-    resp = client.post("/api/agents/a1/continue", json={"text": "ma réponse"})
+    resp = client.post("/api/agents/a1/messages", json={"mode": "refuse", "text": "ma réponse"})
 
     assert resp.status_code == 409
     body = resp.get_json()
-    assert body["reason"] == "not_delivered"
-    assert "n'a PAS été transmis" in body["error"]
+    assert body["error"]["code"] == "not_delivered"
+    assert "n'a PAS été transmis" in body["error"]["message"]

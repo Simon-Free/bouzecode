@@ -1,30 +1,17 @@
-"""Garde-fou anti-régression : AUCUN titre/libellé généré serveur-side ne doit
+"""(Le libellé des nœuds de l'arbre est couvert par test_arbre_libelles.py, via HTTP.)
+
+Garde-fou anti-régression : AUCUN titre/libellé généré serveur-side ne doit
 contenir une heure cuite (motif HH:MM). L'heure est toujours dérivée côté front
 depuis `started_at` (ISO UTC) → une seule vérité, plus d'incohérence UTC/local.
 """
 import re
 
-from bouzecode.web_v2.runtime.runner import Agent
-from bouzecode.web_v2.services.work import fleet, subagent_events
+from bouzecode.web_v2.services.work import subagent_events
 from bouzecode.web_v2.services import message_view
 
 # HH:MM isolé (pas suivi d'un ':' → on ne matche pas un ISO complet dans data-iso,
 # mais on veut détecter tout 23:41 rendu comme TEXTE visible).
 HHMM = re.compile(r"\b\d{2}:\d{2}(?!:)")
-
-
-def _agent(**over):
-    base = dict(
-        agent_id="a1", prompt="Tu valides…", model="m", cwd="",
-        pid=1, started_at="2026-07-06T23:41:00Z",
-    )
-    base.update(over)
-    return Agent(**base)
-
-
-def test_short_label_ne_contient_pas_d_heure():
-    a = _agent(run_kind="validate", profile="coder")
-    assert not HHMM.search(fleet._short_label(a)), fleet._short_label(a)
 
 
 def test_subagent_label_ne_contient_pas_d_heure():

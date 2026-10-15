@@ -3,17 +3,18 @@
 parent manager MUST wake to answer it — else the question is orphaned. These pure-predicate
 tests lock that behaviour (bug: manager never re-invoked for an awaiting child)."""
 from bouzecode.web_v2.services.work import wake
+from bouzecode.web_v2.services.work.fsm import etats
 
 
 def _awaiting_child(tid="c1"):
     """Minimal ticket whose only run is paused awaiting user input."""
-    return {"id": tid, "title": "profil dropdown",
+    return {"id": tid, "title": "profil dropdown", "state": etats.AWAITING_INPUT,
             "runs": [{"agent_id": "aaa", "kind": "work", "state": "awaiting_input"}]}
 
 
 def _ok_child(tid="c2"):
-    return {"id": tid, "title": "done", "done": True,
-            "runs": [{"agent_id": "bbb", "kind": "validate", "state": "finished", "verdict": "OK"}]}
+    return {"id": tid, "title": "done", "state": etats.CLOSED, "state_reason": {"code": "integre"},
+            "runs": [{"agent_id": "bbb", "kind": "work", "state": "finished"}]}
 
 
 def test_awaiting_child_is_blocked_on_question():

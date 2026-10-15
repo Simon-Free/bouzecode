@@ -3,7 +3,7 @@
 Historique : une refonte antérieure avait RETIRÉ toute création de conversation de
 cette page (jugée redondante avec l'accueil). Le user la veut de retour, façon
 Claude/ChatGPT : une simple barre de prompt + une flèche d'envoi, en tête du panneau
-droit (envoi sur /api/dispatch). Ce test verrouille donc la PRÉSENCE de ce composeur,
+droit (envoi par la création de ticket). Ce test verrouille donc la PRÉSENCE de ce composeur,
 l'ABSENCE du bouton 'Nettoyer les tests' (exclusion auto côté backend), et la
 structure de base (liste à gauche, onglets/panneaux à droite).
 """

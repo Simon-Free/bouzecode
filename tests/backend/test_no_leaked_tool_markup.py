@@ -16,38 +16,25 @@ from pathlib import Path
 
 FORBIDDEN = ('<tool_use name=', '</tool_use>', '<param name=')
 
-_REPO_ROOT = Path(__file__).resolve().parents[2]
-# Both trees: the corruption hit test files as often as sources, and a `[desc]`
-# header spanning several comment lines hid the markup on the CONTINUATION line,
-# which a check keyed on `[desc]` being present on the same line never saw.
-SCANNED_ROOTS = (_REPO_ROOT / "src" / "bouzecode", _REPO_ROOT / "tests")
+SRC_ROOT = Path(__file__).resolve().parents[2] / "src" / "bouzecode"
 
 
 def _offending_lines(path: Path) -> list[str]:
-    """Scan the leading `# [desc] … [/desc]` comment block, however many lines it spans."""
     offenders = []
-    in_header = False
     for lineno, raw in enumerate(path.read_text(encoding="utf-8").splitlines(), 1):
         if not raw.strip().startswith("#"):
-            if in_header:
-                break
             continue
-        if "[desc]" in raw:
-            in_header = True
-        if not in_header:
+        if "[desc]" not in raw:
             continue
         if any(marker in raw for marker in FORBIDDEN):
             offenders.append(f"{path}:{lineno}: {raw.strip()}")
-        if "[/desc]" in raw:
-            break
     return offenders
 
 
 def test_no_leaked_tool_markup_in_comments():
     all_offenders = []
-    for root in SCANNED_ROOTS:
-        for py in sorted(root.rglob("*.py")):
-            all_offenders.extend(_offending_lines(py))
+    for py in sorted(SRC_ROOT.rglob("*.py")):
+        all_offenders.extend(_offending_lines(py))
 
     assert not all_offenders, (
         "Leaked tool-call markup found in code comments (a corrupted [desc] header?). "

@@ -2,7 +2,7 @@
 """Interrompre pendant les outils doit mordre — c'est là que l'agent passe son temps.
 
 Le drapeau d'annulation n'était sondé que pendant le streaming LLM et en tête de tour. Un lot
-d'outils ne le regardait jamais : sous BouzéqUI, un Ctrl+C pendant un `pytest` ou une série
+d'outils ne le regardait jamais : sous bouzeui, un Ctrl+C pendant un `pytest` ou une série
 d'`Edit` ne produisait RIEN, et `/interrupt` finissait par tuer le process faute de réponse —
 donc cold-respawn au message suivant. Le Ctrl+C du TUI, lui, est un signal : il tombe partout.
 
@@ -62,7 +62,7 @@ def _run_with_interruption(monkeypatch, tmp_path, responses):
         "task_classification": False,
         "close_validation": False,
         "_cwd": tempfile.mkdtemp(prefix="bouzecode_interrupt_"),
-        # Le câblage exact de repl sous BouzéqUI : on PEEK aux frontières d'outils…
+        # Le câblage exact de repl sous bouzeui : on PEEK aux frontières d'outils…
         "_cancel_peek": lambda: ipc.is_cancelled(paths),
     })
     state = AgentState()

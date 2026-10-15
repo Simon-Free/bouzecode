@@ -94,7 +94,9 @@ class TestRecoveryPathA:
             "_context_state": state.context_state,
             "model": "claude-opus-4-6",
         }
-        ctx = _make_ctx(thinking_parts=[])  # no thinking
+        # A text reply without thinking. (A turn with NEITHER text nor thinking is the
+        # separate `empty_completion` failure mode, covered by its own path.)
+        ctx = _make_ctx(thinking_parts=[], text_parts=["Voici la réponse."])
 
         # recover_methodology should NOT be called
         call_log = []

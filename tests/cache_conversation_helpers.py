@@ -1,4 +1,4 @@
-# [desc] Helpers for live-API integration tests: credential gating, endpoint probes, and dispatch wrappers. [/desc]
+# [desc] Helpers for test_cache_real_conversation: dispatch call, direct API call, MCP wait. [/desc]
 from __future__ import annotations
 
 import os
@@ -23,40 +23,40 @@ from bouzecode.backend.core.tool_registry import get_tool_schemas
 
 
 # Flipped to True by require_api_key() once credentials are confirmed; the
-# conftest network guard reads this to allow the live API call for this test
+# conftest network guard reads this to allow the live gateway call for this test
 # only. Reset to False before every test by the autouse guard fixture.
 LIVE_API_ALLOWED = False
 
 
-_ENDPOINT_REACHABLE: bool | None = None  # probed once per session
+_GATEWAY_REACHABLE: bool | None = None  # probed once per session
 
 
-def _endpoint_reachable() -> bool:
-    """One TCP probe of the API host: credentials can be present while the
-    machine has no route to it — live tests must skip, not fail."""
-    global _ENDPOINT_REACHABLE
-    if _ENDPOINT_REACHABLE is None:
+def _gateway_reachable() -> bool:
+    """One TCP probe of the gateway host: credentials can be present while the
+    machine is off the corporate VPN (evenings) — live tests must skip, not fail."""
+    global _GATEWAY_REACHABLE
+    if _GATEWAY_REACHABLE is None:
         import socket
         from urllib.parse import urlparse
         base_url = os.environ.get("ANTHROPIC_BASE_URL", "")
         host = urlparse(base_url).hostname if base_url else "api.anthropic.com"
         try:
             socket.create_connection((host, 443), timeout=3).close()
-            _ENDPOINT_REACHABLE = True
+            _GATEWAY_REACHABLE = True
         except OSError:
-            _ENDPOINT_REACHABLE = False
-    return _ENDPOINT_REACHABLE
+            _GATEWAY_REACHABLE = False
+    return _GATEWAY_REACHABLE
 
 
 def require_api_key() -> None:
-    """Skip the test when no API credentials are present or the endpoint is
-    unreachable; otherwise opt this test in to the live LLM (lets the
+    """Skip the test when no gateway credentials are present or the gateway is
+    unreachable (off VPN); otherwise opt this test in to the live LLM (lets the
     conftest network guard through)."""
     global LIVE_API_ALLOWED
     if not os.environ.get("ANTHROPIC_API_KEY"):
         pytest.skip("ANTHROPIC_API_KEY not set — live integration test")
-    if not _endpoint_reachable():
-        pytest.skip("API endpoint unreachable — live integration test")
+    if not _gateway_reachable():
+        pytest.skip("gateway unreachable (off VPN) — live integration test")
     LIVE_API_ALLOWED = True
 
 

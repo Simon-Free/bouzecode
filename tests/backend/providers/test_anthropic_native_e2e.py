@@ -1,5 +1,5 @@
 # [desc] Native Anthropic tool_use over SSE: one block, three interleaved parallel blocks, truncation, scheduling params, and the XML fallback left intact. [/desc]
-"""Native `tool_use` on the Anthropic path.
+"""Native `tool_use` on the Anthropic/gateway path.
 
 The model answers with typed SSE blocks instead of XML in its prose, and the loop must
 end up with exactly the same tool calls it always had. Helpers and the replay seam live
@@ -48,7 +48,7 @@ def test_three_parallel_blocks_interleaved_stay_separate(monkeypatch):
         tool_open(1, "tooluse_M", "Methodology"),
         tool_open(2, "tooluse_G", "Glob"),
         tool_open(3, "tooluse_R", "Grep"),
-        # Interleaved exactly as the API streams them.
+        # Interleaved exactly as the gateway streams them.
         args(1, '{"content"'), args(2, '{"pat'), args(3, '{"pattern"'),
         args(2, 'tern": "*.py"}'), args(1, ': "note"}'), args(3, ': "tool_use"}'),
         close(2), close(1), close(3), *closing(),

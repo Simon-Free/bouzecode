@@ -19,6 +19,8 @@ import re
 import sys
 from pathlib import Path
 
+import shutil
+
 import pytest
 
 from tests.e2e_harness import bouzecode
@@ -132,12 +134,16 @@ def test_inline_python_runs_and_reports_where_it_was_written():
     assert "print(1+1)" in Path(spilled.group(1)).read_text(encoding="utf-8")
 
 
+@pytest.mark.skipif(shutil.which("python") is None,
+                    reason="la commande exécute `python` : absent du PATH ici (seulement python3)")
 def test_inline_python_in_a_pipeline_is_spilled_too():
     out = bash('echo ignore | python -c "print(6*7)"')
     assert "42" in out
     assert "temp_inline_" in out
 
 
+@pytest.mark.skipif(shutil.which("python") is None,
+                    reason="la commande exécute `python` : absent du PATH ici (seulement python3)")
 def test_running_a_python_script_file_is_left_alone(tmp_path):
     script = tmp_path / "temp_script.py"
     script.write_text("print('from the file')\n", encoding="utf-8")

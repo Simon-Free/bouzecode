@@ -59,11 +59,11 @@ def client():
 @pytest.fixture()
 def watched_session(tmp_path, monkeypatch):
     """Une session d'agent web dont la route sert le partiel ; rend (chemin, GET)."""
-    from bouzecode.web_v2.routes import sessions as sessions_routes
+    from bouzecode.web_v2.routes.sessions import vues as sessions_routes
 
     session = tmp_path / "abcd1234.session.json"
     monkeypatch.setattr(
-        sessions_routes, "_resolve_or_404", lambda key: (_SessionRef(session), None)
+        sessions_routes, "session_ou_404", lambda key: _SessionRef(session)
     )
     return session
 
@@ -232,7 +232,7 @@ def test_the_running_loop_publishes_the_reasoning_then_the_answer(tmp_path, monk
 
 def test_a_finished_agent_leaves_no_live_text_to_follow(client, tmp_path, monkeypatch):
     """Une fois l'agent terminé, plus rien à suivre : le partiel a été nettoyé par la boucle."""
-    from bouzecode.web_v2.routes import sessions as sessions_routes
+    from bouzecode.web_v2.routes.sessions import vues as sessions_routes
 
     published = _spy_on_published_partials(monkeypatch)
     session = tmp_path / "abcd1234.session.json"
@@ -247,7 +247,7 @@ def test_a_finished_agent_leaves_no_live_text_to_follow(client, tmp_path, monkey
     assert published, "garde-fou : sans partiel publié, l'absence de fichier ne prouverait rien"
     assert not session.with_suffix(".partial.json").exists()
     monkeypatch.setattr(
-        sessions_routes, "_resolve_or_404", lambda key: (_SessionRef(session), None)
+        sessions_routes, "session_ou_404", lambda key: _SessionRef(session)
     )
     assert _read_partial(client) == {"text": None}
 

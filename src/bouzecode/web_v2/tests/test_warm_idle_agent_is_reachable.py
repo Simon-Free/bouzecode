@@ -1,8 +1,8 @@
 """Un agent CHAUD MAIS OISIF reste joignable, et ne se fait pas passer pour un travailleur.
 
-Cas vécu (manager 0123456789ab, 29/07) : l'agent finit son tour et reste résident dans le
+Cas vécu (manager 9d0789f2fdca, 29/07) : l'agent finit son tour et reste résident dans le
 warm pool. Son IPC dit `idle` depuis 18:07:43 — mais un process existe, donc l'API le
-déclarait `running`. Conséquence : `POST /api/agents/<id>/continue` répondait 409 « l'agent
+déclarait `running`. Conséquence : `POST /api/agents/<id>/messages` répondait 409 « l'agent
 tourne encore » à CHAQUE tentative, pendant 20 minutes. Personne — ni l'utilisateur, ni un
 autre agent — ne pouvait plus lui parler, alors qu'il ne faisait RIEN ; et l'interface
 l'annonçait « en cours », donc on l'a cru au travail. Il a fallu TUER son process pour que
@@ -67,22 +67,22 @@ def _ecrire_agent(agents_dir, agent_id, *, pid, ipc_status):
 
 @pytest.fixture()
 def agents_dir(tmp_path, monkeypatch, processus_jetables):
-    from bouzecode.web_v2.runtime import runner
+    from bouzecode.web_v2.runtime.runner import agent_etat, agent_fiche
     from bouzecode.web_v2.services.sessions import purge, store
 
     d = tmp_path / "web_agents"
     d.mkdir()
-    monkeypatch.setattr(runner, "AGENTS_DIR", d)
+    monkeypatch.setattr(agent_fiche, "AGENTS_DIR", d)
     monkeypatch.setattr(purge, "TRASH_DIR", d / "_trash")
     monkeypatch.setattr(purge, "DELETED_PATH", tmp_path / "deleted_sessions.json")
     monkeypatch.setattr(store, "_status_cache", {})
-    runner._list_agents_cache.clear()
-    runner._ipc_state_cache.clear()
+    agent_fiche._list_agents_cache.clear()
+    agent_etat._ipc_state_cache.clear()
 
     pid_oisif, pid_au_travail = processus_jetables
     _ecrire_agent(d, OISIF, pid=pid_oisif, ipc_status="idle")
     _ecrire_agent(d, AU_TRAVAIL, pid=pid_au_travail, ipc_status="running")
-    runner._list_agents_cache.clear()
+    agent_fiche._list_agents_cache.clear()
     return d
 
 
@@ -100,53 +100,52 @@ def client(agents_dir):
 def _caches_neufs():
     """L'arbre de flotte (10 s) et la liste d'agents (3 s) sont des caches de PROCESS, sans
     clé sur le parc : un test qui les remplit sert sa photo au suivant."""
-    from bouzecode.web_v2.runtime import runner
+    from bouzecode.web_v2.runtime.runner import agent_fiche
     from bouzecode.web_v2.services.work import fleet
 
     fleet.clear_tree_cache()
-    runner._list_agents_cache.clear()
+    agent_fiche._list_agents_cache.clear()
     yield
     fleet.clear_tree_cache()
-    runner._list_agents_cache.clear()
+    agent_fiche._list_agents_cache.clear()
 
 
 # ── (a) l'agent oisif n'est pas annoncé « en train de travailler » ────────────
 
 def test_a_warm_idle_agent_is_not_announced_as_working(agents_dir):
     """Process vivant + IPC `idle` : l'agent est dit oisif, jamais « en cours »."""
-    from bouzecode.web_v2.runtime import runner
+    from bouzecode.web_v2.runtime.runner import agent_fiche
     from bouzecode.web_v2.services.sessions import store
 
-    etat = store.agent_status(runner.load_agent(OISIF))["state"]
+    etat = store.agent_status(agent_fiche.load_agent(OISIF))["state"]
 
     assert etat == "idle", "un agent chaud mais oisif se déclare encore « en train de travailler »"
 
 
 def test_an_agent_really_mid_turn_is_still_announced_running(agents_dir):
     """Le pendant : IPC `running`, l'agent travaille vraiment et le dit."""
-    from bouzecode.web_v2.runtime import runner
+    from bouzecode.web_v2.runtime.runner import agent_fiche
     from bouzecode.web_v2.services.sessions import store
 
-    assert store.agent_status(runner.load_agent(AU_TRAVAIL))["state"] == "running"
+    assert store.agent_status(agent_fiche.load_agent(AU_TRAVAIL))["state"] == "running"
 
 
 def test_an_idle_agent_stays_alive_for_every_rule_that_means_dont_touch(agents_dir):
     """Oisif ≠ fini : il tient toujours son worktree, il reste visible, il n'est pas un déchet."""
     from bouzecode.web_v2.services.sessions import purge, visibility
-    from bouzecode.web_v2.services.work import isolation, liveness, workflow
+    from bouzecode.web_v2.services.work import isolation, liveness
 
     assert "idle" in liveness.ALIVE
     assert "idle" in visibility.ALIVE_STATES
     assert "idle" in purge._ETATS_VIVANTS
     assert "idle" in isolation._ACTIVE_STATES
-    assert "idle" in workflow._ACTIVE
 
 
 # ── (b) un message lui parvient ───────────────────────────────────────────────
 
 def test_a_message_reaches_a_warm_idle_agent(client, agents_dir):
     """Écrire à un agent oisif marche : plus de 409, et le texte part vraiment."""
-    resp = client.post(f"/api/agents/{OISIF}/continue", json={"text": "reprends stp"})
+    resp = client.post(f"/api/agents/{OISIF}/messages", json={"mode": "refuse", "text": "reprends stp"})
 
     assert resp.status_code == 200, resp.get_json()
     followup = agents_dir / f"{OISIF}.ipc" / "followup.txt"
@@ -156,22 +155,22 @@ def test_a_message_reaches_a_warm_idle_agent(client, agents_dir):
 
 def test_the_message_is_handed_to_the_living_process_not_a_respawn(client, agents_dir):
     """Reprise CHAUDE : le process vivant garde son pid, aucun cold-start ne le remplace."""
-    from bouzecode.web_v2.runtime import runner
+    from bouzecode.web_v2.runtime.runner import agent_fiche
 
-    pid_avant = runner.load_agent(OISIF).pid
-    client.post(f"/api/agents/{OISIF}/continue", json={"text": "suite"})
+    pid_avant = agent_fiche.load_agent(OISIF).pid
+    client.post(f"/api/agents/{OISIF}/messages", json={"mode": "refuse", "text": "suite"})
 
-    assert runner.load_agent(OISIF).pid == pid_avant, "l'agent a été respawné au lieu d'être réveillé"
+    assert agent_fiche.load_agent(OISIF).pid == pid_avant, "l'agent a été respawné au lieu d'être réveillé"
 
 
 # ── (c) NON-RÉGRESSION : un agent en plein tour refuse toujours ───────────────
 
 def test_an_agent_really_mid_turn_still_refuses_a_second_turn(client, agents_dir):
     """La garde anti-double-tour tient : on n'ouvre pas deux tours sur la même session."""
-    resp = client.post(f"/api/agents/{AU_TRAVAIL}/continue", json={"text": "et ça ?"})
+    resp = client.post(f"/api/agents/{AU_TRAVAIL}/messages", json={"mode": "refuse", "text": "et ça ?"})
 
     assert resp.status_code == 409, "deux tours concurrents sont devenus possibles"
-    assert resp.get_json()["reason"] == "running"
+    assert resp.get_json()["error"]["code"] == "running"
     assert not (agents_dir / f"{AU_TRAVAIL}.ipc" / "followup.txt").exists()
 
 

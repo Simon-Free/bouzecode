@@ -61,15 +61,28 @@ def _write_coder_agent(agents_dir):
     (agents_dir / f"{CODER_ID}.out.log").write_text("log", encoding="utf-8")
 
 
+RUN_CODEUR = {"agent_id": CODER_ID, "kind": "work", "model": "",
+              "started_at": "2026-07-06T10:30:00", "verdict": None}
+RUN_VALIDATEUR = {"agent_id": VALIDATOR_ID, "kind": "validate", "model": "",
+                  "started_at": "2026-07-06T10:39:00", "verdict": "KO", "completed": True}
+
+
 @pytest.fixture()
-def env(tmp_path, monkeypatch):
-    from bouzecode.web_v2.runtime import runner
+def runs_semes():
+    """Les runs du ticket semé ; un test le surcharge par `parametrize` (les runs vivent dans la
+    table `runs` depuis L2 : réécrire le ticket sans un run ne l'efface plus)."""
+    return [RUN_VALIDATEUR, RUN_CODEUR]
+
+
+@pytest.fixture()
+def env(tmp_path, monkeypatch, runs_semes):
+    from bouzecode.web_v2.runtime.runner import agent_fiche
     from bouzecode.web_v2.services.work import tickets
 
     agents_dir = tmp_path / "web_agents"
     agents_dir.mkdir()
-    monkeypatch.setattr(runner, "AGENTS_DIR", agents_dir)
-    runner._list_agents_cache.clear()
+    monkeypatch.setattr(agent_fiche, "AGENTS_DIR", agents_dir)
+    agent_fiche._list_agents_cache.clear()
 
     _write_coder_agent(agents_dir)
 
@@ -78,21 +91,14 @@ def env(tmp_path, monkeypatch):
         "id": TICKET_ID,
         "title": "[A2] Traçabilité sous-agents inline",
         "created_at": "2026-07-06T10:29:00Z",
-        "runs": [
-            {"agent_id": VALIDATOR_ID, "kind": "validate", "model": "",
-             "started_at": "2026-07-06T10:39:00", "verdict": "KO", "completed": True},
-            {"agent_id": CODER_ID, "kind": "work", "model": "",
-             "started_at": "2026-07-06T10:30:00", "verdict": None},
-        ],
+        "runs": [dict(run) for run in runs_semes],
     }
     tickets._save(TICKET_SLUG, [ticket])
     # Les deux tests suivants n'assertent que des ABSENCES de marqueur : sans ce garde-fou, un
     # store vide les rendrait verts sans rien prouver (c'est exactement ce qui arrivait quand la
-    # graine était un `{slug}.json` legacy — cf. le docstring du module). Ce garde-fou a resservi :
-    # il a attrapé `tests/web_v2/test_recovery.py` qui remplaçait `tickets._save` par un no-op
-    # sans jamais le restaurer, ce qui vidait le store de tout le worker pytest.
+    # graine était un `{slug}.json` legacy — cf. le docstring du module).
     assert tickets.get_ticket(TICKET_SLUG, TICKET_ID) is not None, "graine non semée dans le store"
-    runner._list_agents_cache.clear()
+    agent_fiche._list_agents_cache.clear()
     return agents_dir
 
 
@@ -113,15 +119,13 @@ def test_launch_and_completion_markers_in_coder_feed(client):
     html = "".join(b.get("html", "") for b in resp.get_json()["blocks"])
 
     # Marqueur de lancement : un seul sous-agent → « 1 agent lancé — Validateur ».
-    # Le libellé est traduisible (clé + texte de la langue par défaut) ; c'est la clé qui
-    # identifie le marqueur, dans les deux langues.
-    assert 'data-i18n="block.subagent_launched"' in html
+    assert "1 agent lancé" in html
     assert "Validateur" in html
     # Cliquable → ouvre l'onglet du sous-agent validateur.
     assert f'data-open-key="agent/{VALIDATOR_ID}"' in html
-    # Marqueur de complétion avec le verdict.
-    assert 'data-i18n-arg-verdict="KO"' in html
-    assert 'data-i18n="block.subagent_done"' in html
+    # Marqueur de complétion (le verdict hérité n'est plus affiché : validateur retiré, D1).
+    assert "terminé" in html
+    assert "verdict" not in html
 
 
 def _write_validator_agent(agents_dir):
@@ -161,29 +165,20 @@ def test_validator_feed_has_no_subagent_markers(client, env):
     VALIDATEUR (qui partage le ticket du codeur) ne doit produire AUCUN marqueur
     subagent — sinon le run validate se retrouverait affiché comme son propre enfant."""
     _write_validator_agent(env)
-    from bouzecode.web_v2.runtime import runner
-    runner._list_agents_cache.clear()
+    from bouzecode.web_v2.runtime.runner import agent_fiche
+    agent_fiche._list_agents_cache.clear()
 
     resp = client.get(f"/api/sessions/agent/{VALIDATOR_ID}/blocks")
     assert resp.status_code == 200
     html = "".join(b.get("html", "") for b in resp.get_json()["blocks"])
-    assert 'data-i18n="block.subagent_launched"' not in html
+    assert "agent lancé" not in html
     assert "subagent-event" not in html
 
 
+@pytest.mark.parametrize("runs_semes", [[RUN_CODEUR]])
 def test_no_markers_without_child_runs(client, env):
     """Un codeur dont le ticket n'a AUCUN sous-agent distinct ne produit aucun marqueur."""
-    from bouzecode.web_v2.services.work import tickets
-
-    # Réécrit le ticket sans run validate (uniquement le run work du codeur).
-    ticket = {
-        "id": TICKET_ID, "title": "x", "created_at": "2026-07-06T10:29:00Z",
-        "runs": [{"agent_id": CODER_ID, "kind": "work", "model": "",
-                  "started_at": "2026-07-06T10:30:00", "verdict": None}],
-    }
-    tickets._save(TICKET_SLUG, [ticket])
-
     resp = client.get(f"/api/sessions/agent/{CODER_ID}/blocks")
     html = "".join(b.get("html", "") for b in resp.get_json()["blocks"])
-    assert 'data-i18n="block.subagent_launched"' not in html
+    assert "agent lancé" not in html
     assert "subagent-event" not in html

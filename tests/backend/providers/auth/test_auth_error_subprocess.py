@@ -14,7 +14,7 @@ def test_model_access_denied_no_crash():
 
     Expected: clean 'Model access denied' message, NOT UnboundLocalError.
     """
-    require_api_key()  # live API test — skips when unreachable
+    require_api_key()  # live gateway test — skips off VPN
     env = os.environ.copy()
     # Force a model the proxy rejects
     result = subprocess.run(

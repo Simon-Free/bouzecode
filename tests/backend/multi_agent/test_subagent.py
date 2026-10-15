@@ -85,8 +85,10 @@ class TestListTasks:
 class TestCancel:
     def test_cancel_running_task(self, slow_manager):
         task = slow_manager.spawn("slow task", {}, "system")
-        # Wait briefly to ensure the task starts running
-        time.sleep(0.1)
+        for _ in range(500):  # garde-fou de 5 s : on attend l'état, pas une durée
+            if task.status == "running":
+                break
+            time.sleep(0.01)
         assert task.status == "running"
         success = slow_manager.cancel(task.id)
         assert success is True

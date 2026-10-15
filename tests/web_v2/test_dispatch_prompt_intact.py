@@ -47,13 +47,16 @@ class _NoopTickets:
     def add_run(self, *a, **kw):
         return None
 
+    def get_ticket(self, *a, **kw):
+        return None
+
 
 @pytest.fixture
 def wired(monkeypatch, tmp_path):
     """Injecte un runner/tickets fakes + neutralise l'isolation git : _launch reçoit
     un cwd (worktree enfant) ≠ project_path, exactement comme en prod pour un agent isolé."""
     runner = _CaptureRunner()
-    monkeypatch.setattr(dispatch, "runner", runner)
+    monkeypatch.setattr(dispatch, "agent_creation", runner)
     monkeypatch.setattr(dispatch, "tickets", _NoopTickets())
     child_wt = str(tmp_path / "wt" / "child")
     os.makedirs(child_wt, exist_ok=True)

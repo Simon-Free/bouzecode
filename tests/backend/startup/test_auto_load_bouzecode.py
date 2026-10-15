@@ -1,8 +1,14 @@
 # [desc] Test that .bouzecode/ directory in cwd is auto-detected and registered in extra_dirs at startup. [/desc]
 """Test that .bouzecode/ in cwd is auto-loaded at startup."""
 import os
+import sys
 import tempfile
 from pathlib import Path
+
+import pytest
+
+BOUZECODE_DIR = Path(__file__).resolve().parents[1]
+sys.path.insert(0, str(BOUZECODE_DIR))
 
 import bouzecode.backend.core.paths as paths
 from bouzecode.backend.core.paths import get_extra_dirs, add_extra_dir, register_extra_dirs
@@ -77,3 +83,38 @@ def test_no_duplicate_with_explicit_extra_dir():
     finally:
         os.chdir(original_cwd)
         _reset_extra_dirs()
+
+
+def test_demo_application_has_bouzecode():
+    """The actual demo_application project has .bouzecode/ directory.
+
+    Dépend d'un dépôt VOISIN du checkout : il n'existe que si bouzecode est cloné à sa place
+    habituelle (`.../demo/bouzecode`). Dans un worktree — celui que crée tout agent isolé,
+    et celui qu'on utilise pour mesurer une baseline — le voisin est absent et le test
+    plantait sur un `chdir` vers un chemin inexistant, ajoutant un rouge qui ne dit rien du
+    produit. Un test qui dépend de l'arborescence d'accueil se SKIPPE quand elle n'est pas
+    là ; il ne prétend pas avoir trouvé un défaut."""
+    _reset_extra_dirs()
+    original_cwd = os.getcwd()
+    app_dir = Path(__file__).resolve().parents[4] / "demo_application"
+    if not app_dir.is_dir():
+        pytest.skip(f"dépôt voisin absent de ce checkout : {app_dir}")
+    try:
+        os.chdir(str(app_dir))
+
+        assert os.path.isdir(".bouzecode"), f".bouzecode/ not found in {app_dir}"
+
+        extra_dirs = []
+        if os.path.isdir(".bouzecode"):
+            extra_dirs.append(os.path.abspath(".bouzecode"))
+        register_extra_dirs(extra_dirs)
+
+        dirs = get_extra_dirs()
+        assert len(dirs) == 1
+        assert dirs[0] == (app_dir / ".bouzecode").resolve()
+    finally:
+        os.chdir(original_cwd)
+        _reset_extra_dirs()
+
+
+

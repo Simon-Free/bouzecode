@@ -1,5 +1,5 @@
 # [desc] Tests: manager subagent_type guard refuses generic types and hides them from ListAgentTypes. [/desc]
-"""Tests for the manager subagent_type guard (tools.py).
+"""Tests for the manager subagent_type guard (appel_agent.py).
 
 User-centric: we exercise the REAL public entry points of the Agent tool:
 - `_manager_type_guard` (pure decision function),
@@ -14,12 +14,9 @@ thread/worktree is created, so nothing real is spawned.
 """
 import pytest
 
-from bouzecode.backend.multi_agent.tools import (
-    _manager_type_guard,
-    _agent_tool,
-    _list_agent_types,
-    _MANAGER_FORBIDDEN_TYPES,
-)
+from bouzecode.backend.multi_agent.appel_agent import _MANAGER_FORBIDDEN_TYPES, _manager_type_guard
+from bouzecode.backend.multi_agent.outil_agent import _agent_tool
+from bouzecode.backend.multi_agent.outils_flotte import _list_agent_types
 
 
 # --- pure decision function -------------------------------------------------

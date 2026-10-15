@@ -54,32 +54,31 @@ def test_validate_close_refuses_answer_without_recap(monkeypatch):
 
 
 def test_validate_close_skips_recap_when_not_required(monkeypatch):
-    # require_recap absent → pas de check récap ; sans model natif, _should_validate
-    # est False → accepte sans appeler le LLM.
-    def _boom(*a, **k):
-        raise AssertionError("dispatch_stream ne doit PAS être appelé")
-
-    monkeypatch.setattr(cv, "dispatch_stream", _boom, raising=False)
-
+    # require_recap absent → pas de check récap ; seules les listes de clôture
+    # sont exigées (vides acceptées). Aucun LLM n'est jamais appelé.
     accepted, feedback = cv.validate_close(
         "n'importe quoi sans sections",
         _base_config(require_recap=False),
+        taches_terminees=[], taches_restantes=[],
     )
     assert accepted is True
     assert feedback == ""
 
 
 def test_validate_close_recap_present_passes_gate(monkeypatch):
-    # 6 sections présentes → le check récap NE bloque pas ; sans model natif
-    # _should_validate=False → accepte sans appel LLM.
+    # 6 sections présentes → le check récap NE bloque pas (aucun LLM appelé).
     def _boom(*a, **k):
         raise AssertionError("dispatch_stream ne doit PAS être appelé")
 
     monkeypatch.setattr(cv, "dispatch_stream", _boom, raising=False)
 
+    #  Les deux listes de clôture sont OBLIGATOIRES depuis les champs déclarés :
+    #  `[]` est une réponse valide (« rien ne reste »), l'omettre ne l'est pas.
     accepted, feedback = cv.validate_close(
         _SIX_SECTIONS,
         _base_config(require_recap=True),
+        taches_terminees=[],
+        taches_restantes=[],
     )
     assert accepted is True
 
@@ -139,7 +138,10 @@ def test_recap_object_gate_rejects_then_accepts_on_second_try(monkeypatch):
     assert accepted is False
     assert "champs manquants" in feedback
 
-    accepted, feedback = cv.validate_close("un rapport texte", cfg, recap=_FULL_RECAP)
+    accepted, feedback = cv.validate_close(
+        "un rapport texte", cfg, recap=_FULL_RECAP,
+        taches_terminees=[], taches_restantes=[],
+    )
     assert accepted is True
     assert feedback == ""
 

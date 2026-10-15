@@ -71,36 +71,36 @@ def _write_paused_agent(agents_dir, agent_id, *, resolu=False, cancel=False, run
 @pytest.fixture(autouse=True)
 def _caches_neufs():
     """Caches de PROCESS (liste d'agents 3 s, statut mémorisé) : vidés avant et après."""
-    from bouzecode.web_v2.runtime import runner
+    from bouzecode.web_v2.runtime.runner import agent_fiche
     from bouzecode.web_v2.services.sessions import store
 
-    runner._list_agents_cache.clear()
+    agent_fiche._list_agents_cache.clear()
     store._status_cache.clear()
     yield
-    runner._list_agents_cache.clear()
+    agent_fiche._list_agents_cache.clear()
     store._status_cache.clear()
 
 
 @pytest.fixture()
 def parc(tmp_path, monkeypatch):
-    from bouzecode.web_v2.runtime import runner
+    from bouzecode.web_v2.runtime.runner import agent_etat, agent_fiche
     from bouzecode.web_v2.services.sessions import purge
 
     d = tmp_path / "web_agents"
     d.mkdir()
-    monkeypatch.setattr(runner, "AGENTS_DIR", d)
+    monkeypatch.setattr(agent_fiche, "AGENTS_DIR", d)
     monkeypatch.setattr(purge, "TRASH_DIR", d / "_trash")
     monkeypatch.setattr(purge, "DELETED_PATH", tmp_path / "deleted_sessions.json")
-    runner._list_agents_cache.clear()
-    runner._ipc_state_cache.clear()
+    agent_fiche._list_agents_cache.clear()
+    agent_etat._ipc_state_cache.clear()
     return d
 
 
 def _etat(agent_id):
-    from bouzecode.web_v2.runtime import runner
+    from bouzecode.web_v2.runtime.runner import agent_fiche
     from bouzecode.web_v2.services.sessions import store
 
-    return store.agent_status(runner.load_agent(agent_id))["state"]
+    return store.agent_status(agent_fiche.load_agent(agent_id))["state"]
 
 
 def test_a_long_pause_is_still_a_pause(parc):
@@ -143,12 +143,13 @@ def test_a_killed_agent_leaves_no_pending_marker_behind(parc):
     Nettoyer à la source empêche le mensonge de naître ; le filtre de lecture, lui, reste
     nécessaire pour les marqueurs déjà orphelins (97 sur le poste) et pour les morts
     survenues hors de ce chemin."""
-    from bouzecode.web_v2.runtime import pending, runner
+    from bouzecode.web_v2.runtime import pending
+    from bouzecode.web_v2.runtime.runner import agent_arret, agent_fiche
 
     _write_paused_agent(parc, "abcdef123456")
-    agent = runner.load_agent("abcdef123456")
+    agent = agent_fiche.load_agent("abcdef123456")
 
-    runner.kill_agent(agent)
+    agent_arret.kill_agent(agent)
 
     assert not pending.exists(agent.session_path), "le marqueur de question a survécu au kill"
     session = json.loads(open(agent.session_path, encoding="utf-8").read())

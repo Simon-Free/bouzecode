@@ -21,9 +21,9 @@ def test_declared_skills_are_preloaded(monkeypatch):
 
 
 def test_profile_without_skills_sets_nothing(monkeypatch):
-    _stub_resolver(monkeypatch, models.AgentProfile(name="analyst", skills=[]))
+    _stub_resolver(monkeypatch, models.AgentProfile(name="focus", skills=[]))
     config = {}
-    cli.apply_profile_skills(config, "analyst")
+    cli.apply_profile_skills(config, "focus")
     assert "_profile_skills" not in config
 
 

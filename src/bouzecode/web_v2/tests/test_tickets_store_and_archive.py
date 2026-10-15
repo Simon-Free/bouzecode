@@ -50,10 +50,10 @@ def test_archive_route_flask(T):
     app = create_app()
     app.config["TESTING"] = True
     with app.test_client() as c:
-        r = c.post(f"/api/tickets/proj/{a['id']}/archive")
+        r = c.put(f"/api/projects/proj/tickets/{a['id']}/archived", json={"archived": True})
         assert r.status_code == 200 and r.get_json()["archived"] is True
         assert T.get_ticket("proj", a["id"])["archived"] is True
-        r2 = c.post(f"/api/tickets/proj/{a['id']}/unarchive")
+        r2 = c.put(f"/api/projects/proj/tickets/{a['id']}/archived", json={"archived": False})
         assert r2.status_code == 200 and r2.get_json()["archived"] is False
-        r3 = c.post("/api/tickets/proj/nope/archive")
+        r3 = c.put("/api/projects/proj/tickets/nope/archived", json={"archived": True})
         assert r3.status_code == 404

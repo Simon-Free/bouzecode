@@ -27,9 +27,11 @@ class _FauxAgent:
         self.ipc_dir = ""
 
 
-def _session(tmp_path: Path, nom: str = "a.session.json") -> Path:
+def _session(tmp_path: Path, nom: str = "a.session.json", messages=None) -> Path:
+    """Session telle que le checkpoint l'écrit dès l'ajout du message de l'utilisateur."""
     chemin = tmp_path / nom
-    chemin.write_text(json.dumps({"messages": []}), encoding="utf-8")
+    messages = [{"role": "user", "content": "fais X"}] if messages is None else messages
+    chemin.write_text(json.dumps({"messages": messages}), encoding="utf-8")
     return chemin
 
 
@@ -57,12 +59,29 @@ def test_des_que_le_modele_repond_la_phase_s_efface(tmp_path):
 def test_la_reprise_est_couverte_par_la_meme_regle(tmp_path):
     """Une session DÉJÀ REMPLIE (reprise, tour N) qui attend son modèle affiche la même
     chose qu'un tour 1 : c'est tout l'intérêt de dériver au lieu de stamper."""
-    session = tmp_path / "reprise.session.json"
-    session.write_text(json.dumps({"messages": [{"role": "user", "content": "1er tour"},
-                                                {"role": "assistant", "content": "fait"}]}),
-                       encoding="utf-8")
+    session = _session(tmp_path, "reprise.session.json", [
+        {"role": "user", "content": "1er tour"}, {"role": "assistant", "content": "fait"},
+        {"role": "user", "content": "relance : il manque les tests"}])
     agent = _FauxAgent(str(session))
     assert store.demarrage_phase(agent, "running", {}) == "attente_modele"
+
+
+def test_entre_deux_tours_d_une_relance_l_agent_travaille(tmp_path):
+    """Relance « même agent » : le modèle a répondu, ses outils ont tourné, il est relancé
+    pour le tour suivant. Ce n'est plus « le modèle lit ta demande » (vu en recette : la
+    phase restait collée pendant toute la relance)."""
+    session = _session(tmp_path, "relance.session.json", [
+        {"role": "user", "content": "relance"},
+        {"role": "assistant", "content": "", "tool_calls": [{"name": "Bash"}]},
+        {"role": "tool", "name": "Bash", "content": "ok"}])
+    agent = _FauxAgent(str(session))
+    assert store.demarrage_phase(agent, "running", {"turn": 3}) == ""
+
+
+def test_les_outils_signales_au_pluriel_comptent(tmp_path):
+    """L'agent écrit `tools` (liste) dans son état IPC, pas `tool`."""
+    agent = _FauxAgent(str(_session(tmp_path)))
+    assert store.demarrage_phase(agent, "running", {"tools": ["Bash"]}) == ""
 
 
 @pytest.mark.parametrize("etat", ["finished", "awaiting_input", "crashed", "idle"])

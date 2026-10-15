@@ -83,10 +83,16 @@ def _texts(items):
 
 def test_diag_segments_by_system_blocks(sysblocks_env):
     result = build_turn_context_diag(sysblocks_env["session_path"], 1)
-    cached = result["cached_items"]
+    # Tour 1 (cache_read = 0) : les blocs `cache_control` sont ÉCRITS au cache, pas lus —
+    # ils sortent donc en « cache write » (dans delta_items). Ce test figeait autrefois
+    # « cache read » pour un premier appel, ce qui masquait toute écriture de cache.
+    # Le segment de préfixe = lus OU écrits en cache ; le reste est plein tarif.
+    everything = result["cached_items"] + result["delta_items"]
+    cached = [i for i in everything if i.get("status_label") in ("cache read", "cache write")]
+    assert not result["cached_items"], "rien n'est LU en cache au premier appel"
     cached_text = " || ".join(_texts(cached))
 
-    # The 4 cache_control blocks must appear as CACHED items.
+    # The 4 cache_control blocks must appear in the cache prefix segment.
     assert "STABLE PREFIX" in cached_text, cached_text
     assert "TOOL DOCS" in cached_text, cached_text
     assert "Methodology note" in cached_text, cached_text

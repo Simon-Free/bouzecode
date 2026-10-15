@@ -2,8 +2,8 @@
 
 Prouve via app.test_client() (aucun mock, fakes purs + injection de dépendance) :
   (i)   un run crashé sans callback est « interrompu » et PAS auto-reworké ;
-  (ii)  GET /api/conversations/interrupted liste ces interrompus (et exclut fin propre) ;
-  (iii) POST /api/conversations/<id>/relaunch relance (nouvel agent) ; 404 si inconnu ;
+  (ii)  GET /api/agents?state=interrupted liste ces interrompus (et exclut fin propre) ;
+  (iii) POST /api/agents/<id>/messages relance l'agent de sa session ; 404 si inconnu ;
   (iv)  une fin propre (final_answer + verdict disque) est auto-réconciliée sans callback
         et EXCLUE des interrompus.
 """
@@ -13,7 +13,8 @@ import json
 
 import pytest
 
-from bouzecode.web_v2.runtime.runner import Agent
+from bouzecode.web_v2.runtime.runner.agent_fiche import Agent
+from bouzecode.web_v2.runtime.runner import agent_fiche, agent_reprise
 
 
 def _write_session(path, *, close_reason=None, verdict_line=None):
@@ -61,11 +62,11 @@ def agents(tmp_path):
 @pytest.fixture()
 def client(tmp_path, agents, monkeypatch):
     from bouzecode.web_v2.services.sessions import store
-    from bouzecode.web_v2.services.sessions.store import runner as _runner
+    from bouzecode.web_v2.runtime.runner import agent_registre
 
     monkeypatch.setattr(store, "DAILY_DIR", tmp_path / "no_daily")
     monkeypatch.setattr(store, "CACHE_PATH", tmp_path / "cache.json")
-    monkeypatch.setattr(_runner, "list_agents",
+    monkeypatch.setattr(agent_registre, "list_agents",
                         lambda: [agents["crashed"], agents["clean"]])
 
     from bouzecode.web_v2.app import create_app
@@ -90,68 +91,56 @@ def test_crashed_run_is_interrupted_not_reworked(client, agents):
 
 # (ii) GET liste les interrompus, exclut la fin propre
 def test_get_interrupted_lists_only_crashed(client):
-    resp = client.get("/api/conversations/interrupted")
+    resp = client.get("/api/agents?state=interrupted")
     assert resp.status_code == 200
     body = resp.get_json()
-    keys = [c["key"] for c in body["conversations"]]
+    keys = [c["key"] for c in body["agents"]]
     assert "agent/crashaaaa0001" in keys
     assert "agent/cleanbbbb0002" not in keys
-    item = next(c for c in body["conversations"] if c["key"] == "agent/crashaaaa0001")
+    item = next(c for c in body["agents"] if c["key"] == "agent/crashaaaa0001")
     assert item["agent_id"] == "crashaaaa0001"
 
 
-# (iii) POST relaunch → nouvel agent ; 404 si inconnu
-def test_relaunch_spawns_new_agent(client, agents, monkeypatch):
-    from bouzecode.web_v2.services.sessions import recovery
-
+# (iii) POST /api/agents/<id>/messages → l'agent repart de sa session ; 404 si inconnu
+def test_relancer_reprend_l_agent_par_la_remise_unique(client, agents, monkeypatch):
     old = agents["crashed"]
-    monkeypatch.setattr(recovery.runner, "load_agent",
+    monkeypatch.setattr(agent_fiche, "load_agent",
                         lambda aid: old if aid == old.agent_id else None)
 
-    # relaunch doit re-homer AVANT de resumer (comme /continue), sinon un worktree fauché
+    # la relance doit re-homer AVANT de resumer, sinon un worktree fauché
     # ressuscite l'agent dans un dossier vide. On trace l'ordre des appels.
     from bouzecode.web_v2.services.work import dispatch
     order = []
     monkeypatch.setattr(dispatch, "rehome_agent_cwd",
                         lambda a: order.append("rehome"))
 
-    def _fake_resume(old_agent, prompt, model=""):
-        order.append("resume")
-        return Agent(
-            agent_id="newagent0003",
-            prompt=prompt, model=old_agent.model, cwd=old_agent.cwd,
-            pid=0, started_at="2026-07-01T11:00:00Z",
-            stdout_path="", session_path="", ipc_dir="",
-        )
-    monkeypatch.setattr(recovery.runner, "resume_agent", _fake_resume)
+    def _fake_continue(agent, prompt, model="", **_options):
+        order.append(("resume", prompt))
+        return agent
+    monkeypatch.setattr(agent_reprise, "continue_agent", _fake_continue)
 
-    resp = client.post("/api/conversations/crashaaaa0001/relaunch",
-                       json={})
+    resp = client.post("/api/agents/crashaaaa0001/messages",
+                       json={"text": "Reprends la tâche."})
     assert resp.status_code == 200
-    assert resp.get_json() == {
-        "ok": True, "agent_id": "newagent0003", "key": "agent/newagent0003",
-    }
-    assert "newagent0003" != old.agent_id
-    assert order == ["rehome", "resume"]  # re-home STRICTEMENT avant le resume
+    assert resp.get_json() == {"ok": True, "delivered": True, "queued": False}
+    # re-home STRICTEMENT avant la reprise
+    assert order == ["rehome", ("resume", "Reprends la tâche.")]
 
 
-def test_relaunch_unknown_returns_404(client, monkeypatch):
-    from bouzecode.web_v2.services.sessions import recovery
-
-    monkeypatch.setattr(recovery.runner, "load_agent", lambda aid: None)
-    resp = client.post("/api/conversations/inexistant/relaunch", json={})
+def test_relancer_un_inconnu_rend_404(client, monkeypatch):
+    monkeypatch.setattr(agent_fiche, "load_agent", lambda aid: None)
+    resp = client.post("/api/agents/inexistant/messages", json={"text": "reprends"})
     assert resp.status_code == 404
     assert "error" in resp.get_json()
 
 
-# (iv) fin propre auto-réconciliée sans callback + exclue des interrompus
-def test_clean_finish_auto_reconciled_no_callback(client, agents, tmp_path, monkeypatch):
+# (iv) fin propre exclue des interrompus
+def test_clean_finish_excluded_from_interrupted(client, agents):
     from bouzecode.web_v2.services.sessions import recovery, store
-    from bouzecode.web_v2.services.work import tickets
 
     # exclue des interrompus
-    resp = client.get("/api/conversations/interrupted")
-    keys = [c["key"] for c in resp.get_json()["conversations"]]
+    resp = client.get("/api/agents?state=interrupted")
+    keys = [c["key"] for c in resp.get_json()["agents"]]
     assert "agent/cleanbbbb0002" not in keys
 
     clean_item = next(a for a in store.list_sessions()["agents"]
@@ -159,27 +148,3 @@ def test_clean_finish_auto_reconciled_no_callback(client, agents, tmp_path, monk
     assert clean_item["close_reason"] == "final_answer"
     assert recovery.is_interrupted(clean_item) is False
 
-    # auto-réconciliation du verdict SUR DISQUE (sans callback réseau) :
-    # refresh_verdicts relève le VERDICT: OK écrit dans la session.
-    slug = "test-recovery-slug"
-    ticket = {
-        "id": "t1", "title": "démo", "runs": [{
-            "agent_id": "cleanbbbb0002", "kind": "validate", "model": "test-model",
-            "started_at": "2026-07-01T10:00:00Z", "verdict": None, "typology": "",
-        }],
-    }
-    ticket_list = [ticket]
-
-    # Les deux substitutions passent par `monkeypatch` : une affectation directe sur le
-    # module ne revient JAMAIS. `tickets._save` remplacé à la main restait un no-op pour
-    # tout le reste du worker pytest, si bien que le store SQLite n'enregistrait plus rien
-    # — invisible tant que ce fichier tournait seul, révélé dès que d'autres tests de
-    # tickets ont partagé le même worker.
-    saved: dict = {}
-    monkeypatch.setattr(tickets.runner, "load_agent",
-                        lambda aid: agents["clean"] if aid == "cleanbbbb0002" else None)
-    monkeypatch.setattr(tickets, "_save", lambda s, t: saved.update({s: t}))
-
-    tickets.refresh_verdicts(slug, ticket_list)
-
-    assert ticket["runs"][0]["verdict"] == "OK"

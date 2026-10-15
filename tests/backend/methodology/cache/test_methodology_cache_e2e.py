@@ -1,4 +1,4 @@
-# [desc] E2E diagnostic (real gateway, no LLM mock): fill methodology via every path, run two turns through dispatch.stream, and verify the methodology cache-write becomes a cache-read. Prints exact byte diffs if the cache fails. [/desc]
+# [desc] E2E diagnostic (real internal LLM gateway, no LLM mock): fill methodology via every path, run two turns through dispatch.stream, and verify the methodology cache-write becomes a cache-read. Prints exact byte diffs if the cache fails. [/desc]
 """E2E diagnostic for the "methodology cache-write never hits" complaint.
 
 Wraps ``stream_anthropic`` with a recording pass-through (real API still
@@ -22,11 +22,14 @@ _ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 if _ROOT not in sys.path:
     sys.path.insert(0, _ROOT)
 
-from tests.cache_conversation_helpers import (
-    require_api_key, run_turn_via_dispatch, wait_mcp_ready,
-)
+# These tests are about the BYTES bouzecode builds (stable_prefix / tool_docs /
+# methodology blocks) and about the cache accounting that follows from them — not
+# about Anthropic's own semantics, which tests/backend/cache/ still probes live.
+# They therefore run against the `fake_anthropic` prefix-cache fixture (see
+# tests/backend/cache/fake_anthropic.py): same asserts, no network, no API key.
+from tests.cache_conversation_helpers import run_turn_via_dispatch
 from tests.methodology_cache_e2e_helpers import (
-    assert_block_byte_identical, capture, dump_turn, find_methodology_block,
+    assert_block_byte_identical, capture, dump_turn, find_methodology_block, note_blocks,
 )
 from bouzecode.backend.context_manager import ContextState
 from bouzecode.backend.context_manager.state import METHODOLOGY_NOTE
@@ -68,14 +71,11 @@ def _assert_cache_read_jumped(turn1, turn2) -> None:
     )
 
 
-def test_methodology_cache_is_read_on_subsequent_turn(capture):
+def test_methodology_cache_is_read_on_subsequent_turn(fake_anthropic, capture):
     """Pre-fill methodology via every path, run two real turns, and require:
     stable_prefix + tool_docs + methodology blocks all byte-identical across
     turns, AND turn 2 cache_read > turn 1 cache_read by at least the
     methodology's size."""
-    require_api_key()
-    wait_mcp_ready()
-
     gc = ContextState()
     _fill_methodology_all_paths(gc, "setup")
     meth_size = len(gc.notes[METHODOLOGY_NOTE])
@@ -100,8 +100,8 @@ def test_methodology_cache_is_read_on_subsequent_turn(capture):
     assert len(capture.calls) == 2
     sys1 = capture.calls[0]["system_blocks"]
     sys2 = capture.calls[1]["system_blocks"]
-    m1 = find_methodology_block(sys1)
-    m2 = find_methodology_block(sys2)
+    m1 = find_methodology_block(note_blocks(capture.calls[0]))
+    m2 = find_methodology_block(note_blocks(capture.calls[1]))
     assert m1 is not None and m2 is not None, "both turns must carry a methodology block"
     print(
         f"\n[blocks] stable_prefix: t1={len(sys1[0]['text']):,}  t2={len(sys2[0]['text']):,}\n"
@@ -115,13 +115,10 @@ def test_methodology_cache_is_read_on_subsequent_turn(capture):
     _assert_cache_read_jumped(turn1, turn2)
 
 
-def test_methodology_cache_incremental_append_between_turns(capture):
+def test_methodology_cache_incremental_append_between_turns(fake_anthropic, capture):
     """Realistic flow: append to methodology between turns (user msg, plan).
     The snapshot captured after turn 1 must remain a prefix of the current
     methodology — otherwise the cached block is invalidated."""
-    require_api_key()
-    wait_mcp_ready()
-
     gc = ContextState()
     methodology_tool(
         {"mode": "append", "content": (
@@ -157,23 +154,20 @@ def test_methodology_cache_incremental_append_between_turns(capture):
         f"(snap_len={len(snap)}, current_len={len(current)})"
     )
 
-    m1 = find_methodology_block(capture.calls[0]["system_blocks"])
-    m2 = find_methodology_block(capture.calls[1]["system_blocks"])
+    m1 = find_methodology_block(note_blocks(capture.calls[0]))
+    m2 = find_methodology_block(note_blocks(capture.calls[1]))
     assert m1 is not None and m2 is not None
     assert_block_byte_identical("methodology", m1["text"], m2["text"])
     _assert_cache_read_jumped(turn1, turn2)
 
 
-def test_methodology_cache_hits_across_5_turns_with_growth_every_turn(capture):
+def test_methodology_cache_hits_across_5_turns_with_growth_every_turn(fake_anthropic, capture):
     """The hard case that broke in the real session: a Methodology(append)
     tool fires every turn, methodology grows each turn. Under the buggy
     snapshot advance, the block bytes drift each turn → cache miss on N-1's
     write from turn N+1 onward. Under the fix, the snapshot stays frozen
     after the first call → methodology block is byte-identical across all
     subsequent turns → cache reads every turn."""
-    require_api_key()
-    wait_mcp_ready()
-
     gc = ContextState()
     methodology_tool(
         {"mode": "append", "content": "## Setup\n" + ("baseline " * 300)},
@@ -203,7 +197,7 @@ def test_methodology_cache_hits_across_5_turns_with_growth_every_turn(capture):
 
     # The methodology block grows each turn (absorbing the previous delta);
     # each turn's meth block must start with the previous turn's (prefix match).
-    meths = [find_methodology_block(c["system_blocks"])["text"] for c in capture.calls]
+    meths = [find_methodology_block(note_blocks(c))["text"] for c in capture.calls]
     print(f"\n[meths] sizes: {[len(m) for m in meths]}")
     for i in range(1, len(meths)):
         assert meths[i].startswith(meths[i-1]), (

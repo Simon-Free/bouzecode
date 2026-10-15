@@ -9,7 +9,7 @@ Ils échouent donc si l'un des trois garde-fous disparaît :
   - le memo de méta (une session décodée une seule fois par process, même si le fichier
     d'index est écrasé par une requête concurrente) ;
   - le cache TTL + single-flight de l'endpoint (une rafale ne paie qu'un calcul) ;
-  - `/api/conversations/interrupted` qui ne balaie plus les sessions CLI dont il n'a que faire.
+  - `/api/agents?state=interrupted` qui ne balaie plus les sessions CLI dont il n'a que faire.
 """
 from __future__ import annotations
 
@@ -17,7 +17,7 @@ import json
 
 import pytest
 
-from bouzecode.web_v2.runtime import runner
+from bouzecode.web_v2.runtime.runner import agent_registre
 from bouzecode.web_v2.services.sessions import listing_cache, purge, recovery, store
 
 
@@ -38,7 +38,7 @@ def daily_session(tmp_path, monkeypatch):
     monkeypatch.setattr(store, "DAILY_DIR", tmp_path / "daily")
     monkeypatch.setattr(store, "CACHE_PATH", tmp_path / "index_cache.json")
     monkeypatch.setattr(purge, "DELETED_PATH", tmp_path / "deleted_sessions.json")
-    monkeypatch.setattr(runner, "list_agents", lambda: [])
+    monkeypatch.setattr(agent_registre, "list_agents", lambda: [])
     return session_file
 
 

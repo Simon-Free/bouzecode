@@ -74,8 +74,9 @@ def test_reset_named_reloads_builtin():
 
 # ── HookContext / completion_context ──────────────────────────────────────────
 
-def test_completion_context_fields(monkeypatch):
-    monkeypatch.setenv("BOUZECODE_WEB_IPC_DIR", r"C:\agents\abc123def456.ipc")
+def test_completion_context_fields(monkeypatch, tmp_path):
+    # Chemin natif de la plateforme : le runner pose un chemin local, jamais un chemin Windows sous Linux.
+    monkeypatch.setenv("BOUZECODE_WEB_IPC_DIR", str(tmp_path / "agents" / "abc123def456.ipc"))
     monkeypatch.setenv("BOUZECODE_RUN_KIND", "validate")
     state = SimpleNamespace(messages=[
         {"role": "assistant", "content": "working"},

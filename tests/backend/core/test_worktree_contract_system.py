@@ -1,4 +1,4 @@
-# [desc] Vérifie que le contrat worktree est injecté dans le system prompt (volatile) via l'env BOUZECODE_WORKTREE_ROOT. [/desc]
+# [desc] <tool_use name="FinalAnswer" id="f1"><param name="answer">Vérifie que le contrat worktree est injecté dans le system prompt (volatile) via l'env BOUZECODE_WORKTREE_ROOT.</param></tool_use> [/desc]
 """Le contrat worktree ne préfixe plus le prompt user (voir
 tests/web_v2/test_dispatch_prompt_intact.py) : il fait désormais partie du system prompt.
 build_system_prompt_parts lit l'env BOUZECODE_WORKTREE_ROOT (armée au spawn par le runner)

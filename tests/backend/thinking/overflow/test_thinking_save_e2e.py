@@ -109,11 +109,6 @@ def test_truncated_dot_turn_keeps_thinking_drops_dot():
         {"thinking": ["reasoning before truncation"], "text": "."},   # turn 2: truncated "." + thinking
         "All done.",                                                  # turn 3: clean text reply ends the loop
     ])
-    # Turn 2 carries no tool call, so the engine makes an out-of-band side call
-    # (enforcement_call, `_depth=1`) to recover a Methodology from the reasoning.
-    # It is not a turn of the conversation: served from the script it would eat
-    # turn 3 and shift everything by one.
-    mock.side_call_response = "## Recovered\n- ran the command, output seen"
     result = bouzecode(
         ["do it"],
         mock_llm=mock,

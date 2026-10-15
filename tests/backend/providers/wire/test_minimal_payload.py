@@ -12,12 +12,25 @@ import json
 from bouzecode.backend.agent.minimal_payload import (
     build_messages_for_api,
     build_minimal_payload,
+    _compact_model_envelope,
     _strip_thinking_blocks,
     _strip_thinking_from_messages,
 )
 
 
 HEAVY = "X" * 5000
+
+# A realistic pbi_* write-tool result: full model.bim echoed alongside a summary.
+_FULL_MODEL = json.dumps({"name": "M", "model": {"tables": [{"name": "T" + str(i)} for i in range(200)]}})
+
+
+def _pbi_envelope(summary: str) -> str:
+    return json.dumps({
+        "pbi_model": [{"name": "model.bim", "content": _FULL_MODEL}],
+        "summary": summary,
+        "report_json": "{}",
+    })
+
 
 class _FakeState:
     def __init__(self, messages):
@@ -118,6 +131,44 @@ class TestBuildMessagesForApi:
             content = msg.get("content", "")
             if isinstance(content, str):
                 assert "<thinking>" not in content
+
+
+class TestModelEnvelopeCompaction:
+    def test_envelope_compacts_to_summary(self):
+        env = _pbi_envelope("Mesure 'X' ajoutee. 6 tables, 21 mesures")
+        assert _compact_model_envelope(env) == "Mesure 'X' ajoutee. 6 tables, 21 mesures"
+
+    def test_plain_result_untouched(self):
+        assert _compact_model_envelope("just some bash output") is None
+
+    def test_non_envelope_json_untouched(self):
+        assert _compact_model_envelope(json.dumps({"summary": "no model here"})) is None
+
+    def test_pbit_files_envelope_compacts(self):
+        env = json.dumps({"pbit_files": [{"name": "x.pbit", "content": "AAAA"}], "summary": "compiled"})
+        assert _compact_model_envelope(env) == "compiled"
+
+    def test_live_batch_of_pbi_writes_drops_every_model(self):
+        """Turn-8 scenario: a single batch of pbi_add_measure calls each echo the
+        full model.bim. On the wire every model is dropped to its summary."""
+        history = [{"role": "user", "content": "refactor the model"},
+                   {"role": "assistant", "content": "ok", "tool_calls": [
+                       {"id": f"m{i}", "name": "pbi_add_measure", "input": {"measure_name": f"M{i}"}}
+                       for i in range(21)
+                   ]}]
+        for i in range(21):
+            history.append({"role": "tool", "tool_call_id": f"m{i}",
+                            "name": "pbi_add_measure", "content": _pbi_envelope(f"Mesure 'M{i}' ajoutee")})
+        state = _FakeState(history)
+        result = build_messages_for_api(state, {})
+        tool_msgs = [m for m in result if m.get("role") == "tool"]
+        assert len(tool_msgs) == 21
+        for m in tool_msgs:
+            assert _FULL_MODEL not in m["content"]
+            assert "model.bim" not in m["content"]
+            assert "ajoutee" in m["content"]
+        wire_chars = sum(len(m["content"]) for m in tool_msgs)
+        assert wire_chars < len(_FULL_MODEL), "21 summaries must be far smaller than one full model"
 
 
 class TestStripThinkingBlocks:

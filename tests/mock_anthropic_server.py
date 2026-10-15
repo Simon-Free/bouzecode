@@ -1,4 +1,4 @@
-# [desc] Mock Anthropic SSE streaming API server for e2e tests: configurable responses, records requests. [/desc]
+# [desc] Mock Anthropic SSE streaming API server for e2e tests: real client hits it, exercising the full wire/SSE/parse/retry pipeline; records request bodies. [/desc]
 """Mock Anthropic /v1/messages API returning configurable SSE, recording requests.
 
 A response item is either:
@@ -107,8 +107,11 @@ def create_mock_anthropic_app(responses: list):
     def messages():
         app.recorded_calls.append(request.get_json())
         if app.call_index >= len(responses):
-            return {"type": "error", "error": {"type": "overloaded_error",
-                    "message": "no more responses configured"}}, 500
+            # 400, not 5xx: the client retries server errors with backoff (~17 min over 10
+            # attempts), so an exhausted script used to freeze the test instead of failing it.
+            app.exhausted_calls = getattr(app, "exhausted_calls", 0) + 1
+            return {"type": "error", "error": {"type": "invalid_request_error",
+                    "message": "mock_api: no more responses configured"}}, 400
         item = responses[app.call_index]
         app.call_index += 1
         if isinstance(item, str):

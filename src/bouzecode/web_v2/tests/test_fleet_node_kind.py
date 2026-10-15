@@ -4,7 +4,7 @@ Dérivé structurellement de agent.run_kind (stocké à la création de l'agent)
 fiable que deviner via le titre. Sert au front à ne JAMAIS promouvoir un validateur
 orphelin (parent archivé) au rang de racine standard dans /conversations.
 """
-from bouzecode.web_v2.runtime.runner import Agent
+from bouzecode.web_v2.runtime.runner.agent_fiche import Agent
 from bouzecode.web_v2.services.work import fleet
 
 

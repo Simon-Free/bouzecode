@@ -22,7 +22,12 @@ from pathlib import Path
 
 import pytest
 
-from bouzecode.web_v2.runtime import runner
+from bouzecode.web_v2.runtime.runner import (
+    agent_arret,
+    agent_commande,
+    agent_creation,
+    agent_vivacite,
+)
 from bouzecode.web_v2.services.work import fleet, fleet_cache
 from bouzecode.web_v2.tests.production_isolation import autoriser_la_destruction
 
@@ -40,11 +45,11 @@ def agent_qui_demarre(monkeypatch, tmp_path):
     fleet_cache.clear()
     autoriser_la_destruction(monkeypatch)
     dormeur = [sys.executable, "-c", "import time; time.sleep(60)"]
-    monkeypatch.setattr(runner, "_bouzecode_launch_cmd", lambda: dormeur)
-    monkeypatch.setattr(runner, "check_provider_env", lambda *_, **__: None)
-    agent = runner.create_agent("réponds PONG", "opus", str(tmp_path))
+    monkeypatch.setattr(agent_commande, "_bouzecode_launch_cmd", lambda: dormeur)
+    monkeypatch.setattr(agent_commande, "check_provider_env", lambda *_, **__: None)
+    agent = agent_creation.create_agent("réponds PONG", "opus", str(tmp_path))
     yield agent
-    runner.kill_agent(agent)
+    agent_arret.kill_agent(agent)
     fleet_cache.clear()
 
 
@@ -60,7 +65,9 @@ def _ecrire_session(agent, avec_reponse_partielle: str = "") -> None:
     Ces deux fichiers SONT les preuves que `demarrage_phase` lit : la session existe dès que
     le tour est ouvert, la réponse partielle dès que le premier token arrive."""
     session = Path(agent.session_path)
-    session.write_text(json.dumps({"messages": []}), encoding="utf-8")
+    #  Tel que le checkpoint l'écrit dès l'ajout du message de l'utilisateur.
+    session.write_text(json.dumps({"messages": [{"role": "user", "content": "fais X"}]}),
+                       encoding="utf-8")
     partielle = session.with_suffix(session.suffix + ".partial.json")
     if avec_reponse_partielle:
         partielle.write_text(json.dumps({"text": avec_reponse_partielle}), encoding="utf-8")
@@ -94,9 +101,9 @@ def test_un_agent_qui_n_est_plus_vivant_perd_sa_phase(agent_qui_demarre):
     agent = agent_qui_demarre
     assert _phase_dans_la_sidebar(agent.agent_id) == "demarrage"
 
-    runner.kill_agent(agent)
+    agent_arret.kill_agent(agent)
     limite = time.time() + 10
-    while time.time() < limite and runner.is_running(agent):
+    while time.time() < limite and agent_vivacite.is_running(agent):
         time.sleep(0.05)
 
     assert _phase_dans_la_sidebar(agent.agent_id) == ""

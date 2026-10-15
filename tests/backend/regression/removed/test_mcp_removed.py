@@ -14,7 +14,6 @@ def test_registration_imports_cleanly():
     import bouzecode.backend.tools.registration  # noqa: F401
 
 
-@pytest.mark.skip(reason="OSS worktree has /mcp via oss_shims (intentional)")
 def test_dispatcher_no_mcp_command():
     """The /mcp command must not be registered."""
     from bouzecode.backend.commands.dispatcher import COMMANDS

@@ -46,12 +46,12 @@ def _write_agent(agents_dir, agent_id, prompt, *, parent="", running=False,
 
 @pytest.fixture()
 def agents_dir(tmp_path, monkeypatch):
-    from bouzecode.web_v2.runtime import runner
+    from bouzecode.web_v2.runtime.runner import agent_fiche
 
     d = tmp_path / "web_agents"
     d.mkdir()
-    monkeypatch.setattr(runner, "AGENTS_DIR", d)
-    runner._list_agents_cache.clear()
+    monkeypatch.setattr(agent_fiche, "AGENTS_DIR", d)
+    agent_fiche._list_agents_cache.clear()
 
     from bouzecode.web_v2.services.sessions import purge
     monkeypatch.setattr(purge, "TRASH_DIR", d / "_trash")
@@ -67,7 +67,7 @@ def agents_dir(tmp_path, monkeypatch):
     _write_agent(d, "sub001", "Implémente la fonction X", parent="usr001")
     # test (titre 'test ...') → exclu par défaut
     _write_agent(d, "tst001", "test ping rapide")
-    runner._list_agents_cache.clear()
+    agent_fiche._list_agents_cache.clear()
     return d
 
 
@@ -116,13 +116,13 @@ def test_tests_included_on_demand(client):
 
 def test_need_input_field_and_sort_first(client, agents_dir):
     """Une conversation en attente d'input a need_input=True et remonte EN TÊTE."""
-    from bouzecode.web_v2.runtime import runner
+    from bouzecode.web_v2.runtime.runner import agent_fiche
 
     # Ajoute un agent user en attente d'input, démarré AVANT les autres (donc
     # moins récent) : il doit néanmoins passer devant grâce au tri need_input-first.
     _write_agent(agents_dir, "wait01", "Question en attente", running=True,
                  need_input=True)
-    runner._list_agents_cache.clear()
+    agent_fiche._list_agents_cache.clear()
 
     agents = _agents(client.get("/api/sessions"))
     waiting = _by_key(agents, "agent/wait01")
@@ -164,11 +164,11 @@ def test_archive_rejects_non_list(client):
 def test_stale_need_input_endpoint(client, agents_dir):
     """GET /api/conversations/stale-need-input remonte les conversations bloquées
     en need_input dont le process est MORT (orphelines)."""
-    from bouzecode.web_v2.runtime import runner
+    from bouzecode.web_v2.runtime.runner import agent_fiche
 
     # process mort (running=False) MAIS état IPC awaiting_input → orphelin.
     _write_agent(agents_dir, "orph01", "Orpheline bloquée", need_input=True)
-    runner._list_agents_cache.clear()
+    agent_fiche._list_agents_cache.clear()
 
     resp = client.get("/api/conversations/stale-need-input")
     keys = {c["key"] for c in resp.get_json()["candidates"]}

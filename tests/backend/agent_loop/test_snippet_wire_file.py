@@ -1,11 +1,12 @@
-"""Tests for file-keyed snippet wire wrapping (Read/Skill markers)."""
+"""Tests for file-keyed snippet wire marking (Read/Skill): numbered result, instruction apart
+(it rides in <harness_notes> since 2026-10-07, never inside the tool_result)."""
 import pytest
 
 from bouzecode.backend.agent.snippet_wire import (
     is_file_snippetable,
-    wrap_file_snippetable,
+    mark_file_snippetable,
     is_snippetable_tool_id,
-    wrap_snippetable,
+    mark_snippetable,
     SNIPPET_MIN_LINES,
 )
 
@@ -39,58 +40,49 @@ class TestIsFileSnippetable:
         assert is_file_snippetable("") is False
 
 
-class TestWrapFileSnippetable:
-    """wrap_file_snippetable only wraps content >= SNIPPET_MIN_LINES."""
+class TestMarkFileSnippetable:
+    """mark_file_snippetable only marks content >= SNIPPET_MIN_LINES."""
 
     def test_small_content_returned_as_is(self):
-        """Content below threshold is returned unchanged (no markers)."""
+        """Content below threshold is returned unchanged, with no instruction."""
         content = "line1\nline2\nline3"
-        result = wrap_file_snippetable(content, "/abs/path/foo.py")
-        assert result == content
-        assert "A SNIPPETER" not in result
+        assert mark_file_snippetable(content, "/abs/path/foo.py", "r1") == (content, "")
 
     def test_empty_content_returned_as_is(self):
-        result = wrap_file_snippetable("", "/some/file.py")
-        assert result == ""
-        assert "A SNIPPETER" not in result
+        assert mark_file_snippetable("", "/some/file.py", "r1") == ("", "")
 
     def test_single_line_returned_as_is(self):
-        result = wrap_file_snippetable("hello world", "/x.py")
-        assert result == "hello world"
-        assert "A SNIPPETER" not in result
+        assert mark_file_snippetable("hello world", "/x.py", "r1") == ("hello world", "")
 
-    def test_at_threshold_is_wrapped(self):
-        """Content with exactly SNIPPET_MIN_LINES lines IS wrapped."""
+    def test_at_threshold_is_marked(self):
+        """Content with exactly SNIPPET_MIN_LINES lines IS marked: numbered lines in the
+        result, the instruction (key, tool id, Snippet call) apart."""
         content = _content_with_lines(SNIPPET_MIN_LINES)
-        result = wrap_file_snippetable(content, "/abs/path/foo.py")
-        assert "==== A SNIPPETER id: file=/abs/path/foo.py ====" in result
-        assert "==== FIN DE L'ELEMENT A SNIPPETER ====" in result
-        assert 'Snippet(file_path="/abs/path/foo.py"' in result
+        result, instruction = mark_file_snippetable(content, "/abs/path/foo.py", "r1")
+        assert "A SNIPPETER id: file=/abs/path/foo.py" in instruction and "r1" in instruction
+        assert 'Snippet(file_path="/abs/path/foo.py"' in instruction
+        assert "SNIPPETER" not in result and "[SYSTEM]" not in result
         # Lines are numbered
-        assert "1\tline1" in result
-        assert f"{SNIPPET_MIN_LINES}\tline{SNIPPET_MIN_LINES}" in result
+        assert result.startswith("1\tline1")
+        assert result.endswith(f"{SNIPPET_MIN_LINES}\tline{SNIPPET_MIN_LINES}")
 
-    def test_above_threshold_is_wrapped(self):
-        """Content above threshold is wrapped with markers."""
+    def test_above_threshold_is_marked(self):
         content = _content_with_lines(SNIPPET_MIN_LINES + 10)
-        result = wrap_file_snippetable(content, "/big/file.py")
-        assert "==== A SNIPPETER id: file=/big/file.py ====" in result
-        assert "==== FIN DE L'ELEMENT A SNIPPETER ====" in result
+        _, instruction = mark_file_snippetable(content, "/big/file.py", "r1")
+        assert "A SNIPPETER id: file=/big/file.py" in instruction
 
 
 class TestToolIdSnippetableUnchanged:
-    """Ensure existing tool_id wrapping respects the threshold too."""
+    """Ensure tool_id marking respects the threshold too."""
 
-    def test_small_content_not_wrapped(self):
+    def test_small_content_not_marked(self):
         content = "abc\ndef"
-        result = wrap_snippetable(content, "r1")
-        assert result == content
-        assert "A SNIPPETER" not in result
+        assert mark_snippetable(content, "r1") == (content, "")
 
-    def test_wrap_snippetable_format_above_threshold(self):
+    def test_mark_snippetable_format_above_threshold(self):
         content = _content_with_lines(SNIPPET_MIN_LINES)
-        result = wrap_snippetable(content, "r1")
-        assert "==== A SNIPPETER id: tool_id=r1 ====" in result
-        assert "==== FIN DE L'ELEMENT A SNIPPETER ====" in result
-        assert "1\tline1" in result
-        assert f"{SNIPPET_MIN_LINES}\tline{SNIPPET_MIN_LINES}" in result
+        result, instruction = mark_snippetable(content, "r1")
+        assert "A SNIPPETER id: tool_id=r1" in instruction
+        assert 'Snippet(tool_id="r1", ranges=[[a,b]])' in instruction
+        assert result.startswith("1\tline1")
+        assert result.endswith(f"{SNIPPET_MIN_LINES}\tline{SNIPPET_MIN_LINES}")

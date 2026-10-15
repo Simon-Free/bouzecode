@@ -2,12 +2,12 @@
 """Un manager qui demande qu'un agent travaille sur une branche EXISTANTE doit obtenir
 exactement ça, ou un refus qu'il peut lire.
 
-L'incident : le ticket disait « ta branche de travail = agent/deadbeef ». Le seul paramètre
+L'incident : le ticket disait « ta branche de travail = agent/c08d9758 ». Le seul paramètre
 qui en approchait (`resume_branch`) veut dire « pars DE cette branche » : l'agent a reçu une
-branche NEUVE `agent/feedface`, y a fait le bon travail, rendu `VERDICT: OK` — et la branche
+branche NEUVE `agent/8f90ede5`, y a fait le bon travail, rendu `VERDICT: OK` — et la branche
 visée est restée intacte sans que rien ne le signale.
 
-On dispatche par l'API RÉELLE (`POST /api/dispatch`) sur un vrai dépôt git jetable : c'est
+On crée le ticket par l'API RÉELLE (`POST /api/projects/{slug}/tickets`) sur un vrai dépôt git jetable : c'est
 git qui répond, pas une simulation. Seul le spawn de process est remplacé."""
 from __future__ import annotations
 
@@ -18,8 +18,8 @@ from types import SimpleNamespace
 import pytest
 
 from bouzecode.web_v2 import api_sanity
-from bouzecode.web_v2.routes.work import fleet as fleet_route
-from bouzecode.web_v2.services.work import projects, worktrees
+from bouzecode.web_v2.runtime.runner import agent_creation
+from bouzecode.web_v2.services.work import fleet, projects, worktrees
 
 SLUG = "projet"
 
@@ -42,9 +42,9 @@ def repo(tmp_path: Path) -> Path:
     root = tmp_path / "depot"
     root.mkdir()
     subprocess.run(["git", "init", "-q", "-b", "develop", str(root)], capture_output=True)
-    (root / "fichier.txt").write_text("base\n", encoding="utf-8")
+    (root / "fichier.txt").write_text("gateway\n", encoding="utf-8")
     _git(root, "add", "fichier.txt")
-    _git(root, *_IDENT, "commit", "-qm", "base")
+    _git(root, *_IDENT, "commit", "-qm", "gateway")
     _git(root, "branch", "feature/livree")
     return root
 
@@ -55,17 +55,15 @@ def dispatch(monkeypatch, tmp_path, repo):
     from bouzecode.web_v2.app import create_app
 
     monkeypatch.setattr(api_sanity, "require_api_sanity", lambda: None)
-    # `/api/dispatch` reborne le warm-pool après chaque lancement — et ce parc-là est le PARC
-    # RÉEL (le runner n'est pas isolé par la fixture autouse). Sans ce no-op, un test tuerait
-    # des process d'agents vivants de la machine.
-    monkeypatch.setattr(fleet_route.fleet, "sweep_warm_pool", lambda: None)
+    # La création reborne le warm-pool après chaque lancement : pas de ménage du parc ici.
+    monkeypatch.setattr(fleet, "sweep_warm_pool", lambda: None)
     monkeypatch.setattr(worktrees, "WORKTREES_DIR", tmp_path / "worktrees")
     monkeypatch.setattr(projects, "list_projects",
                         lambda: [{"slug": SLUG, "name": "P", "path": str(repo)}])
     monkeypatch.setattr(projects, "find",
                         lambda slug: {"slug": slug, "name": "P", "path": str(repo)})
     spawned: dict = {}
-    monkeypatch.setattr(fleet_route.dispatch_service.runner, "create_agent",
+    monkeypatch.setattr(agent_creation, "create_agent",
                         lambda prompt, model, cwd, **kw: spawned.update(cwd=cwd)
                         or SimpleNamespace(agent_id="enfant-1"))
 
@@ -74,12 +72,19 @@ def dispatch(monkeypatch, tmp_path, repo):
 
     def _post(**payload) -> dict:
         payload.setdefault("prompt", "mets à jour la couche stockage")
-        payload.setdefault("project_slug", SLUG)
+        payload.setdefault("title", "couche stockage")
         payload.setdefault("isolation", "worktree")
+        payload.setdefault("defer", False)
         with app.test_client() as client:
-            response = client.post("/api/dispatch", json=payload)
-        assert response.status_code == 200, response.get_data(as_text=True)
-        return {"reponse": response.get_json(), "cwd": spawned.get("cwd", "")}
+            response = client.post(f"/api/projects/{SLUG}/tickets", json=payload)
+        corps = response.get_json()
+        if response.status_code == 400:  # refus : forme unique {"error": {"code", "message"}}
+            corps = {"routed": False, "code": corps["error"]["code"],
+                     "error": corps["error"]["message"]}
+        else:
+            assert response.status_code == 201, response.get_data(as_text=True)
+            corps["routed"] = True
+        return {"reponse": corps, "cwd": spawned.get("cwd", "")}
 
     return _post
 
@@ -99,7 +104,7 @@ def test_les_commits_de_l_agent_atterrissent_sur_la_branche_demandee(dispatch, r
     avant = _git(repo, "rev-parse", "feature/livree")
     worktree = Path(dispatch(work_branch="feature/livree")["cwd"])
 
-    (worktree / "fichier.txt").write_text("base\ncorrection\n", encoding="utf-8")
+    (worktree / "fichier.txt").write_text("gateway\ncorrection\n", encoding="utf-8")
     _git(worktree, "add", "fichier.txt")
     _git(worktree, *_IDENT, "commit", "-qm", "la correction attendue")
 

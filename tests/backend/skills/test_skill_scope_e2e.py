@@ -1,7 +1,7 @@
 # [desc] Conversation tests: a project-scoped skill is served to an agent working in that project and is invisible from another one. [/desc]
 """Skill SCOPE observed through real bouzecode() conversations.
 
-The user story: "the skills used only by the bouzecode of demo_app". Two
+The user story: "the skills used only by the bouzecode of demo_application". Two
 sibling projects each file a `deploy` skill under their own `.bouzecode/skills/`. An
 agent working in one must be served ITS deploy, never the neighbour's — and a project
 skill must not follow the agent into an unrelated tree.
@@ -45,15 +45,15 @@ def _invoke_skill_from(cwd, monkeypatch, name: str) -> str:
 @pytest.fixture()
 def two_projects(tmp_path):
     """Two sibling projects, each with its own `deploy` skill."""
-    application = tmp_path / "demo_app"
+    application = tmp_path / "demo_application"
     ingestion = tmp_path / "demo_ingestion"
     _write_project_skill(application, "deploy", "Deploy APPLICATION with az webapp.")
-    _write_project_skill(ingestion, "deploy", "Deploy INGESTION with batch jobs.")
+    _write_project_skill(ingestion, "deploy", "Deploy INGESTION with databricks jobs.")
     return application, ingestion
 
 
 def test_agent_is_served_the_deploy_skill_of_the_project_it_works_in(two_projects, monkeypatch):
-    """Working in demo_app, Skill(deploy) returns the APPLICATION body."""
+    """Working in demo_application, Skill(deploy) returns the APPLICATION body."""
     application, _ = two_projects
     out = _invoke_skill_from(application, monkeypatch, "deploy")
     assert "Deploy APPLICATION" in out
@@ -119,17 +119,15 @@ def test_the_qualified_name_reaches_the_same_skill(monorepo_and_subproject, monk
     assert "Deploy only the WEB package" in out
 
 
-def test_skill_list_names_the_shadowed_skill_and_both_paths(monorepo_and_subproject, monkeypatch):
-    """SkillList reports the shadowing instead of resolving it in silence."""
+def test_skill_research_names_the_shadowed_skill_and_both_paths(monorepo_and_subproject, monkeypatch):
+    """SkillResearch reports the shadowing instead of resolving it in silence."""
     monorepo, subproject = monorepo_and_subproject
     monkeypatch.chdir(subproject)
-    call = '<tool_use name="SkillList" id="sl1"></tool_use>'
+    call = '<tool_use name="SkillResearch" id="sr1"><param name="query">deploy</param></tool_use>'
     mock = MockLLM([f"{METH}\n{call}", CLOSE])
-    result = bouzecode(["quelles skills ai-je ?"], mock_llm=mock)
+    result = bouzecode(["quelle skill pour déployer ?"], mock_llm=mock)
     listing = next(m["content"] for m in result.messages
-                   if m.get("role") == "tool" and m.get("name") == "SkillList")
+                   if m.get("role") == "tool" and m.get("name") == "SkillResearch")
 
-    assert "## Masquées" in listing
-    assert str(monorepo / ".bouzecode") in listing      # the shadowed one, by path
-    assert str(subproject / ".bouzecode") in listing    # and the one that shadows it
-    assert "web:deploy" in listing                      # the winner is qualified
+    assert f"masque {monorepo / '.bouzecode'}" in listing  # the shadowed one, by path
+    assert "- web:deploy — " in listing                    # the winner, qualified

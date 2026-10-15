@@ -3,11 +3,11 @@
 
 Une conversation qu'il a lancée doit s'annoncer par SON SUJET — la première ligne
 de sa demande — et non par « Agent » partout ni par le nom d'un profil de projet, qui
-ne lui dit rien. Un agent structurel (validateur, merge...) s'annonce par son rôle.
+ne lui dit rien. Un agent structurel (merge...) s'annonce par son rôle.
 
 Aucune heure n'est cuite dans le libellé : le front la dérive de `started_at`.
 """
-from bouzecode.web_v2.runtime.runner import Agent
+from bouzecode.web_v2.runtime.runner.agent_fiche import Agent
 from bouzecode.web_v2.services.work import fleet
 
 
@@ -30,7 +30,7 @@ def test_work_prend_la_premiere_ligne_du_prompt():
 def test_work_profil_projet_ignore():
     """Le nom d'un profil de projet ne fuite jamais dans le libellé d'une conversation."""
     # Régression du bug rapporté : le nom du profil projet ne doit plus fuiter.
-    a = _agent(run_kind="work", prompt="Refais le dashboard", profile="demo-dashboard-refacto")
+    a = _agent(run_kind="work", prompt="Refais le dashboard", profile="demodb-powerbi-refacto")
     assert fleet._short_label(a) == "Refais le dashboard"
 
 
@@ -53,10 +53,11 @@ def test_work_prompt_long_tronque_a_60():
     assert fleet._short_label(a) == "x" * 60
 
 
-def test_validate_affiche_le_role_sans_profil():
-    """Un validateur s'annonce par son rôle, « Validateur », pas par son profil."""
-    a = _agent(run_kind="validate", profile="coder")
-    assert fleet._short_label(a) == "Validateur"
+def test_un_agent_structurel_affiche_son_role_sans_profil():
+    """Un agent structurel (ici un résolveur de merge hérité) s'annonce par son rôle, pas
+    par son profil."""
+    a = _agent(run_kind="merge", profile="coder")
+    assert fleet._short_label(a) == "Merge"
 
 
 def test_run_kind_inconnu_capitalise():
@@ -70,7 +71,7 @@ def test_node_exposes_liveness(monkeypatch):
     # Le noeud d'arbre expose l'état de classification DÉRIVÉ DE PREUVES (running/
     # delivered/crashed) via le classifieur partagé, câblé sur chaque agent du parc.
     monkeypatch.setattr(fleet.liveness, "classify_agent_run",
-                        lambda ticket, run: "delivered-sentinel")
+                        lambda ticket, run, agent=None: "delivered-sentinel")
     a = _agent(run_kind="work", profile="coder")
     node = fleet._node(a, {"status": {"state": "finished", "returncode": 0}}, [])
     assert node["liveness"] == "delivered-sentinel"

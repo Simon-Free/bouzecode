@@ -318,3 +318,122 @@ def test_no_full_payload_loaded(session_env):
     for i in all_items:
         # displayed text must be truncated to a sane cap (guard the golden rule)
         assert len(i.get("text") or "") <= 20000
+
+
+# --- mémoire par version (builder.memoriser / extract_per_call_data) -----------------------
+
+# Importés à la collecte : `session_env` pose un CONFIG_DIR en `str`, que le registre des
+# fournisseurs (importé par analysis/costs) ne sait pas joindre à un chemin.
+from bouzecode.web_v2.services.sessions import analysis as _analysis, costs as _costs  # noqa: E402,F401
+
+@pytest.fixture()
+def lectures(monkeypatch):
+    """Compte les lectures de la session et du journal des payloads, et part d'une mémoire vide."""
+    from bouzecode.backend.core import payload_view
+    from bouzecode.web_v2.runtime.context_viewer import builder
+    builder.oublier()
+    compte = {"session": 0, "journal": 0}
+    lire_session, lire_journal = builder._lire_session, payload_view.read_records
+
+    def espion_session(path):
+        compte["session"] += 1
+        return lire_session(path)
+
+    def espion_journal(*a, **k):
+        compte["journal"] += 1
+        return lire_journal(*a, **k)
+
+    monkeypatch.setattr(builder, "_lire_session", espion_session)
+    monkeypatch.setattr(payload_view, "read_records", espion_journal)
+    yield compte
+    builder.oublier()
+
+
+@pytest.fixture()
+def session_num(session_env):
+    """`session_env` avec des horodatages numériques (ce qu'écrit le harnais) : le tableau
+    des tours les soustrait."""
+    path = Path(session_env["session_path"])
+    session = json.loads(path.read_text(encoding="utf-8"))
+    for i, entree in enumerate(session["compaction_log"]):
+        entree["timestamp"] = 1_780_000_000.0 + 60 * i
+    path.write_text(json.dumps(session), encoding="utf-8")
+    return session_env
+
+
+def _bump(path, secondes=5):
+    import os
+    st = os.stat(path)
+    os.utime(path, ns=(st.st_atime_ns, st.st_mtime_ns + secondes * 10**9))
+
+
+def test_vues_de_session_ne_relisent_pas_les_fichiers(session_num, lectures):
+    """/turns, /costs, /turns/<n>/context… partagent UNE lecture de la session et du journal
+    tant qu'aucun des deux ne change (avant : une lecture complète par vue et par requête)."""
+    from bouzecode.web_v2.runtime.context_viewer.builder import extract_per_call_data
+    from bouzecode.web_v2.services.sessions import analysis, costs
+    from bouzecode.web_v2.services.sessions.context_diag import build_turn_context_diag
+    path = session_num["session_path"]
+    for _ in range(3):
+        assert analysis.turn_table(path)["calls"]
+        assert costs.session_costs(path)["total"]["calls"] == 4
+        assert build_turn_context_diag(path, 2) is not None
+        assert analysis.turn_detail(path, 3)["turn"] == 3
+        assert extract_per_call_data(path)["calls"]
+    assert lectures == {"session": 1, "journal": 1}
+
+
+def test_resultat_memorise_identique_a_une_lecture_neuve(session_num, lectures):
+    from bouzecode.web_v2.runtime.context_viewer import builder
+    from bouzecode.web_v2.services.sessions import analysis, costs
+    from bouzecode.web_v2.services.sessions.context_diag import build_turn_context_diag
+    path = session_num["session_path"]
+
+    def vues():
+        return json.dumps([builder.extract_per_call_data(path), analysis.turn_table(path),
+                           costs.session_costs(path), build_turn_context_diag(path, 4),
+                           analysis.turn_detail(path, 2)], sort_keys=True, default=str)
+
+    premiere, memorisee = vues(), vues()
+    builder.oublier()
+    assert premiere == memorisee == vues()
+
+
+def test_session_modifiee_relue(session_num, lectures):
+    """Une écriture de la session (nouvelle signature) invalide la mémoire : la vue suit."""
+    from bouzecode.web_v2.services.sessions import analysis
+    path = Path(session_num["session_path"])
+    assert analysis.turn_table(str(path))["calls"][0]["input_tokens"] == 100
+    session = json.loads(path.read_text(encoding="utf-8"))
+    session["compaction_log"][0]["api_input_tokens"] = 777
+    path.write_text(json.dumps(session), encoding="utf-8")
+    _bump(path)
+    assert analysis.turn_table(str(path))["calls"][0]["input_tokens"] == 777
+    assert lectures["session"] == 2
+
+
+def test_journal_modifie_relu(session_env, lectures, tmp_path):
+    """Un nouveau tour dans le journal des payloads (session inchangée) invalide aussi."""
+    from bouzecode.web_v2.runtime.context_viewer.builder import extract_per_call_data
+    path = session_env["session_path"]
+    assert [c["turn"] for c in extract_per_call_data(path)["calls"]] == [1, 2, 3, 4]
+    journal = tmp_path / "cfg" / "debug_payloads" / session_env["sid"] / "turns.jsonl"
+    with journal.open("a", encoding="utf-8") as f:
+        f.write("\n" + json.dumps({"turn": 5, "messages": [_msg_user("U5")]}))
+    _bump(journal)
+    assert [c["turn"] for c in extract_per_call_data(path)["calls"]] == [1, 2, 3, 4, 5]
+    assert lectures["journal"] == 2
+
+
+def test_appelants_ne_polluent_pas_la_vue_partagee(session_env, lectures):
+    """La vue mémorisée est partagée : le diagnostic de contexte (qui date les éléments) et
+    la route des coûts (qui ajoute les sous-agents) travaillent sur des copies."""
+    from bouzecode.web_v2.runtime.context_viewer.builder import extract_per_call_data
+    from bouzecode.web_v2.services.sessions import costs
+    from bouzecode.web_v2.services.sessions.context_diag import build_turn_context_diag
+    path = session_env["session_path"]
+    build_turn_context_diag(path, 3)
+    assert not any("added_at_turn" in it for c in extract_per_call_data(path)["calls"]
+                   for it in c["items"])
+    costs.session_costs(path).update({"sous_agents": ["intrus"]})
+    assert "sous_agents" not in costs.session_costs(path)

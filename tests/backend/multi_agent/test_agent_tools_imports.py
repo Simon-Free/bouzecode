@@ -5,7 +5,8 @@ load_agent_definitions / get_agent_definition / SubAgentManager without importin
 """
 import pytest
 
-from bouzecode.backend.multi_agent.tools import _list_agent_types, get_agent_manager
+from bouzecode.backend.multi_agent.gestionnaire import get_agent_manager
+from bouzecode.backend.multi_agent.outils_flotte import _list_agent_types
 from bouzecode.backend.profiles import resolve_agent_profile
 from bouzecode.backend.core import tool_registry
 from bouzecode.backend.core.tool_registry import is_enabled, disable_tool

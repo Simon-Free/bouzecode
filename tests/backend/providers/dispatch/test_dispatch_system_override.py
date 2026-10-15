@@ -39,11 +39,15 @@ def test_custom_system_prompt_used_when_provided():
 
 def test_custom_system_prompt_excludes_bouzecode_standard():
     """When system param is provided, bouzecode standard prose should NOT appear."""
+    from bouzecode.backend.core.context import build_system_prompt_parts
+
     payload = _get_system_payload("CUSTOM_FOCUS_PROMPT")
     first_block_text = payload.system_blocks[0]["text"]
-    # The standard bouzecode template contains this unique marker
-    assert "Bouzecode" not in first_block_text and "bouzecode" not in first_block_text.lower().replace("custom_focus_prompt", ""), (
-        f"Bouzecode standard prose leaked into custom system prompt block"
+    # The standard noyau opens with its identity line; the agent profile layered on top
+    # (injected at depth 0) may legitimately mention the project name, so test the noyau.
+    noyau_first_line = build_system_prompt_parts()[0].splitlines()[0]
+    assert noyau_first_line not in first_block_text, (
+        "bouzecode standard noyau leaked into custom system prompt block"
     )
 
 

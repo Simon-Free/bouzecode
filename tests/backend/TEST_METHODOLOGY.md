@@ -117,6 +117,48 @@ Tracer le flux réel et se demander : **où se produit le comportement ?**
 
 ---
 
+## Tests étanches
+
+Un test passe à chaque fois, quels que soient l'ordre, le worker xdist et la charge de la
+machine.
+
+1. **Il crée ses données et n'affirme que sur elles.** Jamais sur un état global partagé.
+   - ❌ « mon chantier est le dernier » dans un bac à sable partagé : un autre test en crée
+     un entre-temps.
+   - ❌ `test_bureau_accueil::test_le_titre_de_l_onglet_compte_ce_qui_m_attend` compte tout
+     ce qui attend l'utilisateur dans le bac. Il a échoué une fois pendant que
+     `test_contraste_e2e.py` créait des agents dans le même bac. Pour le rendre étanche :
+     lire le compteur, faire sa propre action puis attendre `avant + 1`, ou lui donner
+     un bac dédié.
+   - ✅ Retrouver son objet par un identifiant unique qu'on a soi-même posé (`uuid`,
+     titre marqué).
+2. **On attend un événement ou un état observable, jamais une durée.** Pas de `sleep` nu :
+   une boucle qui sonde l'état sous une limite, un `Event`, un `join`, `expect(...)` de
+   Playwright. Le timeout n'est qu'un garde-fou : il ne doit jamais être atteint quand
+   tout va bien. Ainsi, `test_mods.py` pose le mtime avec `os.utime` au lieu de dormir
+   50 ms pour qu'il change.
+3. **HOME, ports et dossiers temporaires sont propres au test ou au worker.** Les fichiers
+   vont dans `tmp_path`, pas dans `/tmp` ni dans le dépôt. Un chemin relatif sous-entend
+   `monkeypatch.chdir(tmp_path)`. Un serveur de test écoute sur le port 0.
+   Le plugin `pytest_home_etanche` donne un HOME jetable à chaque worker et à chaque test.
+   Il fait échouer tout test qui écrit dans le vrai HOME, dans le HOME partagé du worker
+   ou dans le dépôt, et il nomme le chemin. Un chemin figé à l'import se redirige dans
+   `production_isolation.isoler_les_fichiers_du_home`.
+4. **L'horloge est injectée dès qu'un comportement dépend du temps** (TTL, âge, délai de
+   grâce) : on passe `now=` ou on patche l'horloge du module. On ne vieillit rien en
+   attendant. Exemple : `multi_agent/test_agent_wait_for_child.py` passe `now=` et
+   `sleep=` à `_default_web_wait_verdict`.
+5. **Un test intermittent n'est jamais « juste instable ».** C'est soit un défaut
+   d'isolation (cas 1 à 4), soit une vraie course de l'application. On corrige la cause.
+   Il est interdit d'allonger un délai ou d'ajouter un retry.
+
+Contrôles automatiques :
+- `pytest_home_etanche`, chargé par `addopts`, vérifie le HOME et le dépôt ;
+- `tests/test_etancheite_statique.py` refuse un `sleep` nu dans un `test_*`, un port fixe
+  et `tempfile.gettempdir()` hors liste justifiée.
+
+---
+
 ## ⚠️ Le piège n°1 : le test de conversation vide
 
 Un test de conversation qui asserte **une absence** (« aucun warning n'est émis »)
@@ -146,7 +188,9 @@ posée sur un cas en fait réel **casse la prod**.
   `loop_turn.META_ONLY_TOOLS` : un tour qui n'émet qu'eux (même avec du texte final)
   reçoit un nudge « ce tour n'a produit ni travail ni réponse finale » et **continue**.
   Ce qui clôt une session, c'est **une réponse en texte SANS aucun tool call**
-  (`close_reason="text_no_tools"`), ou `FinalAnswer`.
+  (`close_reason="text_no_tools"`), ou `FinalAnswer` — dans le harness par défaut. Un run
+  non interactif (`-p`, web, Rundeck) pose `close_requires_final_answer` : la prose y est
+  relancée et SEUL `FinalAnswer` livre (`text_no_tools` n'est jamais une livraison).
   → Tout scénario `MockLLM` se termine donc par une réponse texte nue. C'est la
   cause n°1 de `AssertionError: MockLLM: stream() called N times, only N-1 responses
   configured`.

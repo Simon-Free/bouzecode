@@ -2,7 +2,7 @@
 
 The manager is a pure dispatcher/router: its ONLY job is to characterize the
 agent TYPOLOGY per ticket and decide the SEQUENCING (series vs parallel). It
-must not code/validate/review, and its per-turn Methodology/Snippet bookkeeping
+must not code nor validate (it may read a diff), and its per-turn Methodology/Snippet bookkeeping
 (plus the empty-turn nudge) must be disabled via the `no-enforcement` hook.
 
 No mocks: we load the REAL YAML profile and apply it through the REAL
@@ -30,9 +30,10 @@ _FORBIDDEN_IN_PROMPT = {
               r"tu n['’]as pas d['’]outil d['’](?:é|e)dition"),
     "valider le travail des agents": (r"tu ne valides? (?:pas|jamais)",
                                       r"la validation[^.\n]{0,60}pas (?:par )?toi"),
-    "relire le travail des agents": (r"tu ne relis (?:pas|jamais)",
-                                     r"tu ne (?:fais|effectues)[^.\n]{0,25}relecture"),
 }
+# « Relire » n'est PLUS interdit : depuis le retrait du validateur de tickets (D1), le manager
+# qui doute d'une livraison relit lui-même le diff ou lance un sous-agent de relecture en
+# lecture seule (cf. tests/backend/prompts/test_manager_prompt.py).
 _FORBIDDEN_IN_DESCRIPTION = {
     "coder": (r"ne code (?:pas|jamais)", r"n['’](?:é|e)crit (?:ni|pas de|aucun)[^.\n]{0,40}code",
               r"read.?only", r"lecture seule"),

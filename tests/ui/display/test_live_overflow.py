@@ -1,7 +1,9 @@
-# [desc] Tests for Rich Live overflow fix, collapsed diff display, and /diff command behavior [/desc]
+# [desc] Tests for collapsed diff display, compact +N/-M counts, /diff command, and Rich Live overflow handling. [/desc]
 """Tests for Rich Live overflow fix, collapsed diff display, and /diff command."""
-from unittest.mock import MagicMock, patch
+import sys, os
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
+from unittest.mock import MagicMock, patch, call
 import bouzecode.ui.rendering as cc
 import bouzecode.ui.tool_display as _td
 from bouzecode.backend.commands.misc import cmd_diff as _cmd_diff

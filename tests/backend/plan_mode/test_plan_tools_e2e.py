@@ -13,6 +13,7 @@ trimmed unit (test_plan_tools.py).
 """
 from __future__ import annotations
 
+import shutil
 from pathlib import Path
 
 import pytest
@@ -45,13 +46,12 @@ def _results(result, name):
 
 
 @pytest.fixture(autouse=True)
-def _plans_in_a_private_cwd(tmp_path_factory, monkeypatch):
-    """`_write_plan` writes to `<cwd>/.nano_claude/plans/<session>.md`, and the
-    session id defaults to "default" — so every plan test writes the SAME path.
-    Wiping that shared directory was safe sequentially and destructive under
-    `-n auto`: one worker deleted the plan another had just written. Giving each
-    test its own cwd removes the shared path instead of racing on it."""
-    monkeypatch.chdir(tmp_path_factory.mktemp("plan_cwd"))
+def _clean_plans():
+    """Plan files land in <cwd>/.nano_claude/plans — wipe before AND after so a
+    leftover plan from another test cannot make these tests order-dependent."""
+    shutil.rmtree(Path.cwd() / ".nano_claude" / "plans", ignore_errors=True)
+    yield
+    shutil.rmtree(Path.cwd() / ".nano_claude" / "plans", ignore_errors=True)
 
 
 def test_enter_plan_mode_activates_and_creates_plan_file():

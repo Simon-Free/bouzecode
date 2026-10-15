@@ -9,6 +9,8 @@ the real path end to end.
 """
 from __future__ import annotations
 
+import shutil
+
 import pytest
 
 from tests.e2e_harness import bouzecode
@@ -58,6 +60,8 @@ def git_project(tmp_path):
     return proj
 
 
+@pytest.mark.skipif(shutil.which("rg") is None,
+                    reason="le respect du .gitignore est assuré par ripgrep ; le repli grep ne le lit pas")
 def test_grep_respects_gitignore_by_default(git_project):
     out = _tool_result(
         f'<tool_use name="Grep" id="g1"><param name="pattern">TOKEN</param>'
@@ -86,6 +90,26 @@ def test_glob_include_patterns_reincludes_ignored(git_project):
         "Glob",
     )
     assert "secret.log" in out  # re-included despite .gitignore
+
+
+def test_grep_include_patterns_reincludes_ignored(git_project):
+    out = _tool_result(
+        f'<tool_use name="Grep" id="g1"><param name="pattern">TOKEN</param>'
+        f'<param name="path">{git_project}</param>'
+        f'<param name="include_patterns">["*.log"]</param></tool_use>',
+        "Grep",
+    )
+    assert "code.py" in out
+    assert "secret.log" in out  # re-included despite .gitignore
+
+
+def test_grep_without_path_searches_the_working_directory(git_project, monkeypatch):
+    monkeypatch.chdir(git_project)
+    out = _tool_result(
+        '<tool_use name="Grep" id="g1"><param name="pattern">TOKEN</param></tool_use>',
+        "Grep",
+    )
+    assert "code.py" in out
 
 
 # ── Grep overflow summary ────────────────────────────────────────────────────

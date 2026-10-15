@@ -205,8 +205,8 @@ class TestDagLogsUnresolvedReferences:
              "input": {"command": "echo hi", "depends_on": ["w1"]}},
         ]
         _, _, stderr = _build_and_capture(tcs)
-        # Only successful resolution, no [dag] dropped message
-        assert "dropped" not in stderr.lower()
+        # Only successful resolution, no [dag] warning
+        assert "[dag]" not in stderr
 
     def test_mixed_good_and_bad_logs_only_bad(self):
         tcs = [
@@ -218,8 +218,9 @@ class TestDagLogsUnresolvedReferences:
              "input": {"command": "echo hi", "depends_on": ["w1", "bogus"]}},
         ]
         _, deps, stderr = _build_and_capture(tcs)
-        assert deps["c"] == {"a"}
-        # Dropped list before the "—" separator should contain only the bad ref
+        # The unresolved "bogus" is not dropped: "c" waits for every other call of the turn.
+        assert deps["c"] == {"a", "b"}
+        # Unresolved list before the "—" separator should contain only the bad ref
         dropped_section = stderr.split("—")[0]
         assert "bogus" in dropped_section
         assert "w1" not in dropped_section

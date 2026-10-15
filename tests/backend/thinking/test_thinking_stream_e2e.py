@@ -22,6 +22,10 @@ pytestmark = pytest.mark.skipif(
 )
 
 
+METH = '<tool_use name="Methodology" id="m1"><param name="content">ok</param></tool_use>'
+CLOSE = "C'est fait."
+
+
 def _assistant(result):
     return [m for m in result.messages if m.get("role") == "assistant"]
 
@@ -30,10 +34,10 @@ def test_thinking_split_across_deltas_is_fully_archived():
     """Reasoning streamed as several thinking_delta events is reassembled into the block."""
     result = bouzecode(
         ["reason"],
-        # Plain text, no tool call — that is what closes a session. A Methodology-only
-        # batch is bookkeeping and earns a continue-nudge (which here would exhaust
-        # the mock server and hang the real client on retried 500s).
-        mock_api=[{"thinking": ["first part ", "second part ", "third"], "text": "answer."}],
+        # Methodology is enforced on every turn; a Methodology batch is bookkeeping and
+        # earns a continue-nudge, which the plain closing reply then answers.
+        mock_api=[{"thinking": ["first part ", "second part ", "third"],
+                   "text": f"answer.\n{METH}"}, CLOSE],
     )
     content = _assistant(result)[0]["content"]
     assert "<thinking>" in content
@@ -46,14 +50,16 @@ def test_thinking_archived_but_stripped_from_next_turn_wire():
     result = bouzecode(
         ["t1", "t2"],
         mock_api=[
-            {"thinking": ["secret reasoning"], "text": "first."},
+            {"thinking": ["secret reasoning"], "text": f"first.\n{METH}"},
+            CLOSE,
             "second.",
         ],
     )
     # archived
     assert any("secret reasoning" in m["content"] for m in _assistant(result))
-    # the turn-2 request body carries no thinking on the wire
-    turn2 = result.recorded_requests[1]
-    blob = str(turn2.get("system")) + str(turn2.get("messages"))
-    assert "<thinking>" not in blob
-    assert "secret reasoning" not in blob
+    # no later request body carries the thinking on the wire
+    assert len(result.recorded_requests) >= 2
+    for later in result.recorded_requests[1:]:
+        blob = str(later.get("system")) + str(later.get("messages"))
+        # The harness's own instructions may quote the tag; the REASONING must never return.
+        assert "secret reasoning" not in blob

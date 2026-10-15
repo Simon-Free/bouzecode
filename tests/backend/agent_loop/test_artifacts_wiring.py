@@ -1,7 +1,7 @@
-# [desc] Regression: the agent loop wires config["artifacts"] to state.artifacts so plugin tools can persist. [/desc]
+# [desc] Regression: the agent loop wires config["artifacts"] to state.artifacts so plugin tools (PBI) can persist. [/desc]
 """Plugin artifact store wiring.
 
-Plugin tools (e.g. a report-builder plugin's create_model) persist into a shared
+Plugin tools (e.g. demo-pbi-plugin's pbi_create_model) persist into a shared
 ``config["artifacts"]`` list the host must provide. Before this was wired, the
 CLI loop built config without that key and every pbi_* call died with
 ``KeyError: 'artifacts'``. These tests lock the contract:
@@ -11,7 +11,7 @@ CLI loop built config without that key and every pbi_* call died with
      write survives on the state (and thus across turns).
 
 The wiring is exercised plugin-independently via a throwaway probe tool, so the
-guard holds even where no such plugin is installed.
+guard holds even where demo-pbi-plugin is not installed.
 """
 from bouzecode.backend.agent.state import AgentState
 from bouzecode.backend.core.tool_registry import (

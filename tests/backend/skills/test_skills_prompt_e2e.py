@@ -41,10 +41,10 @@ def _payload_with_real_prompt(config_overrides=None):
 
 
 def test_skills_section_reaches_the_model_system_prompt():
-    """Prompt V2: the SkillList/Skill discovery instruction reaches the wire
+    """Prompt V2: the SkillResearch/Skill discovery instruction reaches the wire
     (skills themselves are no longer listed in the prompt)."""
     payload = _payload_with_real_prompt()
-    assert "SkillList()" in payload
+    assert "SkillResearch(query=" in payload
     assert "Skill(name=" in payload
 
 
@@ -54,18 +54,18 @@ def test_load_project_config_rule_reaches_the_model():
     assert "LoadProjectConfig" in payload
 
 
-def test_load_aggressively_guidance_reaches_the_model():
-    """The load-early/load-liberally guidance reaches the wire."""
+def test_load_before_acting_guidance_reaches_the_model():
+    """The load-before-acting rule reaches the wire (prompt rewritten in French)."""
     payload = _payload_with_real_prompt()
-    assert "too many skills than too few" in payload
-    assert "BEFORE" in payload
+    assert "Charge une skill **AVANT**" in payload
 
 
-def test_thinking_prompt_skill_scanning_rule_reaches_the_model():
-    """In loud-thinking mode, the 'scan the Skills' rule reaches the model's prompt."""
+def test_loud_mode_keeps_the_skill_guidance_of_the_main_prompt():
+    """Loud mode adds no thinking block (removed); the main prompt's
+    load-before-acting guidance still reaches the model in that mode."""
     payload = _payload_with_real_prompt({"thinking": True, "thinking_mode": "loud"})
-    assert "Scanner les Skills" in payload
-    assert "Skill(name=" in payload
+    assert "Scanner les Skills" not in payload
+    assert "Charge une skill **AVANT**" in payload
 
 
 # ── Skill(name=) returns a rendered body into the transcript ─────────────────
@@ -97,11 +97,12 @@ def test_skill_invocation_returns_builtin_body():
 
 
 def test_skill_invocation_unknown_lists_available():
-    """An unknown skill errors and lists available skills so the model can recover."""
-    out = _invoke_skill("does-not-exist-xyz")
+    """An unknown skill errors and answers with the SkillResearch hits for its name,
+    so the model can recover without paying for the whole catalogue."""
+    out = _invoke_skill("commit-xyz-nope")
     assert "not found" in out
-    assert "Available:" in out
-    assert "commit" in out  # a builtin is listed
+    assert "- commit — " in out  # the builtin found by keyword
+    assert 'Skill(name="<nom>")' in out
 
 
 def test_skill_invocation_trigger_alias_resolves():

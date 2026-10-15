@@ -117,7 +117,7 @@ def test_docs_show_the_scheduling_attributes_in_a_form_the_parser_accepts():
     calls = [item for item in p.feed(docs) if isinstance(item, dict)] + p.finalize()
     chained = [c for c in calls if "depends_on" in c["input"]]
     assert chained, "the worked example must show a real chained call"
-    assert chained[0]["input"]["depends_on"] == '["w1"]'
+    assert chained[0]["input"]["depends_on"] == ["w1"]
 
 
 def test_the_documentation_itself_never_looks_like_a_broken_tool_call():

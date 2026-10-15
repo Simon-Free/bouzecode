@@ -92,3 +92,32 @@ def test_get_folder_description_tree_format(tmp_path):
     assert tmp_path.name in lines[0]
     assert "Entry point" in result
     assert "Helpers" in result
+
+
+def _capture_models(monkeypatch):
+    """Interceptor on the common path: records the model of each call, answers a line."""
+    from bouzecode.backend.agent.providers import AssistantTurn
+    from bouzecode.backend.agent import stream_interceptor
+
+    seen = []
+
+    def _wrap(_raw):
+        def _stream(model, system, messages, tool_schemas, config):
+            seen.append((model, config.get("_depth")))
+            yield AssistantTurn("Does things.", [], 1, 1)
+        return _stream
+
+    monkeypatch.setattr(stream_interceptor, "_interceptor", _wrap)
+    return seen
+
+
+def test_description_uses_the_session_model_through_the_common_path(monkeypatch):
+    from bouzecode.backend.core.config import DEFAULTS
+    from bouzecode.backend.tools.folder_desc.analyzer import _call_llm_for_description
+
+    seen = _capture_models(monkeypatch)
+    assert _call_llm_for_description("a.py", "x = 1", ".py", {"model": "deepseek-v4-flash"}) \
+        == "Does things."
+    _call_llm_for_description("a.py", "x = 1", ".py", {})
+    # No hardcoded fallback model: the session's, else the code default.
+    assert seen == [("deepseek-v4-flash", 1), (DEFAULTS["model"], 1)]

@@ -7,7 +7,10 @@ def test_cli_version_matches_package():
     """cli.VERSION must equal the version declared in pyproject.toml (via metadata)."""
     from bouzecode.ui.cli import VERSION
 
-    expected = importlib.metadata.version("bouzecode")
+    try:
+        expected = importlib.metadata.version("bouzecode")
+    except importlib.metadata.PackageNotFoundError:
+        expected = importlib.metadata.version("bouzecode")  # venv not reinstalled
     assert VERSION == expected, (
         f"cli.VERSION={VERSION!r} != metadata version={expected!r}. "
         "VERSION in cli.py is probably hardcoded and out of sync."

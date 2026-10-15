@@ -1,6 +1,9 @@
 # [desc] Tests for ThinkingStreamParser covering streaming, chunked input, and edge cases [/desc]
 """Tests for ThinkingStreamParser with line-start-only tag recognition."""
-from bouzecode.backend.agent.thinking_parser import ThinkingStreamParser, LoopDetector, ThinkingDisciplineMonitor, strip_thinking_tags
+import sys
+sys.path.insert(0, r"C:\Users\user01\PycharmProjects\demo\bouzecode")
+
+from bouzecode.backend.agent.thinking_parser import ThinkingStreamParser, LoopDetector, strip_thinking_tags
 
 
 class TestThinkingStreamParser:
@@ -124,68 +127,6 @@ class TestLoopDetector:
             if d.feed(pattern):
                 return
         assert False, "Should have detected loop"
-
-
-class TestThinkingDisciplineMonitor:
-    def test_clean_thinking_no_violations(self):
-        m = ThinkingDisciplineMonitor()
-        text = "Je dois modifier context.py.\nAjoutons les regles.\nC'est simple."
-        assert m.analyze(text) == []
-
-    def test_direction_change_violation(self):
-        m = ThinkingDisciplineMonitor()
-        text = "Wait, maybe option A.\nActually, option B.\nHmm, no wait, option C."
-        violations = m.analyze(text)
-        types = [v["type"] for v in violations]
-        assert "direction_changes" in types
-        v = next(v for v in violations if v["type"] == "direction_changes")
-        assert v["count"] > 2
-
-    def test_exactly_two_changes_ok(self):
-        m = ThinkingDisciplineMonitor()
-        text = "Wait, let me check.\nActually that works.\nDone."
-        violations = m.analyze(text)
-        types = [v["type"] for v in violations]
-        assert "direction_changes" not in types
-
-    def test_stop_then_continue_violation(self):
-        m = ThinkingDisciplineMonitor()
-        lines = ["OK STOP. I'm overengineering."]
-        lines += [f"But also consider edge case {i}" for i in range(10)]
-        violations = m.analyze("\n".join(lines))
-        types = [v["type"] for v in violations]
-        assert "continued_after_stop" in types
-
-    def test_stop_with_few_lines_ok(self):
-        m = ThinkingDisciplineMonitor()
-        text = "OK STOP.\nJust one conclusion.\nDone."
-        violations = m.analyze(text)
-        types = [v["type"] for v in violations]
-        assert "continued_after_stop" not in types
-
-    def test_line_cap_violation(self):
-        m = ThinkingDisciplineMonitor()
-        text = "\n".join(f"Line {i}: thinking about stuff" for i in range(150))
-        violations = m.analyze(text)
-        types = [v["type"] for v in violations]
-        assert "line_cap_exceeded" in types
-
-    def test_under_line_cap_ok(self):
-        m = ThinkingDisciplineMonitor()
-        text = "\n".join(f"Line {i}" for i in range(80))
-        assert all(v["type"] != "line_cap_exceeded" for v in m.analyze(text))
-
-    def test_combined_violations(self):
-        m = ThinkingDisciplineMonitor()
-        lines = ["Wait, option A.", "Actually option B.", "Hmm, option C.", "No wait, option D."]
-        lines.append("OK STOP. Enough.")
-        lines += [f"But edge case {i}" for i in range(10)]
-        lines += [f"More thinking {i}" for i in range(100)]
-        violations = m.analyze("\n".join(lines))
-        types = {v["type"] for v in violations}
-        assert "direction_changes" in types
-        assert "continued_after_stop" in types
-        assert "line_cap_exceeded" in types
 
 
 class TestStripThinkingTags:

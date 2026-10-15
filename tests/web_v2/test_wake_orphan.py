@@ -9,27 +9,28 @@ cet enfant n'existe pas.
 Décisions déterministes, aucun agent LLM lancé.
 """
 from bouzecode.web_v2.services.work import wake
+from bouzecode.web_v2.services.work.fsm import etats
 
 
-def _run(kind, state="finished", verdict=None):
-    return {"agent_id": "a" * 12, "kind": kind, "state": state, "verdict": verdict}
+def _run(kind, state="finished"):
+    return {"agent_id": "a" * 12, "kind": kind, "state": state}
 
 
-def _ticket(tid, runs, wt_state=None, title="t"):
-    ticket = {"id": tid, "title": title, "prompt": "p", "runs": runs}
-    if wt_state is not None:
-        ticket["worktree"] = {"state": wt_state, "worktree": "/w", "base": "develop",
-                              "branch": "agent/x", "repo_root": "/r"}
-    return ticket
+def _ticket(tid, runs, state, code=None, title="t"):
+    """Ticket au modèle L2 : l'issue se lit dans `state` (+ `state_reason`)."""
+    return {"id": tid, "title": title, "prompt": "p", "runs": runs, "state": state,
+            "state_reason": {"code": code} if code else None,
+            "worktree": {"worktree": "/w", "base": "develop", "branch": "agent/x",
+                         "repo_root": "/r"}}
 
 
 def _orphan(tid="orphan"):
     """Ticket jamais lancé : worktree provisionné mais AUCUN run (agent jamais spawné)."""
-    return _ticket(tid, [], wt_state="provisioned")
+    return _ticket(tid, [], etats.CREATED)
 
 
 def _terminal_child(tid="1"):
-    return _ticket(tid, [_run("validate", verdict="OK"), _run("work")], wt_state="cleaned")
+    return _ticket(tid, [_run("work")], etats.CLOSED, "integre")
 
 
 # ── has_launched ──────────────────────────────────────────────────────────────
@@ -70,7 +71,7 @@ def test_no_wake_when_only_orphans():
 
 def test_real_child_still_running_blocks_even_with_orphan():
     """Un vrai enfant encore en cours retient le réveil, fantômes ou pas."""
-    running = _ticket("1", [_run("validate", state="running"), _run("work")], wt_state="committed")
+    running = _ticket("1", [_run("work", state="running")], etats.RUNNING)
     kids = [running, _orphan()]
     assert wake.should_wake_parent(True, kids, None, wake.children_signature(kids)) is False
 

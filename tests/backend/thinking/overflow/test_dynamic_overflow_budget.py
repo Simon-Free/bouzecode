@@ -12,6 +12,9 @@ from bouzecode.backend.agent.overflow_budget import (
 )
 from bouzecode.backend.core.config import DEFAULTS
 
+# Le mécanisme est désactivé par défaut (limite 0) : on le teste ACTIVÉ explicitement.
+CFG = {**DEFAULTS, "thinking_overflow_limit": 20000}
+
 
 def _state(timing_entries):
     return SimpleNamespace(timing_entries=timing_entries)
@@ -28,8 +31,8 @@ def _llm_entry(in_tokens, cache_read, cache_creation=0):
 
 def test_floor_when_no_prior_llm_turn():
     """First turn (no accounting yet) falls back to the configured floor."""
-    limit = dynamic_overflow_limit(_state([]), DEFAULTS)
-    assert limit == DEFAULTS["thinking_overflow_limit"]
+    limit = dynamic_overflow_limit(_state([]), CFG)
+    assert limit == CFG["thinking_overflow_limit"]
 
 
 def test_zero_floor_disables_overflow():
@@ -41,7 +44,7 @@ def test_small_context_stays_at_floor():
     """A tiny context yields a budget below the floor -> floor wins."""
     # X=3000, Y=3000 -> 3000/50 + 3000/5 = 60 + 600 = 660 tokens -> 2640 chars < floor
     state = _state([_llm_entry(in_tokens=3000, cache_read=0)])
-    assert dynamic_overflow_limit(state, DEFAULTS) == DEFAULTS["thinking_overflow_limit"]
+    assert dynamic_overflow_limit(state, CFG) == CFG["thinking_overflow_limit"]
 
 
 def test_large_context_scales_above_floor():
@@ -49,15 +52,15 @@ def test_large_context_scales_above_floor():
     # X = 5000 + 400000 = 405000, Y = 5000
     # 405000/50 + 5000/5 = 8100 + 1000 = 9100 tokens -> *4 = 36400 chars
     state = _state([_llm_entry(in_tokens=5000, cache_read=400000)])
-    limit = dynamic_overflow_limit(state, DEFAULTS)
+    limit = dynamic_overflow_limit(state, CFG)
     assert limit == 36400
-    assert limit > DEFAULTS["thinking_overflow_limit"]
+    assert limit > CFG["thinking_overflow_limit"]
 
 
 def test_capped_at_max():
     """An enormous context is clamped to the configured ceiling."""
     state = _state([_llm_entry(in_tokens=10000, cache_read=5_000_000)])
-    assert dynamic_overflow_limit(state, DEFAULTS) == DEFAULTS["thinking_overflow_max"]
+    assert dynamic_overflow_limit(state, CFG) == CFG["thinking_overflow_max"]
 
 
 def test_uses_most_recent_llm_turn_ignoring_tool_entries():

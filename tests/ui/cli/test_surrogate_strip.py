@@ -1,4 +1,4 @@
-# [desc] Tests strip_unpaired_surrogates handles Windows clipboard UTF-16 surrogate corruption safely [/desc]
+# [desc] Tests strip_unpaired_surrogates handles surrogate pairs, orphaned surrogates, and normal strings. [/desc]
 """Tests for strip_unpaired_surrogates — guards Windows paste crash.
 
 Background: Windows clipboard paste can leave unpaired UTF-16 surrogates in
@@ -6,6 +6,10 @@ input strings, which Anthropic's SDK cannot encode to UTF-8 (TypeError on
 `str.encode("utf-8")`). Before sending user input into the message stream,
 we must either recombine valid surrogate pairs or drop orphaned surrogates.
 """
+import sys
+import os
+sys.path.insert(0, os.path.dirname(os.path.dirname(__file__)))
+
 from bouzecode.ui.cli import strip_unpaired_surrogates
 
 

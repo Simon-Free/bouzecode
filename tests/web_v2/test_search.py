@@ -11,7 +11,7 @@ from pathlib import Path
 
 import pytest
 
-from bouzecode.web_v2.runtime import runner
+from bouzecode.web_v2.runtime.runner import agent_fiche
 from bouzecode.web_v2.services import search as search_mod
 from bouzecode.web_v2.services.work import projects as projects_mod
 from bouzecode.web_v2.services.work import tickets as tickets_mod
@@ -37,7 +37,7 @@ def env(tmp_path, monkeypatch):
     """AGENTS_DIR + a single open project/ticket referencing two agents."""
     agents_dir = tmp_path / "web_agents"
     agents_dir.mkdir()
-    monkeypatch.setattr(runner, "AGENTS_DIR", agents_dir)
+    monkeypatch.setattr(agent_fiche, "AGENTS_DIR", agents_dir)
 
     def fake_list_projects():
         return [{"slug": "proj-a"}]

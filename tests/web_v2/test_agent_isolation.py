@@ -10,8 +10,12 @@ from pathlib import Path
 
 import pytest
 
-from bouzecode.web_v2.services.work import dispatch, isolation, worktrees
+from bouzecode.web_v2 import api_sanity
+from bouzecode.web_v2.services.work import dispatch, isolation, projects, worktrees
+from bouzecode.web_v2.services.work.api_tickets import creation
+from bouzecode.web_v2.services.work.api_tickets.refus import Refus
 from bouzecode.web_v2.services.work import tickets as tickets_svc
+from bouzecode.web_v2.runtime.runner import agent_creation
 
 
 class _SpawnedAgent:
@@ -51,8 +55,9 @@ def launched(monkeypatch, tmp_path, repo):
     """Câble un projet unique et enregistre worktrees créés / venvs demandés / cwd du spawn."""
     monkeypatch.setattr(tickets_svc, "TICKETS_DIR", tmp_path / "tickets")
     project = {"slug": "p", "name": "Projet", "path": str(repo)}
-    monkeypatch.setattr(dispatch.projects, "list_projects", lambda: [project])
-    monkeypatch.setattr(dispatch.projects, "find", lambda slug: project)
+    monkeypatch.setattr(projects, "list_projects", lambda: [project])
+    monkeypatch.setattr(projects, "find", lambda slug: project)
+    monkeypatch.setattr(api_sanity, "require_api_sanity", lambda: None)
     monkeypatch.setattr(dispatch, "get_typology",
                         lambda name, path: {"profile": "", "default_model": ""})
     record: dict[str, list] = {"venv": [], "cwd": []}
@@ -62,14 +67,15 @@ def launched(monkeypatch, tmp_path, repo):
     def _spawn(prompt, model, cwd, **kwargs):
         record["cwd"].append(cwd)
         return _SpawnedAgent()
-    monkeypatch.setattr(dispatch.runner, "create_agent", _spawn)
-    monkeypatch.setattr(isolation, "agents_sharing_cwd", lambda cwd: [])
+    monkeypatch.setattr(agent_creation, "create_agent", _spawn)
+    monkeypatch.setattr(creation, "agents_sharing_cwd", lambda cwd: [])
     return record
 
 
 def _dispatch(mode: str) -> dict:
-    return dispatch.dispatch("fais un truc", project_slug="p", typology="default",
-                             isolation=mode)
+    """La création d'un ticket lancé tout de suite (POST /api/projects/p/tickets)."""
+    return creation.creer("p", {"title": "fais un truc", "prompt": "fais un truc",
+                                "isolation": mode, "defer": False})
 
 
 # ── ce que chaque valeur provisionne ─────────────────────────────────────────
@@ -91,7 +97,7 @@ def test_worktree_agent_gets_a_worktree_but_no_venv(launched, repo):
     assert result["isolation"] == "worktree"
     assert launched["venv"] == [], "worktree seul ne doit JAMAIS payer un uv sync"
     meta = tickets_svc.get_ticket("p", result["ticket_id"])["worktree"]
-    assert meta["ok"] and Path(meta["worktree"]).is_dir()
+    assert meta["branch"] and Path(meta["worktree"]).is_dir()
     assert launched["cwd"] == [meta["worktree"]]
 
 
@@ -106,23 +112,22 @@ def test_worktree_venv_agent_gets_both(launched):
 
 # ── le garde-fou : deux « shared » sur le même dépôt ─────────────────────────
 
-def test_second_shared_agent_on_the_same_repo_is_isolated(launched, monkeypatch, repo):
-    """Un second agent « shared » sur le même dépôt est isolé d'office, et on le lui dit."""
-    monkeypatch.setattr(isolation, "agents_sharing_cwd", lambda cwd: ["premier-agent"])
+def test_second_shared_agent_on_the_same_repo_is_refused(launched, monkeypatch, repo):
+    """Un second agent « shared » sur le même dépôt est REFUSÉ (409 `collision_isolation`) :
+    le serveur ne bascule jamais en worktree d'office (constat C8), rien n'est créé."""
+    monkeypatch.setattr(creation, "agents_sharing_cwd", lambda cwd: ["premier-agent"])
 
-    result = _dispatch("shared")
+    with pytest.raises(Refus) as refus:
+        _dispatch("shared")
 
-    assert result["isolation"] == "worktree"
-    ticket = tickets_svc.get_ticket("p", result["ticket_id"])
-    assert ticket["worktree"]["ok"]
-    comment = ticket["comments"][0]["text"]
-    assert "premier-agent" in comment and "worktree" in comment
-    assert launched["venv"] == [], "le rattrapage donne un worktree, jamais un venv"
+    assert (refus.value.status, refus.value.code) == (409, "collision_isolation")
+    assert refus.value.details["agents"] == ["premier-agent"]
+    assert tickets_svc.list_tickets("p") == [] and launched["cwd"] == []
 
 
 def test_lone_shared_agent_is_left_alone(launched, monkeypatch):
     """Tant que personne d'autre ne travaille dans le dépôt, « shared » reste « shared »."""
-    monkeypatch.setattr(isolation, "agents_sharing_cwd", lambda cwd: [])
+    monkeypatch.setattr(creation, "agents_sharing_cwd", lambda cwd: [])
 
     result = _dispatch("shared")
 
@@ -132,12 +137,12 @@ def test_lone_shared_agent_is_left_alone(launched, monkeypatch):
 
 def test_busy_repo_counts_only_agents_still_working(monkeypatch, repo):
     """Seuls les agents ENCORE actifs occupent le dépôt : un agent fini ne bloque personne."""
-    from bouzecode.web_v2.runtime import runner
+    from bouzecode.web_v2.runtime.runner import agent_registre
     from bouzecode.web_v2.services.sessions import store
     agents = [_Agent("actif", str(repo)), _Agent("fini", str(repo)),
               _Agent("ailleurs", str(repo / "autre"))]
     states = {"actif": "running", "fini": "finished", "ailleurs": "running"}
-    monkeypatch.setattr(runner, "list_agents", lambda: agents)
+    monkeypatch.setattr(agent_registre, "list_agents", lambda: agents)
     monkeypatch.setattr(store, "agent_status", lambda a: {"state": states[a.agent_id]})
 
     assert isolation.agents_sharing_cwd(str(repo)) == ["actif"]

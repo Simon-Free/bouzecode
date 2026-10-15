@@ -1,21 +1,23 @@
-"""Course wake : un run dont la session DISQUE porte un close_reason GRACIEUX mais dont le
-PROCESS est mort SANS que POST /completed soit passé (callback perdu, agent déchargé) NE
-doit JAMAIS être routé vers CRASH/plante. La clôture gracieuse doit être rejouée
-(mark_run_completed) et PRIMER sur la détection crash — pour TOUS les close_reasons
-gracieux (final_answer, final_answer_deferred, text_no_tools), pas seulement final_answer.
+"""Course wake : un run dont la session DISQUE porte un close_reason CONTRÔLÉ mais dont le
+PROCESS est mort SANS que POST /completed soit passé (callback perdu, agent déchargé) NE doit
+JAMAIS être déclaré planté. Le watchdog rejoue la fin du run selon la table
+`close_reasons.issue_de_fin` : livré pour une clôture qui prouve une livraison, « arrêté sans
+finir » (`idle_no_delivery`) pour une fin maîtrisée sans réponse — jamais `stopped`.
 
-Zéro unittest.mock : vraie session JSON sur disque + monkeypatch pytest sur les
-répertoires (AGENTS_DIR/TICKETS_DIR) et runner.load_agent (agent déchargé = None)."""
+Joué par le watchdog lui-même (`wake.tick`) sur une vraie session JSON et un vrai store ;
+l'agent est DÉCHARGÉ (aucune fiche) : seule sa session dans le parc dit comment il a fini."""
 import ast
 import json
 from pathlib import Path
 
 import pytest
 
-from bouzecode.web_v2.services.work import wake, workflow
+from bouzecode.web_v2 import close_reasons
+from bouzecode.web_v2.runtime.runner import agent_fiche
+from bouzecode.web_v2.services.work import constats, wake
 from bouzecode.web_v2.services.work import tickets as tickets_svc
-from bouzecode.web_v2.services.work import _persistence
-from bouzecode.web_v2.runtime import runner
+from bouzecode.web_v2.services.work.fsm import etats
+from bouzecode.web_v2.tests.aides_tickets import en_cours, projet
 
 
 def _write_session(path: Path, *, close_reason: str) -> None:
@@ -26,86 +28,62 @@ def _write_session(path: Path, *, close_reason: str) -> None:
     )
 
 
-def _persisted_run(tmp_path: Path, slug: str) -> dict:
-    return _persistence._load(slug)[0]["runs"][0]
+@pytest.fixture()
+def parc(tmp_path, monkeypatch):
+    projet(tmp_path, monkeypatch, "proj")
+    return agent_fiche.AGENTS_DIR
 
 
-@pytest.mark.parametrize("close_reason", sorted(wake.GRACEFUL_CLOSE_REASONS))
-def test_graceful_close_wins_over_crash_when_process_dead(tmp_path, monkeypatch, close_reason):
-    """Pour CHAQUE close_reason gracieux, un callback /completed perdu est réconcilié
-    (run marqué completed) et n'est jamais routé vers 'plante'. Le cas 'final_answer_deferred'
-    est le bug réel observé (ticket T6 bloqué 'à relire' malgré un commit prêt)."""
-    slug = "proj"
-    agent_id = "gracefuldead001"
-
-    # Répertoires isolés dans tmp (session sidecar + tickets).
-    monkeypatch.setattr(runner, "AGENTS_DIR", tmp_path)
-    monkeypatch.setattr(_persistence, "TICKETS_DIR", tmp_path)
-    monkeypatch.setattr(tickets_svc, "TICKETS_DIR", tmp_path)
-    # Agent DÉCHARGÉ (nettoyé après mort du process) → load_agent renvoie None.
-    monkeypatch.setattr(runner, "load_agent", lambda aid: None)
-
-    # La session DISQUE prouve une clôture gracieuse, callback /completed PERDU.
-    _write_session(tmp_path / f"{agent_id}.session.json", close_reason=close_reason)
-
-    # Ticket persisté avec un run NON completed, SANS verdict (le hook n'est jamais passé).
-    ticket = {"id": "t1", "runs": [{"agent_id": agent_id}]}
-    _persistence._save(slug, [ticket])
-
-    wake._reconcile_graceful_close(slug, ticket)
-    wake._stamp_liveness(slug, ticket)
-
-    # Le run est marqué completed sur le DISQUE (persistance via mark_run_completed).
-    assert _persisted_run(tmp_path, slug).get("completed") is True, \
-        f"clôture gracieuse '{close_reason}' non rejouée"
-    # Et la détection crash ne le route JAMAIS vers 'plante'.
-    assert workflow._is_crash(ticket) is False
+def _ticket_au_callback_perdu(parc: Path, agent_id: str, close_reason: str) -> dict:
+    """Un run ouvert (le hook /completed n'est jamais passé), agent déchargé, dont la
+    session disque porte `close_reason`."""
+    parc.mkdir(parents=True, exist_ok=True)
+    _write_session(parc / f"{agent_id}.session.json", close_reason=close_reason)
+    return en_cours("proj", agent_id)
 
 
-def test_non_graceful_close_is_not_reconciled(tmp_path, monkeypatch):
-    """Un close_reason NON gracieux (ex 'partial_stream', 'cancelled') ne doit PAS être
-    marqué completed : il n'a pas fini proprement, la voie CRASH reste légitime."""
-    slug, agent_id = "proj", "brokendead001"
-    monkeypatch.setattr(runner, "AGENTS_DIR", tmp_path)
-    monkeypatch.setattr(_persistence, "TICKETS_DIR", tmp_path)
-    monkeypatch.setattr(tickets_svc, "TICKETS_DIR", tmp_path)
-    monkeypatch.setattr(runner, "load_agent", lambda aid: None)
-    _write_session(tmp_path / f"{agent_id}.session.json", close_reason="partial_stream")
-    ticket = {"id": "t1", "runs": [{"agent_id": agent_id}]}
-    _persistence._save(slug, [ticket])
-
-    wake._reconcile_graceful_close(slug, ticket)
-
-    assert ticket["runs"][0].get("completed") is not True
+def _ticks(n: int = constats.MORTS_AVANT_CRASH + 1) -> None:
+    for _ in range(n):
+        wake.tick()
 
 
-def test_deferred_close_gated_until_checks_drain(tmp_path, monkeypatch):
+@pytest.mark.parametrize("close_reason", sorted(close_reasons.CONTROLLED_CLOSE_REASONS))
+def test_une_fin_controlee_n_est_jamais_un_plantage(parc, close_reason):
+    """Pour CHAQUE close_reason contrôlé, un callback /completed perdu est réconcilié par le
+    watchdog et le ticket n'est jamais déclaré planté. Le cas 'final_answer_deferred' est le
+    bug réel observé (ticket bloqué 'à relire')."""
+    ticket = _ticket_au_callback_perdu(parc, "gracefuldead001", close_reason)
+    _ticks()
+    frais = tickets_svc.get_ticket("proj", ticket["id"])
+    attendu, _code = close_reasons.issue_de_fin(close_reason)
+    assert frais["state"] == attendu != etats.STOPPED
+    assert bool(frais["runs"][0].get("completed")) is (attendu == etats.DELIVERED)
+
+
+def test_une_mort_en_vol_reste_un_arret(parc):
+    """Un close_reason de mort en vol (ex 'partial_stream') n'a pas fini proprement."""
+    ticket = _ticket_au_callback_perdu(parc, "brokendead001", "partial_stream")
+    _ticks()
+    frais = tickets_svc.get_ticket("proj", ticket["id"])
+    assert frais["state"] == etats.STOPPED and frais["runs"][0].get("completed") is not True
+
+
+def test_deferred_close_gated_until_checks_drain(parc):
     """Un close `final_answer_deferred` dont les checks différés ne sont PAS encore drainés
-    (`<session>.deferred.json` encore sur disque) NE doit PAS être marqué completed :
-    l'avancer validerait/mergerait avant que le déploiement en file ne tourne. Une fois le
-    drain terminé (fichier supprimé), la réconciliation normale reprend."""
-    slug, agent_id = "proj", "deferredpending01"
-    monkeypatch.setattr(runner, "AGENTS_DIR", tmp_path)
-    monkeypatch.setattr(_persistence, "TICKETS_DIR", tmp_path)
-    monkeypatch.setattr(tickets_svc, "TICKETS_DIR", tmp_path)
-    monkeypatch.setattr(runner, "load_agent", lambda aid: None)
-    _write_session(tmp_path / f"{agent_id}.session.json", close_reason="final_answer_deferred")
-    # File différée encore pendante sur disque (le drain n'a pas encore réussi).
-    deferred_file = tmp_path / f"{agent_id}.session.json.deferred.json"
+    (`<session>.deferred.json` encore sur disque) n'avance pas : l'avancer livrerait avant le
+    déploiement en file. Drain terminé → réconciliation."""
+    agent_id = "deferredpending01"
+    ticket = _ticket_au_callback_perdu(parc, agent_id, "final_answer_deferred")
+    deferred_file = parc / f"{agent_id}.session.json.deferred.json"
     deferred_file.write_text(
         json.dumps({"answer": "deploying", "checks": [{"command": "deploy", "timeout": 900}]}),
         encoding="utf-8")
-    ticket = {"id": "t1", "runs": [{"agent_id": agent_id}]}
-    _persistence._save(slug, [ticket])
-
-    wake._reconcile_graceful_close(slug, ticket)
-    assert _persisted_run(tmp_path, slug).get("completed") is not True, \
-        "close deferred réconcilié AVANT le drain de ses checks (merge prématuré)"
-
-    # Drain terminé : le fichier disparaît → la réconciliation gracieuse reprend.
+    _ticks()
+    assert tickets_svc.get_ticket("proj", ticket["id"])["state"] == etats.RUNNING, (
+        "close deferred réconcilié AVANT le drain de ses checks (merge prématuré)")
     deferred_file.unlink()
-    wake._reconcile_graceful_close(slug, ticket)
-    assert _persisted_run(tmp_path, slug).get("completed") is True
+    wake.tick()
+    assert tickets_svc.get_ticket("proj", ticket["id"])["state"] == etats.DELIVERED
 
 
 def test_graceful_reasons_stay_in_sync_with_loop_fire_completion():
@@ -134,8 +112,7 @@ def test_graceful_reasons_stay_in_sync_with_loop_fire_completion():
     assert fired, "aucun call site _fire_completion trouvé — le parse a-t-il changé ?"
     assert {"final_answer", "final_answer_deferred", "text_no_tools"} <= fired, (
         f"le parse ne voit plus les clôtures gracieuses connues : {sorted(fired)}")
-    manquantes = sorted(fired - set(wake.GRACEFUL_CLOSE_REASONS))
+    manquantes = sorted(fired - set(close_reasons.CONTROLLED_CLOSE_REASONS))
     assert not manquantes, (
-        f"divergence reconciler/loop : loop.py déclenche on_completion sur {manquantes}, "
-        f"que le reconciler ne fait PAS avancer (GRACEFUL_CLOSE_REASONS="
-        f"{sorted(wake.GRACEFUL_CLOSE_REASONS)})")
+        f"divergence watchdog/loop : loop.py déclenche on_completion sur {manquantes}, que la "
+        f"table des fins (close_reasons) classerait en mort en vol")

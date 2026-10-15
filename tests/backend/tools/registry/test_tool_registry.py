@@ -1,6 +1,8 @@
 # [desc] Unit tests for tool registry registration, retrieval, execution, and output truncation. [/desc]
 from __future__ import annotations
 
+import re
+
 import pytest
 
 from bouzecode.backend.core.tool_registry import (
@@ -124,12 +126,25 @@ def test_output_truncation():
     register_tool(tool)
 
     result = execute_tool("big", {}, config={}, max_output=40)
-    # first half = 20 chars, last quarter = 10 chars, marker in between
-    assert len(result) < 100
-    assert "truncated" in result
-    # The kept portion: first 20 + last 10 should be present
-    assert result.startswith("x" * 20)
-    assert result.endswith("x" * 10)
+    # Head (1/3) + tail kept around a marker that points to the FULL output on disk;
+    # the kept text never exceeds max_output.
+    head, _, rest = result.partition("\n\n[...output truncated")
+    tail = rest.rsplit("\n\n", 1)[-1]
+    assert head == "x" * 13 and tail == "x" * 27
+    saved = re.search(r'Read\(file_path="([^"]+)"\)', result).group(1)
+    assert open(saved, encoding="utf-8").read() == "x" * 100
+
+
+def test_max_tool_output_from_config_caps_the_result():
+    """`max_tool_output` (config) was defined but read nowhere: now it is the cap."""
+    register_tool(ToolDef(
+        name="big2",
+        schema={"name": "big2", "description": "big", "input_schema": {"type": "object", "properties": {}}},
+        func=lambda p, c: "y" * 5000, read_only=True, concurrent_safe=True,
+    ))
+    result = execute_tool("big2", {}, config={"max_tool_output": 1000})
+    head, _, rest = result.partition("\n\n[...output truncated")
+    assert len(head) + len(rest.rsplit("\n\n", 1)[-1]) == 1000 and rest
 
 
 def test_no_truncation_when_within_limit():
@@ -215,6 +230,17 @@ def test_execute_tool_absent_required_param_blocks():
     result = execute_tool("echo", {}, config={})
     assert "required" in result.lower()
     assert "text" in result
+
+
+def test_blank_required_message_names_the_cdata_wrapper():
+    """The refusal must SAY what to wrap the value in. The literal '<![CDATA[' was
+    once eaten by an edit pass, leaving 'was not wrapped in ....' — an instruction
+    nothing can act on. Observed in prod: 66 tool calls over 4 minutes guessing at
+    [], JSON lists and random CDATA before giving up. Invisible on re-read, so a
+    test must scream about it."""
+    register_tool(_make_echo_tool())
+    result = execute_tool("echo", {"text": ""}, config={})
+    assert "<![CDATA[" in result, f"guard message lost its CDATA literal: {result!r}"
 
 
 def test_execute_tool_valid_required_passes():

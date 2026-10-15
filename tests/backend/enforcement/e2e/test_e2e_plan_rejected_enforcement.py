@@ -21,15 +21,16 @@ from bouzecode.backend.core.tool_registry import enable_tool
 
 
 @pytest.fixture(autouse=True)
-def _enable_plan_tools(agent_cwd):
-    """`agent_cwd`: these scenarios WritePlan and Write real files, which without
-    a scratch cwd landed on the checkout's own .nano_claude/plans/ and main.py."""
+def _enable_plan_tools():
     enable_tool("EnterPlanMode")
     enable_tool("ExitPlanMode")
 
 
-def test_edit_allowed_after_plan_approved():
+def test_edit_allowed_after_plan_approved(tmp_path, monkeypatch):
     """Regression: WritePlan approved → Edit should pass."""
+    # `main.py` et le plan sont relatifs au cwd du process : hors tmp_path, ce test réécrivait le
+    # main.py du DÉPÔT (le main.py suivi vaut d'ailleurs `print("hello")`, son résidu).
+    monkeypatch.chdir(tmp_path)
     mock = MockLLM([
         # Turn 1: Methodology + WritePlan (approved)
         '<tool_use name="Methodology" id="m1">'
