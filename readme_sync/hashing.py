@@ -5,19 +5,17 @@ import json
 from datetime import datetime, timezone
 from pathlib import Path
 
-from .naming import LOCK_VERSION, doc_name, lock_name
 from .states import FolderState, FolderStatus
 
 IGNORE_DIRS = {
     ".venv", ".venv-ui", "venv", "env", "node_modules", "dist", "build",
     ".pytest_cache", ".mypy_cache", ".ruff_cache", ".tox", "htmlcov",
     "deploy_build", "bin", ".git", "__pycache__", ".idea", ".vscode",
-    "vendor",
 }
-# A folder map documents hand-written source, whatever the language. `vendor`
-# sits in IGNORE_DIRS for the same reason as `node_modules`: third-party code
-# shipped in-tree is not ours to document.
-CODE_EXTS = {".py", ".js"}
+CODE_EXTS = {".py"}
+DOC_NAME = "AGENTS.md"
+LOCK_NAME = ".agents.lock"
+LOCK_VERSION = 1
 
 
 def sha256_file(path: Path) -> str:
@@ -107,7 +105,7 @@ def compute_manifest(folder: Path) -> dict:
 
 
 def lock_path(folder: Path) -> Path:
-    return folder / lock_name()
+    return folder / LOCK_NAME
 
 
 def read_lock(folder: Path) -> dict | None:
@@ -118,10 +116,10 @@ def read_lock(folder: Path) -> dict | None:
 
 
 def write_lock(folder: Path, stale: bool = False) -> dict:
-    """Recompute the manifest and write the lock sidecar. Returns the lock dict."""
+    """Recompute the manifest and write .agents.lock. Returns the lock dict."""
     lock = {
         "version": LOCK_VERSION,
-        "doc": doc_name(),
+        "doc": DOC_NAME,
         "files": compute_manifest(folder),
         "stale": stale,
         "generated_at": datetime.now(timezone.utc).isoformat(),
@@ -138,7 +136,7 @@ def set_lock_stale(folder: Path, stale: bool = True) -> dict:
     if lock is None:
         lock = {
             "version": LOCK_VERSION,
-            "doc": doc_name(),
+            "doc": DOC_NAME,
             "files": compute_manifest(folder),
             "stale": stale,
             "generated_at": datetime.now(timezone.utc).isoformat(),
@@ -170,21 +168,18 @@ def _manifest_diff(folder: Path, lock: dict) -> list[str]:
 def classify(folder: Path) -> FolderStatus:
     """Determine the FolderState of a single folder."""
     has_code = bool(code_files(folder))
-    has_doc = (folder / doc_name()).exists()
+    has_doc = (folder / DOC_NAME).exists()
 
     if has_code and not has_doc:
-        return FolderStatus(folder, FolderState.MISSING, [f"no {doc_name()}"])
+        return FolderStatus(folder, FolderState.MISSING, ["no AGENTS.md"])
     if not has_code and has_doc:
-        return FolderStatus(folder, FolderState.ORPHAN, [f"{doc_name()} with no code"])
+        return FolderStatus(folder, FolderState.ORPHAN, ["AGENTS.md with no code"])
     if not has_code and not has_doc:
         return FolderStatus(folder, FolderState.FRESH, [])
 
     lock = read_lock(folder)
     if lock is None:
-        return FolderStatus(
-            folder, FolderState.UNLOCKED,
-            [f"no {lock_name()} yet — drift cannot be checked"],
-        )
+        return FolderStatus(folder, FolderState.STALE, ["no .agents.lock"])
     reasons = _manifest_diff(folder, lock)
     if lock.get("stale"):
         reasons.insert(0, "lock flagged stale")
@@ -199,7 +194,7 @@ def scan(root: Path) -> list[FolderStatus]:
     for folder in iter_code_folders(root):
         status = classify(folder)
         has_code = bool(code_files(folder))
-        has_doc = (folder / doc_name()).exists()
+        has_doc = (folder / DOC_NAME).exists()
         if status.state == FolderState.FRESH and not has_code and not has_doc:
             continue
         out.append(status)

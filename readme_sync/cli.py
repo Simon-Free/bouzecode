@@ -5,11 +5,7 @@ import json
 import subprocess
 from pathlib import Path
 
-from .hashing import scan
-from .naming import (
-    DEFAULT_DOC_NAME, ENV_DOC_NAME, LOCK_VERSION,
-    doc_name, lock_name, resolve_naming, use,
-)
+from .hashing import DOC_NAME, LOCK_NAME, LOCK_VERSION, scan
 from .propagate import create_root_map
 from .regen import regen_folder
 from .states import FolderState
@@ -31,17 +27,15 @@ def cmd_check(root: Path) -> int:
     missing = [s for s in flagged if s.state == FolderState.MISSING]
     stale = [s for s in flagged if s.state == FolderState.STALE]
     orphan = [s for s in statuses if s.state == FolderState.ORPHAN]
-    unlocked = [s for s in statuses if s.state == FolderState.UNLOCKED]
 
-    print(f"readme_sync --check  root={root}  doc={doc_name()}")
+    print(f"readme_sync --check  root={root}")
     # The scanned count is printed explicitly: it is the only honest measure of coverage.
     # Callers used to infer it from whatever number happened to be largest in this output,
     # which silently became wrong as soon as the repo was in sync (nothing left to list).
     print(f"  {len(statuses)} folders scanned")
-    print(f"  {len(missing)} missing / {len(stale)} stale / {len(orphan)} orphan"
-          f" / {len(unlocked)} unlocked (informational)")
+    print(f"  {len(missing)} missing / {len(stale)} stale / {len(orphan)} orphan")
     for s in statuses:
-        if s.state in (FolderState.FRESH, FolderState.UNLOCKED):
+        if s.state == FolderState.FRESH:
             continue
         rel = _rel(s.path, root)
         reason = "; ".join(s.reasons)
@@ -82,7 +76,7 @@ def cmd_init(root: Path) -> int:
         regen_folder(s.path, root)
         print(f"regenerated {_rel(s.path, root)}")
     create_root_map(root)
-    print(f"root map written: {_rel(root / doc_name(), root)}")
+    print(f"root map written: {_rel(root / DOC_NAME, root)}")
     return 0
 
 
@@ -101,14 +95,14 @@ def _is_git_tracked(path: Path, root: Path) -> bool:
 
 
 def _migrate_lock_file(old_lock: Path) -> None:
-    """Rename a legacy .readme.lock to the active lock name, rewriting its doc field."""
-    new_lock = old_lock.with_name(lock_name())
+    """Rename an old .readme.lock to .agents.lock, rewriting its doc field."""
+    new_lock = old_lock.with_name(LOCK_NAME)
     try:
         data = json.loads(old_lock.read_text(encoding="utf-8"))
     except (OSError, json.JSONDecodeError):
         data = {"version": LOCK_VERSION}
     data.pop("readme", None)
-    data["doc"] = doc_name()
+    data["doc"] = DOC_NAME
     new_lock.write_text(
         json.dumps(data, indent=2, ensure_ascii=False) + "\n", encoding="utf-8"
     )
@@ -127,11 +121,6 @@ def cmd_migrate(root: Path) -> int:
     Then regenerate the root map into AGENTS.md. Nothing else is touched.
     """
     root = root.resolve()
-    if doc_name() == _OLD_DOC_NAME:
-        print("readme_sync --migrate: nothing to do, the configured doc name IS "
-              f"{_OLD_DOC_NAME}. Pass --doc-name AGENTS.md to migrate onto a "
-              "separate map file.")
-        return 0
     renamed = 0
     lock_only = 0
     orphan_locks = 0
@@ -149,7 +138,7 @@ def cmd_migrate(root: Path) -> int:
             orphan_locks += 1
             print(f"  human README kept, orphan lock removed: {_rel(old_doc, root)}")
             continue
-        new_doc = folder / doc_name()
+        new_doc = folder / DOC_NAME
         old_doc.rename(new_doc)
         _migrate_lock_file(old_lock)
         renamed += 1
@@ -157,16 +146,13 @@ def cmd_migrate(root: Path) -> int:
     create_root_map(root)
     print(f"  {renamed} generated README renamed, {lock_only} lock-only, "
           f"{orphan_locks} orphan locks removed")
-    print(f"root map written: {_rel(root / doc_name(), root)}")
+    print(f"root map written: {_rel(root / DOC_NAME, root)}")
     return 0
 
 
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(prog="readme_sync")
     parser.add_argument("--root", default=None, help="Repo root (default: cwd)")
-    parser.add_argument("--doc-name", default=None, metavar="NAME",
-                        help=f"Folder-map filename to maintain. Overrides {ENV_DOC_NAME} "
-                             f"and [tool.readme_sync] doc_name; defaults to {DEFAULT_DOC_NAME}")
     group = parser.add_mutually_exclusive_group(required=True)
     group.add_argument("--check", action="store_true",
                        help="Report the sync map; exit 1 if any stale/missing")
@@ -174,11 +160,11 @@ def build_parser() -> argparse.ArgumentParser:
                        help="Print one path per stale/missing folder")
     group.add_argument("--regen", nargs="?", const="", default=None,
                        metavar="PATH",
-                       help="Regenerate folder map file(s): PATH for one folder, else all flagged")
+                       help="Regenerate AGENTS.md file(s): PATH for one folder, else all flagged")
     group.add_argument("--init", action="store_true",
-                       help="Generate every missing/stale folder map + the root map")
+                       help="Generate every missing/stale folder AGENTS.md + the root map")
     group.add_argument("--migrate", action="store_true",
-                       help="Migrate legacy generated README.md (+.readme.lock) to the configured doc name")
+                       help="Migrate old generated README.md (+.readme.lock) to AGENTS.md (+.agents.lock)")
     return parser
 
 
@@ -186,7 +172,6 @@ def main(argv: list[str] | None = None) -> int:
     parser = build_parser()
     args = parser.parse_args(argv)
     root = Path(args.root).resolve() if args.root else Path.cwd()
-    use(resolve_naming(root, args.doc_name))
 
     if args.check:
         return cmd_check(root)

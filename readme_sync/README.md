@@ -8,7 +8,7 @@ Keeps every folder README in sync with the code it documents, detected by file h
 
 | Folder | Purpose |
 |--------|---------|
-| [prompts/](prompts/README.md) | System prompts: the regen contract, plus the writer (maintenance) protocol. |
+| [prompts/](prompts/README.md) | System prompts: the regen contract, plus the reader (navigation) and writer (maintenance) protocols. |
 | [tests/](tests/README.md) | Feature + CLI tests driving the real CLI/hook over temporary trees. |
 
 ---
@@ -24,11 +24,8 @@ Folder states: **FRESH** (locks match) / **STALE** (hash differs, file added/rem
 or lock flagged stale) / **MISSING** (code folder with no README) / **ORPHAN**
 (README with no code).
 
-Code files are `.py` and `.js`: a front-end folder is documented like a Python one.
-
 Ignored dirs: `.venv`, `node_modules`, `dist`, `.pytest_cache`, `deploy_build`,
-`bin`, `.git`, `__pycache__`, `vendor` (third-party code shipped in-tree is not
-ours to document).
+`bin`, `.git`, `__pycache__`.
 
 ---
 
@@ -43,7 +40,7 @@ Root-agnostic: `--root <path>` (default = cwd) points the tool at any repo.
 | `python -m readme_sync --regen [PATH] [--root PATH]` | Regenerate READMEs. With a PATH: that folder only. Without: every flagged folder. One LLM call per folder, then the lock goes fresh and the parent Subfolders row is mirrored mechanically up to the root. |
 
 Regen provider: reads `ANTHROPIC_BASE_URL` + `ANTHROPIC_API_KEY`/`ANTHROPIC_AUTH_TOKEN`
-from the environment (any Anthropic-compatible gateway). Model override via `READMESYNC_MODEL`
+from the environment (internal LLM gateway). Model override via `READMESYNC_MODEL`
 (default `claude-sonnet-4-5`).
 
 ---
@@ -64,14 +61,11 @@ from the environment (any Anthropic-compatible gateway). Model override via `REA
 
 ---
 
-## Writer protocol
+## Reader / writer protocol
 
-Reading code no longer goes through a prompt shipped here. The navigation block an
-agent receives is `bouzecode.backend.core.context.get_readme_navigation_section()`,
-which points at the `AgentsMap()` / `SymbolMap()` tools — they build the maps on
-demand, so there is no `## Subfolders` table to walk and nothing to inject
-conditionally.
-
+- **Reading code** (navigation): follow [prompts/reader.md](prompts/reader.md) —
+  start at the root README, follow `## Subfolders` links down to the right folder,
+  read its `## Module Reference`, then read a SINGLE symbol. Grep is a last resort.
 - **Writing code** (maintenance): follow [prompts/writer.md](prompts/writer.md) —
   after editing code, the folder's `.readme.lock` flips `stale:true`; never trust a
   README whose lock says stale; run `--regen <folder>` to refresh.

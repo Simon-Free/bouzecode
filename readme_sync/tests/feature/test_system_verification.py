@@ -1,7 +1,7 @@
 """End-to-end system verification for readme_sync.
 
 Plays, as executed checks, the six verification points of the mission:
-scan exclusions (2), real API generation (3), bootstrap guards (4),
+scan exclusions (2), real gateway generation (3), bootstrap guards (4),
 navigation injection (5) and the root->subfolder->symbol chain (6).
 Point 1 (the full suite green) is proven by running the suite itself.
 """
@@ -105,15 +105,7 @@ def test_bootstrap_guards(tmp_path, monkeypatch):
 
 
 # ---------------------------------------------------------------- point 5
-def test_navigation_injection_no_longer_depends_on_a_root_map(tmp_path, monkeypatch):
-    """The injected protocol points at tools, so no map file needs to exist.
-
-    The old block walked a `## Subfolders` table and was therefore injected only
-    when a root map was on disk. Its replacement names `AgentsMap()` /
-    `SymbolMap()`, which generate the maps on demand — nothing to probe for, so
-    the section is unconditional. Only the global env switch can silence it
-    (covered by tests/backend/agents_map/test_map_contract.py).
-    """
+def test_navigation_injection(tmp_path, monkeypatch):
     from bouzecode.backend.core.context import get_readme_navigation_section
 
     with_map = tmp_path / "withmap"
@@ -124,18 +116,12 @@ def test_navigation_injection_no_longer_depends_on_a_root_map(tmp_path, monkeypa
         encoding="utf-8",
     )
     monkeypatch.chdir(with_map)
-    with_map_section = get_readme_navigation_section()
+    assert "# Codebase navigation" in get_readme_navigation_section()
 
     without = tmp_path / "nomap"
     without.mkdir()
     monkeypatch.chdir(without)
-    without_map_section = get_readme_navigation_section()
-
-    assert "# Codebase navigation" in with_map_section
-    assert without_map_section == with_map_section
-    assert "AgentsMap()" in without_map_section
-    assert "SymbolMap(" in without_map_section
-    assert "## Subfolders" not in without_map_section
+    assert get_readme_navigation_section() == ""
 
 
 # ---------------------------------------------------------------- points 3 & 6
@@ -164,7 +150,7 @@ def generated_tree(tmp_path_factory):
 
 
 @pytest.mark.llm
-def test_real_generation_via_api(generated_tree):
+def test_real_generation_gateway(generated_tree):
     root, result = generated_tree
     assert "skipped" not in result, result
 

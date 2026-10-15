@@ -1,11 +1,11 @@
-# [desc] Regenerates a folder's map via an LLM call, using a separate human README.md as read-only context. [/desc]
+# [desc] Regenerates a folder's AGENTS.md via an LLM call, using the human README.md as read-only context. [/desc]
 from __future__ import annotations
 
 import os
 from pathlib import Path
 
-from .naming import doc_name
 from .hashing import (
+    DOC_NAME,
     code_files,
     compute_manifest,
     read_lock,
@@ -64,24 +64,23 @@ def changed_vs_unchanged(folder: Path) -> tuple[list[Path], list[str]]:
 
 
 def build_user_message(folder: Path, root: Path) -> str:
-    """Assemble the single user message for regenerating the folder map.
+    """Assemble the single user message for regenerating AGENTS.md.
 
-    Includes the current map (if any), the folder's human README.md as READ-ONLY
-    context when that is a DIFFERENT file (it is not when the map IS the
-    README.md), the full body of changed/new code files, and the names of
-    unchanged files.
+    Includes the current AGENTS.md (if any), the folder's human README.md as
+    READ-ONLY context (never rewritten), the full body of changed/new code
+    files, and the names of unchanged files.
     """
     changed, unchanged = changed_vs_unchanged(folder)
-    doc = folder / doc_name()
+    doc = folder / DOC_NAME
     current = doc.read_text(encoding="utf-8") if doc.exists() else "(none)"
 
     parts = [f"# Folder to document: {_rel(folder, root)}", ""]
-    parts.append(f"## Current {doc_name()}")
+    parts.append("## Current AGENTS.md")
     parts.append(current)
     parts.append("")
 
     human_readme = folder / "README.md"
-    if human_readme.exists() and human_readme != doc:
+    if human_readme.exists():
         parts.append("## Human README.md (read-only context — DO NOT reproduce or rewrite it)")
         parts.append(human_readme.read_text(encoding="utf-8"))
         parts.append("")
@@ -90,7 +89,7 @@ def build_user_message(folder: Path, root: Path) -> str:
     if changed:
         for p in changed:
             parts.append(f"### {p.name}")
-            parts.append("```" + p.suffix.lstrip("."))
+            parts.append("```python")
             parts.append(p.read_text(encoding="utf-8"))
             parts.append("```")
     else:
@@ -99,7 +98,7 @@ def build_user_message(folder: Path, root: Path) -> str:
     parts.append("## Unchanged code files (names only)")
     parts.append(", ".join(unchanged) if unchanged else "(none)")
     parts.append("")
-    parts.append(f"Regenerate {doc_name()} for this folder following the contract. "
+    parts.append("Regenerate AGENTS.md for this folder following the contract. "
                  "Output ONLY the markdown, no code fences around the whole thing.")
     return "\n".join(parts)
 
@@ -117,14 +116,61 @@ def _strip_outer_fence(text: str) -> str:
     return stripped + "\n"
 
 
+_CA_BUNDLE_VARS = ("REQUESTS_CA_BUNDLE", "SSL_CERT_FILE", "CURL_CA_BUNDLE", "BOUZECODE_CA_BUNDLE")
+
+
+def _env(name):
+    """BOUZECODE_<name> first, then the legacy BOUZECODE_<name> (project renamed to bouzecode)."""
+    value = os.environ.get("BOUZECODE_" + name)
+    if value is None:
+        value = os.environ.get("BOUZECODE_" + name)
+    return value
+
+
+def _tls_verify():
+    """httpx `verify=` for the internal LLM gateway, mirroring bouzecode.backend.core.tls
+    (root-agnostic copy: no bouzecode import here). verification always on,
+    the internal CA comes from the bundle; PYTHONHTTPSVERIFY=0 is ignored and only
+    BOUZECODE_TLS_INSECURE=1 (dev workstation) turns it off, with a warning."""
+    import ssl
+    import sys
+
+    if (_env("TLS_INSECURE") or "").strip().lower() in ("1", "true", "yes", "oui"):
+        print("readme_sync: TLS verification DISABLED (BOUZECODE_TLS_INSECURE=1), dev only.",
+              file=sys.stderr)
+        return False
+    for var in _CA_BUNDLE_VARS:
+        path = (os.environ.get(var) or "").strip()
+        if path and os.path.isfile(path):
+            return ssl.create_default_context(cafile=path)
+    return True
+
+
+def _check_provider_allowed() -> None:
+    """root-agnostic copy of bouzecode's registry.check_provider_allowed: this
+    client calls ANTHROPIC_BASE_URL directly (provider "anthropic"), outside dispatch.stream,
+    so BOUZECODE_ALLOWED_PROVIDERS is enforced here too."""
+    raw = _env("ALLOWED_PROVIDERS")
+    if raw is None or not raw.strip():
+        return
+    allowed = {p.strip() for p in raw.split(",") if p.strip()}
+    if "anthropic" not in allowed:
+        raise RuntimeError(
+            "readme_sync: provider 'anthropic' refused by "
+            f"BOUZECODE_ALLOWED_PROVIDERS={','.join(sorted(allowed))}.")
+
+
 def _make_client():
     import anthropic
     import httpx
 
-    # Root-agnostic client (only httpx + anthropic, no bouzecode import): the
-    # generous read timeout matters because a regen turn streams a whole README.
+    _check_provider_allowed()
+
+    # The internal LLM gateway sits behind a proxy with an internal CA: pass it through a
+    # custom http_client (see _tls_verify) or the gateway raises APIConnectionError
+    # on the TLS handshake.
     timeout = httpx.Timeout(connect=10, read=60, write=30, pool=10)
-    http_client = httpx.Client(timeout=timeout)
+    http_client = httpx.Client(timeout=timeout, verify=_tls_verify())
     return anthropic.Anthropic(
         base_url=os.environ.get("ANTHROPIC_BASE_URL") or None,
         api_key=api_key(),
@@ -134,11 +180,10 @@ def _make_client():
 
 
 def regen_folder(folder: Path, root: Path, model: str | None = None, client=None) -> Path:
-    """One LLM call: regenerate the folder map and rewrite its lock fresh.
+    """One LLM call: regenerate folder/AGENTS.md and rewrite its lock fresh.
 
-    Always generates via the LLM and writes the map. When the map is a separate
-    file (doc_name != README.md) the folder's human README.md is never touched —
-    it is passed to the model as read-only context only.
+    Always generates via the LLM and writes AGENTS.md — never touches the
+    folder's human README.md (passed to the model as read-only context only).
     """
     folder = folder.resolve()
     root = root.resolve()
@@ -151,7 +196,7 @@ def regen_folder(folder: Path, root: Path, model: str | None = None, client=None
         messages=[{"role": "user", "content": build_user_message(folder, root)}],
     )
     text = "".join(block.text for block in resp.content if block.type == "text")
-    (folder / doc_name()).write_text(_strip_outer_fence(text), encoding="utf-8")
+    (folder / DOC_NAME).write_text(_strip_outer_fence(text), encoding="utf-8")
     write_lock(folder, stale=False)
     propagate_up(folder, root)
     return folder

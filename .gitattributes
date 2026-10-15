@@ -1,0 +1,28 @@
+# Fins de ligne du dépôt (lot L6) : l'INDEX est en LF pour tout fichier texte, quelle que soit la
+# configuration du poste (`core.autocrlf`). `text=auto` laisse Git décider du texte ; un fichier
+# déjà enregistré en CRLF (héritage de la base importée) le reste tant qu'on n'y touche pas : Git
+# ne renormalise pas un fichier dont l'index contient du CRLF, donc rien n'est réécrit en masse.
+* text=auto
+
+# Scripts bash : LF sur le disque aussi (bash refuse le CRLF). Les .ps1 restent sous `text=auto` :
+# un `eol=` explicite forcerait la renormalisation de ceux enregistrés en CRLF.
+*.sh   text eol=lf
+
+# Binaires : jamais de conversion.
+*.png  binary
+*.jpg  binary
+*.jpeg binary
+*.gif  binary
+*.ico  binary
+*.pdf  binary
+*.zip  binary
+*.whl  binary
+*.exe  binary
+*.db   binary
+*.woff binary
+*.woff2 binary
+*.ttf  binary
+*.pbit binary
+*.pptx binary
+*.xlsx binary
+*.docx binary

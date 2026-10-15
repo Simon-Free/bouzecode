@@ -34,7 +34,7 @@ def _fire_hook(file_path: Path) -> subprocess.CompletedProcess:
 
 def test_full_process_fresh_to_stale_to_regen_to_fresh(tmp_path: Path):
     if api_key() is None:
-        pytest.skip("no API credentials")
+        pytest.skip("no gateway credentials")
 
     # --- arbre fresh : root + pkg (+ pkg/sub) tous documentés ---
     root = tmp_path
